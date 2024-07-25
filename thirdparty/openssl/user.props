@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Part of the io_threads project (https://github.com/cpp4ever/io_threads), under the MIT License
+   SPDX-License-Identifier: MIT
+
+   Copyright (c) 2024 Mikhail Smirnov
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+-->
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+   <PropertyGroup>
+      <_NuGetTargetFallbackMoniker>$(_NuGetTargetFallbackMoniker);native,Version=v0.0</_NuGetTargetFallbackMoniker>
+      <Linkage-OpenSSL>static</Linkage-OpenSSL>
+   </PropertyGroup>
+   <ImportGroup Label="ExtensionSettings">
+      <Import Project="$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props" Condition="Exists('$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props')" />
+   </ImportGroup>
+   <ImportGroup Label="PropertySheets">
+      <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+   </ImportGroup>
+   <ImportGroup Label="ExtensionTargets">
+      <Import Project="$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.targets" Condition="Exists('$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.targets')" />
+   </ImportGroup>
+   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+      <PropertyGroup>
+         <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+      </PropertyGroup>
+      <Error Condition="!Exists('$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props')" Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props'))" />
+      <Error Condition="!Exists('$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.targets')" Text="$([System.String]::Format('$(ErrorText)', '$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.targets'))" />
+   </Target>
+</Project>
