@@ -1,0 +1,119 @@
+# Part of the io_threads project (https://github.com/cpp4ever/io_threads), under the MIT License
+# SPDX-License-Identifier: MIT
+#
+# Copyright (c) 2024 Mikhail Smirnov
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+name: Code Coverage
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "${{matrix.os}}"
+    runs-on: ${{matrix.os}}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            cc: clang-18
+            cxx: clang++-18
+            gcov: llvm-cov-18 gcov
+          - os: windows-latest
+            cc: clang
+            cxx: clang++
+            gcov: llvm-cov gcov
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Install
+      if: ${{matrix.os == 'ubuntu-24.04'}}
+      run: |
+        echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
+        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
+        echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
+        sudo apt-get update
+        sudo apt-get install clang-18 cmake libc++-18-dev libc++abi-18-dev libssl-dev liburing-dev ninja-build
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        ${{matrix.gcov}} --version
+        cmake --version
+        ninja --version
+        pipx --version
+        pipx install git+https://github.com/gcovr/gcovr.git@8.3#egg=gcovr
+        gcovr --version
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: Install
+      if: ${{matrix.os == 'windows-latest'}}
+      run: |
+        echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
+        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
+        echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $env:GITHUB_ENV
+        choco install llvm ninja openssl
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        ${{matrix.gcov}} --version
+        cmake --version
+        ninja --version
+        pipx --version
+        pipx install git+https://github.com/gcovr/gcovr.git@8.3#egg=gcovr
+        gcovr --version
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: Configure
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=${{matrix.cc}} -DCMAKE_CXX_COMPILER=${{matrix.cxx}} -DIO_THREADS_ENABLE_COVERAGE=ON -G "Ninja" -S ${{github.workspace}}
+
+    - name: Build
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake --build . --config Debug --target io_threads_tests
+
+    - name: Run
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        ctest --build-config Debug --output-on-failure
+
+    - name: Collect
+      working-directory: ${{github.workspace}}
+      run: |
+        gcovr --cobertura ${{runner.workspace}}/build/coverage.xml --exclude-unreachable-branches --filter include/ --filter src/ --gcov-executable '${{matrix.gcov}}' --gcov-object-directory ${{runner.workspace}}/build/ --print-summary --timestamp ${{env.SOURCE_DATE_EPOCH}}
+
+    - name: Upload
+      uses: codecov/codecov-action@v4
+      with:
+        directory: ${{runner.workspace}}/build
+        fail_ci_if_error: true
+        files: coverage.xml
+        flags: unittests
+        root_dir: ${{github.workspace}}
+        token: ${{secrets.CODECOV_TOKEN}}
+        verbose: true
+        working-directory: ${{github.workspace}}
