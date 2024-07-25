@@ -1,0 +1,11 @@
+[submodule "thirdparty/base64"]
+   path = thirdparty/base64
+   shallow = true
+   url = https://github.com/aklomp/base64.git
+[submodule "thirdparty/CMakeTargets"]
+   path = thirdparty/CMakeTargets
+   shallow = true
+   url = https://github.com/cpp4ever/CMakeTargets.git
+[submodule "thirdparty/sha1"]
+	path = thirdparty/sha1
+	url = https://github.com/clibs/sha1.git
