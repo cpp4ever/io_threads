@@ -1,0 +1,76 @@
+# Part of the io_threads project (https://github.com/cpp4ever/io_threads), under the MIT License
+# SPDX-License-Identifier: MIT
+#
+# Copyright (c) 2024 Mikhail Smirnov
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+name: Windows
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "${{matrix.os}} ${{matrix.platform}} ${{matrix.toolset}} ${{matrix.build_type}}"
+    runs-on: ${{matrix.os}}
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        os: [windows-2019, windows-2022]
+        platform: [Win32, x64]
+        toolset: [v142, v143, ClangCL]
+        exclude:
+          - os: windows-2019
+            toolset: v143
+          - os: windows-2019
+            toolset: ClangCL
+          - os: windows-2022
+            toolset: v142
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Install
+      run: |
+        choco install cmake
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: Configure
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
+        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
+        cmake --version
+        cmake -A ${{matrix.platform}} -T ${{matrix.toolset}} -S ${{github.workspace}}
+
+    - name: Build
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake --build . --config ${{matrix.build_type}} --target io_threads_tests
+
+    - name: Test
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        ctest --build-config ${{matrix.build_type}} --output-on-failure
