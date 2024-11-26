@@ -24,3 +24,48 @@
 */
 
 #pragma once
+
+#include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
+#include "common/utility.hpp" ///< for io_threads::unreachable
+
+#include <array> ///< for std::array
+#include <bit> ///< for std::bit_cast
+#include <cstddef> ///< for size_t, std::byte
+#include <memory> ///< for std::addressof
+#include <new> ///< for operator delete, operator new, std::align_val_t
+#include <source_location> ///< for std::source_location
+
+namespace io_threads
+{
+
+constexpr size_t sha1_digest_size = 20;
+using sha1_digest = std::array<std::byte, sha1_digest_size>;
+
+class sha1_context final
+{
+public:
+   [[nodiscard]] sha1_context() = default;
+   sha1_context(sha1_context &&) = delete;
+   sha1_context(sha1_context const &) = delete;
+
+   ~sha1_context()
+   {
+   }
+
+   sha1_context &operator = (sha1_context &&) = delete;
+   sha1_context &operator = (sha1_context const &) = delete;
+
+   [[nodiscard]] sha1_digest finish() const
+   {
+      sha1_digest digest{};
+      return digest;
+   }
+
+   void update(std::byte const *bytes, size_t const bytesLength)
+   {
+      (void)bytes;
+      (void)bytesLength;
+   }
+};
+
+}

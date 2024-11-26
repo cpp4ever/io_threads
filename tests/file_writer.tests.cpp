@@ -118,8 +118,10 @@ using file_writer = testsuite;
 
 TEST_F(file_writer, not_found)
 {
-#if (defined(_WIN32) || defined(_WIN64))
-   auto const testNotFoundErrorCode = std::error_code{ERROR_PATH_NOT_FOUND, std::system_category()};
+#if (defined(__linux__))
+   auto const testNotFoundErrorCode = std::make_error_code(std::errc::no_such_file_or_directory);
+#elif (defined(_WIN32) || defined(_WIN64))
+   std::error_code const testNotFoundErrorCode{ERROR_PATH_NOT_FOUND, std::system_category(),};
 #endif
    auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
    std::filesystem::remove_all(testDirectory);

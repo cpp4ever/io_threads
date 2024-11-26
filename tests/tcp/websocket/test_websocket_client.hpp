@@ -52,12 +52,18 @@ namespace io_threads::tests
 template<typename test_stream, typename test_client>
 void test_websocket_client(test_client &testClient)
 {
-#if (defined(_WIN32) || defined(_WIN64))
-   auto const testConnectivityIssueErrorCodeMatcher = testing::AnyOf(
-      std::error_code{WSAECONNABORTED, std::system_category()},
-      std::error_code{WSAECONNRESET, std::system_category()}
-   );
+   auto const testConnectivityIssueErrorCodeMatcher
+   {
+      testing::AnyOf(
+#if (defined(__linux__))
+         std::make_error_code(std::errc::connection_aborted),
+         std::make_error_code(std::errc::connection_reset)
+#elif (defined(_WIN32) || defined(_WIN64))
+         std::error_code{WSAECONNABORTED, std::system_category()},
+         std::error_code{WSAECONNRESET, std::system_category()}
 #endif
+      ),
+   };
    system_network_interfaces testNetworkInterfaces{};
    auto const testLoopbackNetworkInterface = testNetworkInterfaces.loopback();
    ASSERT_TRUE(testLoopbackNetworkInterface.has_value());

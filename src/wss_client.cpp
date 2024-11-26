@@ -32,7 +32,11 @@
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
 #include "io_threads/wss_client.hpp" ///< for io_threads::wss_client_context::wss_client
 
-#if (defined(_WIN32) || defined(_WIN64))
+#if (defined(__linux__))
+#  include <endian.h> ///< for be16toh, be64toh
+#  define ntohll be64toh
+#  define ntohs be16toh
+#elif (defined(_WIN32) || defined(_WIN64))
 #  include <WinSock2.h> ///< for ntohll, ntohs
 #endif
 

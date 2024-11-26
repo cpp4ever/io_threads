@@ -25,38 +25,15 @@
 
 #pragma once
 
-#include "common/logger.hpp" ///< for io_threads::log_system_error
-#include "common/utility.hpp" ///< for io_threads::unreachable
-
-#include <sys/random.h> ///< for getrandom
-
-#include <cassert> ///< for assert
-#include <cstddef> ///< for size_t, std::byte
-#include <source_location> ///< for std::source_location
+#include <system_error> ///< for std::error_code
 
 namespace io_threads
 {
 
-class random_generator final
+struct tcp_socket_descriptor final
 {
-public:
-   [[nodiscard]] random_generator() = default;
-   random_generator(random_generator &&) = delete;
-   random_generator(random_generator const &) = delete;
-
-   random_generator &operator = (random_generator &&) = delete;
-   random_generator &operator = (random_generator const &) = delete;
-
-   static void generate(std::byte *bytes, size_t const bytesLength)
-   {
-      assert(nullptr != bytes);
-      assert(0 < bytesLength);
-      if (-1 == getrandom(bytes, bytesLength, 0)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[random] failed to generate random sequence: ({}) - {}", errno);
-         unreachable();
-      }
-   }
+   int handle{-1,};
+   std::error_code disconnectReason{};
 };
 
 }

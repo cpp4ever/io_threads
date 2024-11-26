@@ -240,21 +240,28 @@ struct test_host_port_error_code final
 
 TEST_F(tls_client, badssl)
 {
-#if (defined(_WIN32) || defined(_WIN64))
-   auto const testCertificateExpiredErrorCodes = std::vector{std::error_code{SEC_E_CERT_EXPIRED, std::system_category()}};
-   auto const testWrongHostErrorCodes = std::vector{std::error_code{SEC_E_WRONG_PRINCIPAL, std::system_category()}};
-   auto const testUntrustedRootErrorCodes = std::vector{std::error_code{SEC_E_UNTRUSTED_ROOT, std::system_category()}};
-   auto const testIllegalMessageErrorCodes = std::vector
+#if (defined(__linux__))
+   std::vector<std::error_code> const testCertificateExpiredErrorCodes{};
+   std::vector<std::error_code> const testWrongHostErrorCodes{};
+   std::vector<std::error_code> const testUntrustedRootErrorCodes{};
+   std::vector<std::error_code> const testIllegalMessageErrorCodes{};
+   std::vector<std::error_code> const testAlgorithmMismatchErrorCodes{};
+   std::vector<std::error_code> const testCertificateRevokedErrorCodes{};
+#elif (defined(_WIN32) || defined(_WIN64))
+   std::vector<std::error_code> const testCertificateExpiredErrorCodes{std::error_code{SEC_E_CERT_EXPIRED, std::system_category(),},};
+   std::vector<std::error_code> const testWrongHostErrorCodes{std::error_code{SEC_E_WRONG_PRINCIPAL, std::system_category(),},};
+   std::vector<std::error_code> const testUntrustedRootErrorCodes{std::error_code{SEC_E_UNTRUSTED_ROOT, std::system_category(),},};
+   std::vector<std::error_code> const testIllegalMessageErrorCodes
    {
-      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category()},
-      std::error_code{SEC_E_INVALID_PARAMETER, std::system_category()},
+      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category(),},
+      std::error_code{SEC_E_INVALID_PARAMETER, std::system_category(),},
    };
-   auto const testAlgorithmMismatchErrorCodes = std::vector
+   std::vector<std::error_code> const testAlgorithmMismatchErrorCodes
    {
-      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category()},
-      std::error_code{SEC_E_ALGORITHM_MISMATCH, std::system_category()},
+      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category(),},
+      std::error_code{SEC_E_ALGORITHM_MISMATCH, std::system_category(),},
    };
-   auto const testCertificateRevokedErrorCodes = std::vector{std::error_code{CRYPT_E_REVOKED, std::system_category()}};
+   std::vector<std::error_code> const testCertificateRevokedErrorCodes{std::error_code{CRYPT_E_REVOKED, std::system_category(),},};
 #endif
    auto const testBadAddresses = std::to_array(
       {

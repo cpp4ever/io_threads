@@ -24,3 +24,28 @@
 */
 
 #pragma once
+
+#include <openssl/evp.h> ///< for EVP_EncodeBlock
+
+#include <bit> ///< for std::bit_cast
+#include <cassert> ///< for assert
+#include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint8_t
+
+namespace io_threads
+{
+
+template<typename string_output, typename binary_input>
+[[nodiscard]] size_t base64_encode(string_output &stringOutput, binary_input const &binaryInput)
+{
+   assert((4 * (binaryInput.size() + 2) / 3 + 1) <= stringOutput.size());
+   return static_cast<size_t>(
+      EVP_EncodeBlock(
+         std::bit_cast<uint8_t *>(stringOutput.data()),
+         std::bit_cast<uint8_t const *>(binaryInput.data()),
+         static_cast<int>(binaryInput.size())
+      )
+   );
+}
+
+}

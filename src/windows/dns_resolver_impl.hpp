@@ -66,14 +66,14 @@ namespace
    uint16_t const port
 )
 {
-   std::string const nodeName{host};
-   auto const service{(0 < port) ? std::to_string(port) : std::string{}};
+   std::string const nodeName{host},;
+   auto const service{(0 < port) ? std::to_string(port) : std::string{},};
    ADDRINFO hints{};
    hints.ai_family = addressFamily;
    hints.ai_flags = AI_ALL;
    hints.ai_protocol = IPPROTO_TCP;
    hints.ai_socktype = SOCK_STREAM;
-   ADDRINFO *result{nullptr};
+   ADDRINFO *result{nullptr,};
    if (
       auto const errorCode
       {
@@ -82,7 +82,7 @@ namespace
             (0 < port) ? service.data() : nullptr,
             std::addressof(hints),
             std::addressof(result)
-         )
+         ),
       };
       ERROR_SUCCESS != errorCode
    )
@@ -95,32 +95,25 @@ namespace
       unreachable();
    }
    std::vector<socket_address> addresses{};
-   for (auto const *address{result}; nullptr != address; address = address->ai_next)
+   for (auto const *address{result,}; nullptr != address; address = address->ai_next)
    {
       if (AF_INET == address->ai_family)
       {
-         auto &sockaddr{*std::bit_cast<SOCKADDR_IN *>(address->ai_addr)};
+         auto &sockaddr{*std::bit_cast<SOCKADDR_IN *>(address->ai_addr),};
          if (0 == sockaddr.sin_port)
          {
             sockaddr.sin_port = htons(port);
          }
-         addresses.push_back(
-            socket_address{std::make_shared<socket_address::socket_address_impl>(sockaddr)}
-         );
+         addresses.push_back(socket_address{std::make_shared<socket_address::socket_address_impl>(sockaddr),});
       }
       else if (AF_INET6 == address->ai_family)
       {
-         auto &sockaddr{*std::bit_cast<SOCKADDR_IN6 *>(address->ai_addr)};
+         auto &sockaddr{*std::bit_cast<SOCKADDR_IN6 *>(address->ai_addr),};
          if (0 == sockaddr.sin6_port)
          {
             sockaddr.sin6_port = htons(port);
          }
-         addresses.push_back(
-            socket_address
-            {
-               std::make_shared<socket_address::socket_address_impl>(sockaddr)
-            }
-         );
+         addresses.push_back(socket_address{std::make_shared<socket_address::socket_address_impl>(sockaddr),});
       }
    }
    freeaddrinfo(result);

@@ -44,8 +44,10 @@ namespace io_threads::tests
 template<typename test_client>
 void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
 {
-#if (defined(_WIN32) || defined(_WIN64))
-   auto const testExpectedErrorCode = std::error_code{WSAETIMEDOUT, std::system_category()};
+#if (defined(__linux__))
+   auto const testExpectedErrorCode = std::make_error_code(std::errc::timed_out);
+#elif (defined(_WIN32) || defined(_WIN64))
+   auto const testExpectedErrorCode = std::error_code{WSAETIMEDOUT, std::system_category(),};
 #endif
    constexpr auto testNonRoutableIps = std::to_array<std::string_view>({
       "10.0.0.0",

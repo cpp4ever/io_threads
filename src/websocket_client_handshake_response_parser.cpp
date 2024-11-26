@@ -28,7 +28,9 @@
 #include "common/websocket_client_handshake_response_parser.hpp" ///< for io_threads::websocket_client_handshake_response_parser
 #include "common/websocket_error.hpp" ///< for io_threads::make_error_code, io_threads::websocket_error
 
-#if (defined(_WIN32) || defined(_WIN64))
+#if (defined(__linux__))
+#  include <strings.h> ///< for strncasecmp
+#elif (defined(_WIN32) || defined(_WIN64))
 #  include <string.h> ///< for _strnicmp
 #endif
 
@@ -58,7 +60,15 @@ constexpr std::byte has_upgrade_header{0x3,};
 
 [[nodiscard]] static bool equal_case_insensitive(std::string_view const lhs, std::string_view const rhs) noexcept
 {
-   return (lhs.size() == rhs.size()) && (0 == _strnicmp(lhs.data(), rhs.data(), lhs.size()));
+   return (
+      true
+      && (lhs.size() == rhs.size())
+#if (defined(_WIN32) || defined(_WIN64))
+      && (0 == _strnicmp(lhs.data(), rhs.data(), lhs.size()))
+#else
+      && (0 == strncasecmp(lhs.data(), rhs.data(), lhs.size()))
+#endif
+   );
 }
 
 }

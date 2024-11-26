@@ -35,7 +35,11 @@
 #include "io_threads/websocket_client_config.hpp" ///< for io_threads::websocket_client_config
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
 
-#if (defined(_WIN32) || defined(_WIN64))
+#if (defined(__linux__))
+#  include <endian.h> ///< for htobe16, htobe64
+#  define htonll htobe64
+#  define htons htobe16
+#elif (defined(_WIN32) || defined(_WIN64))
 #  include <WinSock2.h> ///< for htonll, htons
 #endif
 /// for

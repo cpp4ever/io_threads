@@ -25,38 +25,19 @@
 
 #pragma once
 
-#include "common/logger.hpp" ///< for io_threads::log_system_error
-#include "common/utility.hpp" ///< for io_threads::unreachable
+#include "common/tls_client_status.hpp" ///< for io_threads::tls_client_status
 
-#include <sys/random.h> ///< for getrandom
-
-#include <cassert> ///< for assert
-#include <cstddef> ///< for size_t, std::byte
-#include <source_location> ///< for std::source_location
+#include <cstddef> ///< for std::byte
+#include <string_view> ///< for std::string_view
 
 namespace io_threads
 {
 
-class random_generator final
+struct tls_client_session final
 {
-public:
-   [[nodiscard]] random_generator() = default;
-   random_generator(random_generator &&) = delete;
-   random_generator(random_generator const &) = delete;
-
-   random_generator &operator = (random_generator &&) = delete;
-   random_generator &operator = (random_generator const &) = delete;
-
-   static void generate(std::byte *bytes, size_t const bytesLength)
-   {
-      assert(nullptr != bytes);
-      assert(0 < bytesLength);
-      if (-1 == getrandom(bytes, bytesLength, 0)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[random] failed to generate random sequence: ({}) - {}", errno);
-         unreachable();
-      }
-   }
+   tls_client_status status{tls_client_status::none};
+   std::byte *securityBuffer{nullptr};
+   std::string_view securityToken{};
 };
 
 }

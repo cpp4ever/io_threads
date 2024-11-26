@@ -210,23 +210,6 @@ public:
       }
    }
 
-   void start(std::stop_token const stopToken)
-   {
-      while (false == stopToken.stop_requested()) [[likely]]
-      {
-         auto timeoutMilliseconds{completion_port::infinite_timeout};
-         while (m_completionPortEntries->size() == poll(timeoutMilliseconds))
-         {
-            /// Do while there are entries to poll
-            timeoutMilliseconds = completion_port::no_timeout;
-         }
-      }
-      while (0 != poll(completion_port::no_timeout))
-      {
-         /// Until all entries are polled
-      }
-   }
-
    void stop()
    {
       m_completionPort.post_queued_completion_status(0, to_completion_overlapped(tcp_client_command::unknown));
@@ -250,7 +233,19 @@ public:
             }
             tcp_client_thread_worker worker{initialCapacityOfSocketDescriptorList, capacityOfInputOutputBuffers};
             workerPromise.set_value(worker);
-            worker.start(stopToken);
+            while (false == stopToken.stop_requested()) [[likely]]
+            {
+               auto timeoutMilliseconds{completion_port::infinite_timeout};
+               while (m_completionPortEntries->size() == poll(timeoutMilliseconds))
+               {
+                  /// Do while there are entries to poll
+                  timeoutMilliseconds = completion_port::no_timeout;
+               }
+            }
+            while (0 != poll(completion_port::no_timeout))
+            {
+               /// Until all entries are polled
+            }
          }
       };
    }

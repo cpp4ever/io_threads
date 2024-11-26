@@ -116,7 +116,7 @@ public:
 
 std::error_code make_error_code(llhttp_errno_t const value)
 {
-   return std::error_code{to_underlying(value), llhttp_error_category::instance(),};
+   return std::error_code{static_cast<int>(to_underlying(value)), llhttp_error_category::instance(),};
 }
 
 }

@@ -59,7 +59,7 @@ constexpr void log_error(
 #if (202207L <= __cpp_lib_format)
       << std::format(fmt, std::forward<types>(values)...)
 #else
-      << std::vformat(fmt, std::make_format_args(std::forward<types>(values)...))
+      << std::vformat(fmt, std::make_format_args(values...))
 #endif
       << std::endl
    ;
