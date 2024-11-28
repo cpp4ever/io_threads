@@ -67,17 +67,14 @@ public:
    [[nodiscard]] sha1_provider()
    {
       if (
-         auto const returnCode
-         {
-            BCryptOpenAlgorithmProvider(std::addressof(m_algorithmHandle), BCRYPT_SHA1_ALGORITHM, nullptr, BCRYPT_HASH_REUSABLE_FLAG)
-         };
+         auto const returnCode{BCryptOpenAlgorithmProvider(std::addressof(m_algorithmHandle), BCRYPT_SHA1_ALGORITHM, nullptr, BCRYPT_HASH_REUSABLE_FLAG),};
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[sha1] failed to open algorithm provider: ({}) - {}", returnCode);
          unreachable();
       }
-      ULONG bytesWritten = 0;
+      ULONG bytesWritten{0,};
       if (
          auto const returnCode
          {
@@ -88,7 +85,7 @@ public:
                sizeof(m_objectSize),
                std::addressof(bytesWritten),
                0
-            )
+            ),
          };
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
@@ -97,7 +94,7 @@ public:
          unreachable();
       }
       assert(sizeof(m_objectSize) == bytesWritten);
-      DWORD digestSize = 0;
+      DWORD digestSize{0,};
       if (
          auto const returnCode
          {
@@ -108,7 +105,7 @@ public:
                sizeof(digestSize),
                std::addressof(bytesWritten),
                0
-            )
+            ),
          };
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
@@ -129,7 +126,7 @@ public:
 
    ~sha1_provider()
    {
-      if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0)}; STATUS_SUCCESS != returnCode) [[unlikely]]
+      if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[sha1] failed to close algorithm provider: ({}) - {}", returnCode);
       }
@@ -141,7 +138,7 @@ public:
    [[nodiscard]] BCRYPT_HASH_HANDLE &new_handle() const
    {
       auto *hashHandle = std::bit_cast<BCRYPT_HASH_HANDLE *>(
-         ::operator new(sizeof(BCRYPT_HASH_HANDLE) + m_objectSize, std::align_val_t{alignof(BCRYPT_HASH_HANDLE)})
+         ::operator new(sizeof(BCRYPT_HASH_HANDLE) + m_objectSize, std::align_val_t{alignof(BCRYPT_HASH_HANDLE),})
       );
       if (
          auto const returnCode
@@ -154,7 +151,7 @@ public:
                nullptr,
                0,
                0
-            )
+            ),
          };
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
@@ -167,16 +164,16 @@ public:
 
    static void free_handle(BCRYPT_HASH_HANDLE &hashHandle)
    {
-      if (auto const returnCode{BCryptDestroyHash(hashHandle)}; STATUS_SUCCESS != returnCode) [[unlikely]]
+      if (auto const returnCode{BCryptDestroyHash(hashHandle),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[sha1] failed to destroy hash object: ({}) - {}", returnCode);
       }
-      ::operator delete(std::addressof(hashHandle), std::align_val_t{alignof(BCRYPT_HASH_HANDLE)});
+      ::operator delete(std::addressof(hashHandle), std::align_val_t{alignof(BCRYPT_HASH_HANDLE),});
    }
 
 private:
-   BCRYPT_ALG_HANDLE m_algorithmHandle{nullptr};
-   DWORD m_objectSize{0};
+   BCRYPT_ALG_HANDLE m_algorithmHandle{nullptr,};
+   DWORD m_objectSize{0,};
 };
 
 class sha1_context final
@@ -198,10 +195,7 @@ public:
    {
       sha1_digest digest{};
       if (
-         auto const returnCode
-         {
-            BCryptFinishHash(m_hashHandle, std::bit_cast<PUCHAR>(digest.data()), static_cast<ULONG>(digest.size()), 0)
-         };
+         auto const returnCode{BCryptFinishHash(m_hashHandle, std::bit_cast<PUCHAR>(digest.data()), static_cast<ULONG>(digest.size()), 0),};
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
@@ -214,7 +208,7 @@ public:
    void update(std::byte const *bytes, size_t const bytesLength)
    {
       if (
-         auto const returnCode{BCryptHashData(m_hashHandle, std::bit_cast<PUCHAR>(bytes), static_cast<ULONG>(bytesLength), 0)};
+         auto const returnCode{BCryptHashData(m_hashHandle, std::bit_cast<PUCHAR>(bytes), static_cast<ULONG>(bytesLength), 0),};
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
@@ -224,7 +218,7 @@ public:
    }
 
 private:
-   BCRYPT_HASH_HANDLE &m_hashHandle{provider.new_handle()};
+   BCRYPT_HASH_HANDLE &m_hashHandle{provider.new_handle(),};
 
    static inline sha1_provider provider{};
 };

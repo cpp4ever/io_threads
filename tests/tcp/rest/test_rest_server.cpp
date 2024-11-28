@@ -43,6 +43,7 @@
 #  include <boost/wintls/handshake_type.hpp> ///< for boost::wintls::handshake_type
 #endif
 
+#include <chrono> ///< for std::chrono::seconds
 #include <cstdint> ///< for uint16_t
 #include <memory> ///< for std::make_unique
 #include <thread> ///< for std::thread
@@ -53,25 +54,22 @@ namespace io_threads::tests
 
 template<typename test_rest_stream>
 test_rest_server<test_rest_stream>::test_rest_server(boost::asio::ip::address const &testAddress) :
-   m_ioContext(1),
-   m_acceptor(m_ioContext, {testAddress, 0}),
-   m_buffer(1024),
-   m_request(),
-   m_response(),
-   m_streams(),
-   m_thread()
+   m_ioContext{1,},
+   m_acceptor{m_ioContext, {testAddress, 0,},},
+   m_buffer{1024,},
+   m_request{},
+   m_response{},
+   m_streams{},
+   m_thread{}
 {
-   m_thread = std::make_unique<std::thread>(
-      &test_rest_server::thread_handler,
-      this
-   );
+   m_thread = std::thread{[this] () { thread_handler(); },};
 }
 
 template<typename test_rest_stream>
 test_rest_server<test_rest_stream>::~test_rest_server()
 {
    m_ioContext.stop();
-   m_thread->join();
+   m_thread.join();
 }
 
 template<typename test_rest_stream>
@@ -85,12 +83,12 @@ void test_rest_server<test_rest_stream>::async_accept_socket()
 {
    m_acceptor.async_accept(
       boost::asio::make_strand(m_ioContext),
-      [this] (auto testErrorCode, auto testTcpSocket)
+      [this] (auto errorCode, auto tcpSocket)
       {
-         EXPECT_ERROR_CODE(testErrorCode);
-         if ((false == testErrorCode.failed()) && (true == should_accept_socket()))
+         EXPECT_ERROR_CODE(errorCode);
+         if ((false == bool{errorCode,}) && (true == should_accept_socket()))
          {
-            auto &stream = m_streams.emplace_back(test_tcp_server_context<test_rest_stream>::accept(std::move(testTcpSocket)));
+            auto &stream{m_streams.emplace_back(test_tcp_server_context<test_rest_stream>::accept(std::move(tcpSocket))),};
             if constexpr (true == std::is_same_v<test_rest_stream, boost::beast::tcp_stream>)
             {
                if (true == should_pass_handshake())
@@ -104,7 +102,7 @@ void test_rest_server<test_rest_stream>::async_accept_socket()
             }
             else if constexpr (true == std::is_same_v<test_rest_stream, test_tls_stream>)
             {
-               constexpr auto handshakeTimeout = std::chrono::milliseconds{100};
+               constexpr auto handshakeTimeout{std::chrono::seconds{1,},};
                boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
                stream.async_handshake(
 #if (defined(_WIN32) || defined(_WIN64))
@@ -112,10 +110,10 @@ void test_rest_server<test_rest_stream>::async_accept_socket()
 #else
                   boost::asio::ssl::stream_base::server,
 #endif
-                  [&] (auto testErrorCode)
+                  [this, &stream] (auto const errorCode)
                   {
-                     EXPECT_ERROR_CODE(testErrorCode);
-                     if ((false == testErrorCode.failed()) && (true == should_pass_handshake()))
+                     EXPECT_ERROR_CODE(errorCode);
+                     if ((false == bool{errorCode,}) && (true == should_pass_handshake()))
                      {
                         async_read(stream);
                      }
@@ -133,8 +131,8 @@ void test_rest_server<test_rest_stream>::async_accept_socket()
          }
          else
          {
-            testTcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, testErrorCode);
-            EXPECT_ERROR_CODE(testErrorCode);
+            tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, errorCode);
+            EXPECT_ERROR_CODE(errorCode);
          }
          async_accept_socket();
       }
@@ -146,19 +144,19 @@ void test_rest_server<test_rest_stream>::async_read(test_rest_stream &stream)
 {
    m_request = {};
    m_buffer.clear();
-   constexpr auto readTimeout = std::chrono::milliseconds{100};
+   constexpr auto readTimeout{std::chrono::seconds{1,},};
    boost::beast::get_lowest_layer(stream).expires_after(readTimeout);
    boost::beast::http::async_read(
       stream,
       m_buffer,
       m_request,
-      [this, &stream] (auto testErrorCode, auto const)
+      [this, &stream] (auto const errorCode, auto const)
       {
          if (
             false
-            || (boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream) == testErrorCode)
+            || (boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream) == errorCode)
 #if (defined(_WIN32) || defined(_WIN64))
-            || (boost::wintls::error::make_error_code(SEC_I_CONTEXT_EXPIRED) == testErrorCode)
+            || (boost::wintls::error::make_error_code(SEC_I_CONTEXT_EXPIRED) == errorCode)
 #else
             || false
 #endif
@@ -166,8 +164,8 @@ void test_rest_server<test_rest_stream>::async_read(test_rest_stream &stream)
          {
             return;
          }
-         EXPECT_ERROR_CODE(testErrorCode);
-         if ((false == testErrorCode.failed()) && (true == handle_request(m_request, m_response)))
+         EXPECT_ERROR_CODE(errorCode);
+         if ((false == bool{errorCode,}) && (true == handle_request(m_request, m_response)))
          {
             async_write(stream);
          }
@@ -182,21 +180,24 @@ void test_rest_server<test_rest_stream>::async_read(test_rest_stream &stream)
 template<typename test_rest_stream>
 void test_rest_server<test_rest_stream>::async_write(test_rest_stream &stream)
 {
-   constexpr auto writeTimeout = std::chrono::milliseconds{100};
+   constexpr auto writeTimeout = std::chrono::seconds{1,};
    boost::beast::get_lowest_layer(stream).expires_after(writeTimeout);
    boost::beast::http::async_write(
       stream,
       m_response,
-      [this, &stream] (auto testErrorCode, auto const)
+      [this, &stream] (auto const errorCode, auto const bytesWritten)
       {
-         EXPECT_ERROR_CODE(testErrorCode);
-         if ((false == testErrorCode.failed()) && (true == should_keep_alive()))
+         EXPECT_ERROR_CODE(errorCode);
+         if (0 < bytesWritten)
          {
-            async_read(stream);
-         }
-         else
-         {
-            boost::beast::get_lowest_layer(stream).close();
+            if ((false == bool{errorCode,}) && (true == should_keep_alive()))
+            {
+               async_read(stream);
+            }
+            else
+            {
+               boost::beast::get_lowest_layer(stream).close();
+            }
          }
       }
    );

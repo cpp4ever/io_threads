@@ -66,13 +66,19 @@ namespace
    uint16_t const port
 )
 {
-   std::string const nodeName{host},;
+   std::string const nodeName{host,};
    auto const service{(0 < port) ? std::to_string(port) : std::string{},};
-   ADDRINFO hints{};
-   hints.ai_family = addressFamily;
-   hints.ai_flags = AI_ALL;
-   hints.ai_protocol = IPPROTO_TCP;
-   hints.ai_socktype = SOCK_STREAM;
+   ADDRINFO const hints
+   {
+      .ai_flags = AI_ALL,
+      .ai_family = addressFamily,
+      .ai_socktype = SOCK_STREAM,
+      .ai_protocol = IPPROTO_TCP,
+      .ai_addrlen = 0,
+      .ai_canonname = nullptr,
+      .ai_addr = nullptr,
+      .ai_next = nullptr,
+   };
    ADDRINFO *result{nullptr,};
    if (
       auto const errorCode

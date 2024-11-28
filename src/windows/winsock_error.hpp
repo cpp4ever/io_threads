@@ -30,6 +30,7 @@
 #include <WinSock2.h> ///< for ERROR_SUCCESS, WSAGetLastError
 
 #include <cassert> ///< for assert
+#include <cstdint> ///< for uint32_t
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string
 #include <system_error> ///< for std::error_code, std::system_category
@@ -40,7 +41,7 @@ namespace io_threads
 {
 
 std::error_code check_winsock_error(
-   format_string<int, std::string> const fmt,
+   format_string<uint32_t, std::string> const fmt,
    std::source_location const sourceLocation = std::source_location::current()
 )
 {
@@ -53,7 +54,7 @@ std::error_code check_winsock_error(
 }
 
 std::error_code check_winsock_error_if_not(
-   format_string<int, std::string> const fmt,
+   format_string<uint32_t, std::string> const fmt,
    int const expectedErrorCode,
    std::source_location const sourceLocation = std::source_location::current()
 )

@@ -30,6 +30,7 @@
 #include <Windows.h> ///< for DWORD, ERROR_SUCCESS, GetLastError
 
 #include <cassert> ///< for assert
+#include <cstdint> ///< for uint32_t
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string
 #include <system_error> ///< for std::error_code, std::system_category
@@ -40,7 +41,7 @@ namespace io_threads
 {
 
 inline std::error_code check_winapi_error(
-   format_string<int, std::string> const fmt,
+   format_string<uint32_t, std::string> const fmt,
    std::source_location const sourceLocation = std::source_location::current()
 )
 {
@@ -53,7 +54,7 @@ inline std::error_code check_winapi_error(
 }
 
 inline std::error_code check_winapi_error_if_not(
-   format_string<int, std::string> const fmt,
+   format_string<uint32_t, std::string> const fmt,
    DWORD const expectedErrorCode,
    std::source_location const sourceLocation = std::source_location::current()
 )

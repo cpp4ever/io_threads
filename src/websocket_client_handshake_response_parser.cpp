@@ -58,7 +58,7 @@ constexpr std::byte has_connection_header{0x1,};
 constexpr std::byte has_sec_websocket_accept_header{0x2,};
 constexpr std::byte has_upgrade_header{0x3,};
 
-[[nodiscard]] static bool equal_case_insensitive(std::string_view const lhs, std::string_view const rhs) noexcept
+[[nodiscard]] bool equal_case_insensitive(std::string_view const lhs, std::string_view const rhs) noexcept
 {
    return (
       true

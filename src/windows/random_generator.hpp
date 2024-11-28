@@ -55,10 +55,7 @@ public:
    [[nodiscard]] random_algorithm_provider()
    {
       if (
-         auto const returnCode
-         {
-            BCryptOpenAlgorithmProvider(std::addressof(m_algorithmHandle), BCRYPT_RNG_ALGORITHM, nullptr, 0)
-         };
+         auto const returnCode{BCryptOpenAlgorithmProvider(std::addressof(m_algorithmHandle), BCRYPT_RNG_ALGORITHM, nullptr, 0),};
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
@@ -72,7 +69,7 @@ public:
 
    ~random_algorithm_provider()
    {
-      if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0)}; STATUS_SUCCESS != returnCode) [[unlikely]]
+      if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[random] failed to close algorithm provider: ({}) - {}", returnCode);
       }
@@ -105,10 +102,7 @@ public:
       assert(nullptr != bytes);
       assert(0 < bytesLength);
       if (
-         auto const returnCode
-         {
-            BCryptGenRandom(provider.algorithm_handle(), std::bit_cast<PUCHAR>(bytes), static_cast<ULONG>(bytesLength), 0)
-         };
+         auto const returnCode{BCryptGenRandom(provider.algorithm_handle(), std::bit_cast<PUCHAR>(bytes), static_cast<ULONG>(bytesLength), 0),};
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {

@@ -32,7 +32,7 @@ namespace io_threads::tests
 
 static io_threads::file_writer_thread create_test_file_writer_thread()
 {
-   return io_threads::file_writer_thread{1, 0};
+   return io_threads::file_writer_thread{0, 1};
 }
 
 using file_writer_thread = testsuite;

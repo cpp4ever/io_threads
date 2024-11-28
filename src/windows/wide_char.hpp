@@ -64,11 +64,11 @@ namespace io_threads
    if (0 >= wideCharStringSize) [[unlikely]]
    {
       wideCharString.resize(0);
-      return std::error_code{static_cast<int>(GetLastError()), std::system_category()};
+      return std::error_code{static_cast<int>(GetLastError()), std::system_category(),};
    }
    assert(static_cast<size_t>(wideCharStringSize) <= wideCharString.size());
    wideCharString.resize(static_cast<size_t>(wideCharStringSize));
-   return {};
+   return std::error_code{};
 }
 
 [[nodiscard]] inline std::error_code wide_char_to_utf8(
@@ -89,16 +89,16 @@ namespace io_threads
          static_cast<int>(utf8String.size()),
          nullptr,
          nullptr
-      )
+      ),
    };
    if (0 >= utf8StringSize) [[unlikely]]
    {
       utf8String.resize(0);
-      return std::error_code{static_cast<int>(GetLastError()), std::system_category()};
+      return std::error_code{static_cast<int>(GetLastError()), std::system_category(),};
    }
    assert(static_cast<size_t>(utf8StringSize) <= utf8String.size());
    utf8String.resize(static_cast<size_t>(utf8StringSize));
-   return {};
+   return std::error_code{};
 }
 
 }

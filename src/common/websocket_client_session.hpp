@@ -31,6 +31,7 @@
 
 #include <zlib.h> ///< for z_stream
 
+#include <array> ///< for std::array
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint32_t, uint8_t
 
@@ -66,7 +67,7 @@ struct websocket_frame_data final
 #endif
    uint32_t frameLength{0,};
    uint32_t bytesLength{0,};
-   std::byte *bytes{0,};
+   std::byte *bytes{nullptr,};
 };
 
 struct websocket_client_session final
@@ -78,7 +79,7 @@ struct websocket_client_session final
    sec_websocket_key *handshakeKey{nullptr,};
    bool closed{false,};
    uint8_t incompleteInboundFrameLength{0,};
-   std::byte incompleteInboundFrame[10]{std::byte{0,},};
+   std::array<std::byte, 10> incompleteInboundFrame{std::byte{0,},};
 };
 
 }

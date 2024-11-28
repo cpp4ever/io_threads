@@ -36,6 +36,8 @@
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor
 
 #include <liburing.h>
+#include <poll.h>
+#include <sys/eventfd.h>
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
@@ -69,8 +71,23 @@ public:
    command_queue(command_queue const &) = delete;
 
    [[nodiscard]] explicit command_queue(size_t const initialCapacityOfCommandQueue) :
-      m_memoryPool{initialCapacityOfCommandQueue, std::align_val_t{alignof(queue_item)}, sizeof(queue_item)}
-   {}
+      m_memoryPool{initialCapacityOfCommandQueue, std::align_val_t{alignof(queue_item)}, sizeof(queue_item)},
+      m_eventfd{eventfd(0, EFD_NONBLOCK),}
+   {
+      if (-1 == m_eventfd) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[command_queue] failed to open eventfd: ({}) - {}", errno);
+         unreachable();
+      }
+   }
+
+   ~command_queue()
+   {
+      if (-1 == close(m_eventfd)) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[command_queue] failed to close eventfd: ({}) - {}", errno);
+      }
+   }
 
    command_queue &operator = (command_queue &&) = delete;
    command_queue &operator = (command_queue const &) = delete;
@@ -78,6 +95,12 @@ public:
    template<typename task_handler>
    void pop(task_handler &&taskHandler)
    {
+      eventfd_t eventfdValue{0,};
+      if (-1 == eventfd_read(m_eventfd, std::addressof(eventfdValue))) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[command_queue] failed to reset eventfd: ({}) - {}", errno);
+         unreachable();
+      }
       queue_item *orderedTasks{nullptr,};
       auto *unorderedTasks{m_tasksHead.exchange(nullptr, std::memory_order_relaxed)};
       while (nullptr != unorderedTasks)
@@ -115,11 +138,28 @@ public:
          )
       )
       {}
+      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[command_queue] failed to raise eventfd: ({}) - {}", errno);
+         unreachable();
+      }
+   }
+
+   void prepare(io_uring &ring)
+   {
+      auto *submissionQueueEntry = io_uring_get_sqe(std::addressof(ring));
+      if (nullptr == submissionQueueEntry) [[unlikely]]
+      {
+         log_error(std::source_location::current(), "[command_queue] failed to get submission queue entry");
+         unreachable();
+      }
+      io_uring_prep_poll_add(submissionQueueEntry, m_eventfd, POLLIN);
    }
 
 private:
    shared_memory_pool m_memoryPool;
    std::atomic<queue_item *> m_tasksHead{nullptr};
+   int const m_eventfd;
 };
 
 void set_thread_affinity(uint16_t const coreCpuId)
@@ -159,13 +199,6 @@ public:
          };
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::execute, std::bit_cast<intptr_t>(std::addressof(ioTask)));
-         auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
-         if (nullptr == submissionQueueEntry) [[unlikely]]
-         {
-            log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-            unreachable();
-         }
-         io_uring_prep_nop(submissionQueueEntry);
          ioTask.completionFuture.wait();
       }
    }
@@ -180,13 +213,6 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_close, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
-         auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
-         if (nullptr == submissionQueueEntry) [[unlikely]]
-         {
-            log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-            unreachable();
-         }
-         io_uring_prep_nop(submissionQueueEntry);
       }
    }
 
@@ -200,13 +226,6 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_open, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
-         auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
-         if (nullptr == submissionQueueEntry) [[unlikely]]
-         {
-            log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-            unreachable();
-         }
-         io_uring_prep_nop(submissionQueueEntry);
       }
    }
 
@@ -220,25 +239,13 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_write, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
-         auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
-         if (nullptr == submissionQueueEntry) [[unlikely]]
-         {
-            log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-            unreachable();
-         }
-         io_uring_prep_nop(submissionQueueEntry);
       }
    }
 
    void stop()
    {
-      auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
-      if (nullptr == submissionQueueEntry) [[unlikely]]
-      {
-         log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-         unreachable();
-      }
-      io_uring_prep_nop(submissionQueueEntry);
+      assert(nullptr != m_commandQueue);
+      m_commandQueue->push(file_writer_command::unknown, 0);
    }
 
    [[nodiscard]] static std::jthread start(
@@ -254,16 +261,26 @@ public:
             set_thread_affinity(coreCpuId);
             file_writer_thread_worker worker{capacityOfFileDescriptorList,};
             workerPromise.set_value(worker);
-            while (false == stopToken.stop_requested()) [[likely]]
+            while (true)
             {
                worker.poll();
+               if (true == stopToken.stop_requested()) [[unlikely]]
+               {
+                  break;
+               }
                assert(nullptr != worker.m_commandQueue);
+               auto handledCommands{0,};
                worker.m_commandQueue->pop(
-                  [&worker] (auto const command, auto const commandTarget)
+                  [&worker, &handledCommands] (auto const command, auto const commandTarget)
                   {
                      worker.handle_command(command, commandTarget);
+                     ++handledCommands;
                   }
                );
+               if (0 < handledCommands)
+               {
+                  worker.m_commandQueue->prepare(*worker.m_ring);
+               }
                if (auto const returnCode{io_uring_submit(worker.m_ring.get()),}; 0 > returnCode) [[unlikely]]
                {
                   log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
@@ -297,13 +314,14 @@ private:
       assert(nullptr != m_ring);
       assert(nullptr != m_commandQueue);
       if (
-         auto const returnCode{io_uring_queue_init(capacityOfFileDescriptorList + 1, m_ring.get(), 0),};
+         auto const returnCode{io_uring_queue_init(capacityOfFileDescriptorList + 1, m_ring.get(), IORING_SETUP_SINGLE_ISSUER),};
          0 > returnCode
       ) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[file_writer] failed to initialize io_uring: ({}) - {}", -returnCode);
          unreachable();
       }
+      m_commandQueue->prepare(*m_ring);
       m_registeredFiles.resize(capacityOfFileDescriptorList, 0);
       io_uring_register_files(m_ring.get(), m_registeredFiles.data(), static_cast<uint32_t>(m_registeredFiles.size()));
       for (

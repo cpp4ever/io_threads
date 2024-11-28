@@ -407,7 +407,7 @@ public:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to free credentials handle: ({}) - {}",
+            "[tls_client] failed to free credentials handle: ({:#X}) - {}",
             returnCode
          );
          m_handle = {};
@@ -500,7 +500,7 @@ public:
       }
       log_system_error(
          std::source_location::current(),
-         "[tls_client] failed to create security context: ({}) - {}",
+         "[tls_client] failed to create security context: ({:#X}) - {}",
          returnCode
       );
       unreachable();
@@ -687,7 +687,7 @@ public:
             errorCode = std::error_code{returnCode, std::system_category(),};
             log_system_error(
                std::source_location::current(),
-               "[tls_client] handshake failed: ({}) - {}",
+               "[tls_client] handshake failed: ({:#X}) - {}",
                errorCode
             );
          }
@@ -811,7 +811,7 @@ public:
          errorCode = std::error_code{returnCode, std::system_category(),};
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to encrypt message: ({}) - {}",
+            "[tls_client] failed to encrypt message: ({:#X}) - {}",
             errorCode
          );
       }
@@ -827,7 +827,7 @@ public:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to delete security context: ({}) - {}",
+            "[tls_client] failed to delete security context: ({:#X}) - {}",
             returnCode
          );
       }
@@ -872,7 +872,7 @@ public:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to apply control token: ({}) - {}",
+            "[tls_client] failed to apply control token: ({:#X}) - {}",
             returnCode
          );
          unreachable();
@@ -928,7 +928,7 @@ public:
             {
                log_system_error(
                   std::source_location::current(),
-                  "[tls_client] failed to free memory buffers allocated by security context: ({}) - {}",
+                  "[tls_client] failed to free memory buffers allocated by security context: ({:#X}) - {}",
                   returnCode
                );
             }
@@ -939,7 +939,7 @@ public:
          errorCode = std::error_code{shutdownReturnCode, std::system_category(),};
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to shutdown: ({}) - {}",
+            "[tls_client] failed to shutdown: ({:#X}) - {}",
             errorCode
          );
       }
@@ -1050,7 +1050,7 @@ private:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to acquire credentials handle: ({}) - {}",
+            "[tls_client] failed to acquire credentials handle: ({:#X}) - {}",
             returnCode
          );
          unreachable();
@@ -1164,7 +1164,7 @@ private:
          errorCode = std::error_code{returnCode, std::system_category(),};
          log_system_error(
             std::source_location::current(),
-            "[tls_client] handshake failed: ({}) - {}",
+            "[tls_client] handshake failed: ({:#X}) - {}",
             errorCode
          );
       }
@@ -1198,7 +1198,7 @@ private:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to query stream sizes: ({}) - {}",
+            "[tls_client] failed to query stream sizes: ({:#X}) - {}",
             returnCode
          );
          unreachable();
@@ -1369,7 +1369,7 @@ private:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to query security package info: ({}) - {}",
+            "[tls_client] failed to query security package info: ({:#X}) - {}",
             returnCode
          );
          unreachable();
@@ -1402,7 +1402,7 @@ private:
       {
          log_system_error(
             std::source_location::current(),
-            "[tls_client] failed to free security package info: ({}) - {}",
+            "[tls_client] failed to free security package info: ({:#X}) - {}",
             returnCode
          );
       }

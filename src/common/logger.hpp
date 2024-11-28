@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cstdint> ///< for uint32_t
 #include <format> ///< for std::format, std::format_string, std::make_format_args, std::vformat
 #include <iostream> ///< for std::cerr
 #include <ostream> ///< for std::endl
@@ -54,7 +55,7 @@ constexpr void log_error(
    types &&...values
 )
 {
-   std::osyncstream{std::cerr}
+   std::osyncstream{std::cerr,}
       << sourceLocation.file_name() << ":" << sourceLocation.line() << " "
 #if (202207L <= __cpp_lib_format)
       << std::format(fmt, std::forward<types>(values)...)
@@ -67,23 +68,36 @@ constexpr void log_error(
 
 inline void log_system_error(
    std::source_location const sourceLocation,
+#if (defined(_WIN32) || defined(_WIN64))
+   format_string<uint32_t, std::string> const fmt,
+#else
    format_string<int, std::string> const fmt,
+#endif
    std::error_code const errorCode
 )
 {
+#if (defined(_WIN32) || defined(_WIN64))
+   log_error(sourceLocation, fmt, static_cast<uint32_t>(errorCode.value()), errorCode.message());
+#else
    log_error(sourceLocation, fmt, errorCode.value(), errorCode.message());
+#endif
 }
 
 inline void log_system_error(
    std::source_location const sourceLocation,
-   format_string<int, std::string> const fmt,
+#if (defined(_WIN32) || defined(_WIN64))
+   format_string<uint32_t, std::string> const fmt,
    long const errorCode
+#else
+   format_string<int, std::string> const fmt,
+   int const errorCode
+#endif
 )
 {
    log_system_error(
       sourceLocation,
       fmt,
-      std::error_code{static_cast<int>(errorCode), std::system_category()}
+      std::error_code{errorCode, std::system_category(),}
    );
 }
 

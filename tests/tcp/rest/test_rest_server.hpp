@@ -80,7 +80,7 @@ private:
    boost::beast::http::request<boost::beast::http::string_body> m_request;
    boost::beast::http::response<boost::beast::http::string_body> m_response;
    std::deque<test_rest_stream> m_streams;
-   std::unique_ptr<std::thread> m_thread;
+   std::thread m_thread;
 
    void async_accept_socket();
    void async_read(test_rest_stream &stream);

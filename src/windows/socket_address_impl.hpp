@@ -93,21 +93,21 @@ public:
    socket_address_impl(socket_address_impl const &) = delete;
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_IN const &ipv4Address) :
-      socket_address_impl{SOCKADDR_INET{.Ipv4{ipv4Address}}}
+      socket_address_impl{SOCKADDR_INET{.Ipv4{ipv4Address,},},}
    {}
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_IN6 const &ipv6Address) :
-      socket_address_impl{SOCKADDR_INET{.Ipv6{ipv6Address}}}
+      socket_address_impl{SOCKADDR_INET{.Ipv6{ipv6Address,},},}
    {}
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_INET const &address) :
-      m_sockaddr{address}
+      m_sockaddr{address,}
    {
       std::wstring wcharAddress;
       if (AF_INET == m_sockaddr.si_family)
       {
          wcharAddress.resize(INET_ADDRSTRLEN * 2);
-         auto wcharAddressSize{static_cast<ULONG>(wcharAddress.size())};
+         auto wcharAddressSize{static_cast<ULONG>(wcharAddress.size()),};
          if (
             auto const ntstatus
             {
@@ -116,7 +116,7 @@ public:
                   m_sockaddr.Ipv4.sin_port,
                   wcharAddress.data(),
                   std::addressof(wcharAddressSize)
-               )
+               ),
             };
             STATUS_SUCCESS != ntstatus
          )
@@ -133,7 +133,7 @@ public:
       else if (AF_INET6 == m_sockaddr.si_family)
       {
          wcharAddress.resize(INET6_ADDRSTRLEN * 2);
-         auto wcharAddressSize{static_cast<ULONG>(wcharAddress.size())};
+         auto wcharAddressSize{static_cast<ULONG>(wcharAddress.size()),};
          if (
             auto const ntstatus
             {
@@ -143,7 +143,7 @@ public:
                   m_sockaddr.Ipv6.sin6_port,
                   wcharAddress.data(),
                   std::addressof(wcharAddressSize)
-               )
+               ),
             };
             STATUS_SUCCESS != ntstatus
          )
@@ -166,7 +166,7 @@ public:
          );
          unreachable();
       }
-      if (auto const errorCode{wide_char_to_utf8(m_address, wcharAddress)}; true == bool{errorCode}) [[unlikely]]
+      if (auto const errorCode{wide_char_to_utf8(m_address, wcharAddress),}; true == bool{errorCode}) [[unlikely]]
       {
          log_system_error(
             std::source_location::current(),
@@ -203,7 +203,7 @@ public:
    )
    {
       std::wstring wcharAddress;
-      if (true == bool{(errorCode = utf8_to_wide_char(wcharAddress, utf8Address))}) [[unlikely]]
+      if (true == bool{(errorCode = utf8_to_wide_char(wcharAddress, utf8Address)),}) [[unlikely]]
       {
          log_system_error(
             std::source_location::current(),
@@ -226,8 +226,8 @@ public:
       for (auto const &addressType : addressTypes)
       {
          NET_ADDRESS_INFO netAddressInfo{};
-         USHORT portNumber{0};
-         BYTE prefixLength{0};
+         USHORT portNumber{0,};
+         BYTE prefixLength{0,};
          if (
             auto const returnCode
             {
@@ -237,7 +237,7 @@ public:
                   std::addressof(netAddressInfo),
                   std::addressof(portNumber),
                   std::addressof(prefixLength)
-               )
+               ),
             };
             ERROR_SUCCESS == returnCode
          )
