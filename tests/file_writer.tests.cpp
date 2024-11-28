@@ -126,7 +126,7 @@ TEST_F(file_writer, not_found)
    auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
    std::filesystem::remove_all(testDirectory);
    constexpr uint16_t testCpuId = 0;
-   constexpr size_t testFileWritersCount = 0;
+   constexpr size_t testFileWritersCount = 1;
    auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
    test_file_writer testFileWriter{testFileWriterThread};
    testFileWriter.expect_error(testNotFoundErrorCode);

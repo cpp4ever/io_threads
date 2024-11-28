@@ -23,9 +23,10 @@
    SOFTWARE.
 */
 
-#include "common/memory_pool.hpp" ///< for io_threads::memory_pool
+#include "common/shared_memory_pool.hpp" ///< for io_threads::shared_memory_pool
 
 #include <algorithm> ///< for std::max
+#include <atomic> ///< for std::memory_order_relaxed, std::memory_order_release
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
@@ -36,7 +37,7 @@
 namespace io_threads
 {
 
-memory_pool::memory_pool(
+shared_memory_pool::shared_memory_pool(
    size_t const initialPoolCapacity,
    std::align_val_t const memoryAlignment,
    size_t const memorySize
@@ -44,65 +45,89 @@ memory_pool::memory_pool(
    m_itemAlignment{std::max(memoryAlignment, std::align_val_t{alignof(slist_item)}),},
    m_itemSize{std::max(memorySize, sizeof(slist_item)),}
 {
+   slist_item *slistHead{nullptr,};
    for (size_t index{0}; initialPoolCapacity > index; ++index)
    {
       auto *memory{allocate(),};
       std::memset(memory, 0, memory_size());
-      m_slistHead = std::launder(std::construct_at<slist_item>(memory, slist_item{.next = m_slistHead,}));
+      slistHead = std::launder(std::construct_at<slist_item>(memory, slist_item{.next = slistHead,}));
    }
+   m_slistHead.store(slistHead, std::memory_order_release);
 }
 
-memory_pool::~memory_pool()
+shared_memory_pool::~shared_memory_pool()
 {
-   while (nullptr != m_slistHead)
+   auto *slistHead{m_slistHead.exchange(nullptr, std::memory_order_release),};
+   while (nullptr != slistHead)
    {
-      auto *item{std::launder(m_slistHead),};
-      m_slistHead = item->next;
+      auto *item{std::launder(slistHead),};
+      slistHead = item->next;
       std::destroy_at(item);
       deallocate(item);
    }
 #if (not defined(NDEBUG))
-   assert(0 == m_numberOfObjects);
+   assert(0 == m_numberOfObjects.load(std::memory_order_relaxed));
 #endif
 }
 
-std::byte *memory_pool::pop()
+std::byte *shared_memory_pool::pop()
 {
-   if (nullptr != m_slistHead) [[likely]]
+   auto *item = m_slistHead.load(std::memory_order_relaxed);
+   while (
+      true
+      && (nullptr != item)
+      && (
+         false == m_slistHead.compare_exchange_strong(
+            item,
+            item->next,
+            std::memory_order_release,
+            std::memory_order_relaxed
+         )
+      )
+   )
+   {}
+   if (nullptr != item) [[likely]]
    {
-      auto *item{std::launder(m_slistHead),};
-      m_slistHead = item->next;
       std::destroy_at(item);
       return std::launder(std::bit_cast<std::byte *>(item));
    }
    return std::launder(std::bit_cast<std::byte *>(allocate()));
 }
 
-void memory_pool::push(std::byte *memory) noexcept
+void shared_memory_pool::push(std::byte *memory) noexcept
 {
    assert(nullptr != memory);
-   m_slistHead = std::launder(
+   auto *slistHead = std::launder(
       std::construct_at<slist_item>(
          std::bit_cast<slist_item *>(memory),
-         slist_item{.next = m_slistHead,}
+         slist_item{.next = m_slistHead.load(std::memory_order_relaxed),}
       )
    );
+   while (
+      false == m_slistHead.compare_exchange_strong(
+         slistHead->next,
+         slistHead,
+         std::memory_order_release,
+         std::memory_order_relaxed
+      )
+   )
+   {}
 }
 
-memory_pool::slist_item *memory_pool::allocate()
+shared_memory_pool::slist_item *shared_memory_pool::allocate()
 {
    auto *memory{::operator new(memory_size(), memory_alignment()),};
 #if (not defined(NDEBUG))
-   ++m_numberOfObjects;
+   m_numberOfObjects.fetch_add(1, std::memory_order_relaxed);
 #endif
    return std::launder(std::bit_cast<slist_item *>(memory));
 }
 
-void memory_pool::deallocate(slist_item *item)
+void shared_memory_pool::deallocate(slist_item *item)
 {
    ::operator delete(item, memory_alignment());
 #if (not defined(NDEBUG))
-   --m_numberOfObjects;
+   m_numberOfObjects.fetch_sub(1, std::memory_order_relaxed);
 #endif
 }
 

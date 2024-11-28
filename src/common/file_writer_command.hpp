@@ -25,11 +25,6 @@
 
 #pragma once
 
-#include "common/utility.hpp" ///< for io_threads::to_underlying
-
-#include <Windows.h> ///< for LPOVERLAPPED
-
-#include <bit> ///< for std::bit_cast
 #include <cstdint> ///< for intptr_t
 
 namespace io_threads
@@ -43,15 +38,5 @@ enum struct file_writer_command : intptr_t
    ready_to_write,
    ready_to_close,
 };
-
-[[nodiscard]] constexpr file_writer_command from_completion_overlapped(LPOVERLAPPED const overlapped) noexcept
-{
-   return file_writer_command{std::bit_cast<intptr_t>(overlapped)};
-}
-
-[[nodiscard]] constexpr LPOVERLAPPED to_completion_overlapped(file_writer_command const value) noexcept
-{
-   return std::bit_cast<LPOVERLAPPED>(to_underlying(value));
-}
 
 }

@@ -41,7 +41,7 @@ public:
    file_writer_thread() = delete;
    [[nodiscard]] file_writer_thread(file_writer_thread &&rhs) noexcept;
    [[nodiscard]] file_writer_thread(file_writer_thread const &rhs) noexcept;
-   [[nodiscard]] file_writer_thread(uint16_t coreCpuId, size_t initialCapacityOfFileDescriptorList);
+   [[nodiscard]] file_writer_thread(uint16_t coreCpuId, size_t capacityOfFileDescriptorList);
    ~file_writer_thread();
 
    file_writer_thread &operator = (file_writer_thread &&rhs) noexcept;

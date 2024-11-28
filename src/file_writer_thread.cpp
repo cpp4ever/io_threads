@@ -52,11 +52,12 @@ public:
    file_writer_thread_impl(file_writer_thread_impl &&) = delete;
    file_writer_thread_impl(file_writer_thread_impl const &) = delete;
 
-   file_writer_thread_impl(uint16_t const coreCpuId, size_t const initialCapacityOfFileDescriptorList)
+   file_writer_thread_impl(uint16_t const coreCpuId, size_t const capacityOfFileDescriptorList)
    {
+      assert(0 < capacityOfFileDescriptorList);
       std::promise<file_writer::file_writer_thread_worker &> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
-      m_thread = file_writer::file_writer_thread_worker::start(coreCpuId, initialCapacityOfFileDescriptorList, workerPromise);
+      m_thread = file_writer::file_writer_thread_worker::start(coreCpuId, capacityOfFileDescriptorList, workerPromise);
       m_worker = std::addressof(workerFuture.get());
    }
 
@@ -115,8 +116,8 @@ file_writer_thread::file_writer_thread(file_writer_thread const &rhs) noexcept :
    assert(nullptr != m_impl);
 }
 
-file_writer_thread::file_writer_thread(uint16_t const coreCpuId, size_t const initialCapacityOfFileDescriptorList) :
-   m_impl{std::make_shared<file_writer_thread_impl>(coreCpuId, initialCapacityOfFileDescriptorList),}
+file_writer_thread::file_writer_thread(uint16_t const coreCpuId, size_t const capacityOfFileDescriptorList) :
+   m_impl{std::make_shared<file_writer_thread_impl>(coreCpuId, capacityOfFileDescriptorList),}
 {
    assert(nullptr != m_impl);
 }

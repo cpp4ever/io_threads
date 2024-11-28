@@ -55,7 +55,9 @@ endif()
 set_target_default_cxx_compile_flags(io_threads PRIVATE)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/io_threads/" PREFIX "include" FILES ${IO_THREADS_HEADERS})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src/" PREFIX "src" FILES ${IO_THREADS_SOURCES})
-if(WIN32)
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+   target_link_libraries(io_threads PRIVATE uring)
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
    target_compile_definitions(
       io_threads
       PRIVATE

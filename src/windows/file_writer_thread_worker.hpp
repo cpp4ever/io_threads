@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "common/file_writer_command.hpp" ///< for io_threads::file_writer_command
 #include "common/logger.hpp" ///< for io_threads::log_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
@@ -37,11 +38,6 @@
 ///   io_threads::to_completion_key
 #include "windows/completion_port.hpp"
 #include "windows/file_descriptor.hpp" ///< for io_threads::file_descriptor
-/// for
-///   io_threads::file_writer_command,
-///   io_threads::from_completion_overlapped,
-///   io_threads::to_completion_overlapped
-#include "windows/file_writer_command.hpp"
 #include "windows/winapi_error.hpp" ///< for io_threads::check_winapi_error, io_threads::check_winapi_error_if_not
 
 /// for
@@ -63,6 +59,7 @@
 ///   HANDLE,
 ///   INVALID_HANDLE_VALUE,
 ///   LocalFree,
+///   LPOVERLAPPED,
 ///   MAXDWORD,
 ///   OPEN_ALWAYS,
 ///   OVERLAPPED_ENTRY,
@@ -75,9 +72,10 @@
 #include <Windows.h>
 #include <sddl.h> ///< for ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1
 
+#include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< for uint16_t
+#include <cstdint> ///< for intptr_t, uint16_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -92,6 +90,21 @@
 
 namespace io_threads
 {
+
+namespace
+{
+
+[[nodiscard]] file_writer_command from_completion_overlapped(LPOVERLAPPED const overlapped) noexcept
+{
+   return file_writer_command{std::bit_cast<intptr_t>(overlapped),};
+}
+
+[[nodiscard]] LPOVERLAPPED to_completion_overlapped(file_writer_command const value) noexcept
+{
+   return std::bit_cast<LPOVERLAPPED>(to_underlying(value));
+}
+
+}
 
 class file_writer::file_writer_thread_worker final
 {
@@ -176,19 +189,19 @@ public:
 
    [[nodiscard]] static std::jthread start(
       uint16_t const coreCpuId,
-      size_t const initialCapacityOfFileDescriptorList,
+      size_t const capacityOfFileDescriptorList,
       std::promise<file_writer_thread_worker &> &workerPromise
    )
    {
       return std::jthread
       {
-         [coreCpuId, initialCapacityOfFileDescriptorList, &workerPromise] (std::stop_token const stopToken)
+         [coreCpuId, capacityOfFileDescriptorList, &workerPromise] (std::stop_token const stopToken)
          {
             if (0 == SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(1) << coreCpuId)) [[unlikely]]
             {
                check_winapi_error("[file_writer] failed to pin thread to cpu core: ({}) - {}");
             }
-            file_writer_thread_worker worker{initialCapacityOfFileDescriptorList};
+            file_writer_thread_worker worker{capacityOfFileDescriptorList};
             workerPromise.set_value(worker);
             while (false == stopToken.stop_requested()) [[likely]]
             {
@@ -219,12 +232,12 @@ private:
       .bInheritHandle = FALSE,
    };
 
-   [[nodiscard]] explicit file_writer_thread_worker(size_t const initialCapacityOfFileDescriptorList) :
+   [[nodiscard]] explicit file_writer_thread_worker(size_t const capacityOfFileDescriptorList) :
       m_completionPortEntries{std::make_unique<completion_port::entries>()},
       m_fileMemory
       {
          std::make_unique<memory_pool>(
-            initialCapacityOfFileDescriptorList,
+            capacityOfFileDescriptorList,
             std::align_val_t{alignof(file_descriptor)},
             sizeof(file_descriptor)
          )

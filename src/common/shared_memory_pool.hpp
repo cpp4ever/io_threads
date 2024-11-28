@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <atomic> ///< for std::atomic, std::atomic_size_t
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
@@ -35,7 +36,7 @@
 namespace io_threads
 {
 
-class memory_pool final
+class shared_memory_pool final
 {
 private:
    struct slist_item final
@@ -44,18 +45,18 @@ private:
    };
 
 public:
-   memory_pool() = delete;
-   memory_pool(memory_pool &&) = delete;
-   memory_pool(memory_pool const &) = delete;
-   [[nodiscard]] memory_pool(
+   shared_memory_pool() = delete;
+   shared_memory_pool(shared_memory_pool &&) = delete;
+   shared_memory_pool(shared_memory_pool const &) = delete;
+   [[nodiscard]] shared_memory_pool(
       size_t initialPoolCapacity,
       std::align_val_t memoryAlignment,
       size_t memorySize
    );
-   ~memory_pool();
+   ~shared_memory_pool();
 
-   memory_pool &operator = (memory_pool &&) = delete;
-   memory_pool &operator = (memory_pool const &) = delete;
+   shared_memory_pool &operator = (shared_memory_pool &&) = delete;
+   shared_memory_pool &operator = (shared_memory_pool const &) = delete;
 
    [[maybe_unused, nodiscard]] std::align_val_t memory_alignment() const noexcept
    {
@@ -87,9 +88,9 @@ public:
    }
 
 private:
-   slist_item *m_slistHead{nullptr};
+   std::atomic<slist_item *> m_slistHead{nullptr};
 #if (not defined(NDEBUG))
-   size_t m_numberOfObjects{0};
+   std::atomic_size_t m_numberOfObjects{0};
 #endif
    std::align_val_t const m_itemAlignment;
    size_t const m_itemSize;

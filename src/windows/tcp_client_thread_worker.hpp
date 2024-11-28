@@ -236,13 +236,13 @@ public:
             while (false == stopToken.stop_requested()) [[likely]]
             {
                auto timeoutMilliseconds{completion_port::infinite_timeout};
-               while (m_completionPortEntries->size() == poll(timeoutMilliseconds))
+               while (worker.m_completionPortEntries->size() == worker.poll(timeoutMilliseconds))
                {
                   /// Do while there are entries to poll
                   timeoutMilliseconds = completion_port::no_timeout;
                }
             }
-            while (0 != poll(completion_port::no_timeout))
+            while (0 != worker.poll(completion_port::no_timeout))
             {
                /// Until all entries are polled
             }

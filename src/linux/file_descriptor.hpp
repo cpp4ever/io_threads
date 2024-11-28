@@ -25,14 +25,29 @@
 
 #pragma once
 
+#include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
+
+#include <cstdint> ///< for uint32_t
+
 namespace io_threads
 {
 
+enum struct file_status : uint8_t
+{
+   none = 0,
+   ready,
+   busy,
+   flushing,
+   closing,
+};
+
 struct file_descriptor final
 {
-   int handle{-1};
-   bool busy{false};
-   bool closeOnCompletion{false};
+   uint32_t const registeredFileIndex;
+   file_status fileStatus{file_status::none,};
+   bool closeOnCompletion{false,};
+   file_writer *fileWriter{nullptr,};
+   file_descriptor *next{nullptr,};
 };
 
 }
