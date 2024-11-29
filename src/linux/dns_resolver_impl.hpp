@@ -63,8 +63,8 @@ namespace
       .ai_socktype = SOCK_STREAM,
       .ai_protocol = IPPROTO_TCP,
       .ai_addrlen = 0,
-      .ai_canonname = nullptr,
       .ai_addr = nullptr,
+      .ai_canonname = nullptr,
       .ai_next = nullptr,
    };
    addrinfo *result{nullptr,};

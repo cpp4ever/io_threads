@@ -35,6 +35,7 @@ namespace io_threads
 enum struct file_status : uint8_t
 {
    none = 0,
+   opening,
    ready,
    busy,
    flushing,

@@ -71,23 +71,8 @@ public:
    command_queue(command_queue const &) = delete;
 
    [[nodiscard]] explicit command_queue(size_t const initialCapacityOfCommandQueue) :
-      m_memoryPool{initialCapacityOfCommandQueue, std::align_val_t{alignof(queue_item)}, sizeof(queue_item)},
-      m_eventfd{eventfd(0, EFD_NONBLOCK),}
-   {
-      if (-1 == m_eventfd) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[command_queue] failed to open eventfd: ({}) - {}", errno);
-         unreachable();
-      }
-   }
-
-   ~command_queue()
-   {
-      if (-1 == close(m_eventfd)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[command_queue] failed to close eventfd: ({}) - {}", errno);
-      }
-   }
+      m_memoryPool{initialCapacityOfCommandQueue, std::align_val_t{alignof(queue_item)}, sizeof(queue_item)}
+   {}
 
    command_queue &operator = (command_queue &&) = delete;
    command_queue &operator = (command_queue const &) = delete;
@@ -95,12 +80,6 @@ public:
    template<typename task_handler>
    void pop(task_handler &&taskHandler)
    {
-      eventfd_t eventfdValue{0,};
-      if (-1 == eventfd_read(m_eventfd, std::addressof(eventfdValue))) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[command_queue] failed to reset eventfd: ({}) - {}", errno);
-         unreachable();
-      }
       queue_item *orderedTasks{nullptr,};
       auto *unorderedTasks{m_tasksHead.exchange(nullptr, std::memory_order_relaxed)};
       while (nullptr != unorderedTasks)
@@ -138,28 +117,11 @@ public:
          )
       )
       {}
-      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[command_queue] failed to raise eventfd: ({}) - {}", errno);
-         unreachable();
-      }
-   }
-
-   void prepare(io_uring &ring)
-   {
-      auto *submissionQueueEntry = io_uring_get_sqe(std::addressof(ring));
-      if (nullptr == submissionQueueEntry) [[unlikely]]
-      {
-         log_error(std::source_location::current(), "[command_queue] failed to get submission queue entry");
-         unreachable();
-      }
-      io_uring_prep_poll_add(submissionQueueEntry, m_eventfd, POLLIN);
    }
 
 private:
    shared_memory_pool m_memoryPool;
    std::atomic<queue_item *> m_tasksHead{nullptr};
-   int const m_eventfd;
 };
 
 void set_thread_affinity(uint16_t const coreCpuId)
@@ -199,6 +161,7 @@ public:
          };
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::execute, std::bit_cast<intptr_t>(std::addressof(ioTask)));
+         wake_up_ring();
          ioTask.completionFuture.wait();
       }
    }
@@ -213,6 +176,7 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_close, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         wake_up_ring();
       }
    }
 
@@ -226,6 +190,7 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_open, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         wake_up_ring();
       }
    }
 
@@ -239,13 +204,13 @@ public:
       {
          assert(nullptr != m_commandQueue);
          m_commandQueue->push(file_writer_command::ready_to_write, std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         wake_up_ring();
       }
    }
 
    void stop()
    {
-      assert(nullptr != m_commandQueue);
-      m_commandQueue->push(file_writer_command::unknown, 0);
+      wake_up_ring();
    }
 
    [[nodiscard]] static std::jthread start(
@@ -260,33 +225,39 @@ public:
          {
             set_thread_affinity(coreCpuId);
             file_writer_thread_worker worker{capacityOfFileDescriptorList,};
+            assert(nullptr != worker.m_ring);
+            assert(nullptr != worker.m_commandQueue);
             workerPromise.set_value(worker);
-            while (true)
+            sigset_t sigmask{};
+            if (-1 == sigfillset(std::addressof(sigmask))) [[unlikely]]
             {
-               worker.poll();
-               if (true == stopToken.stop_requested()) [[unlikely]]
+               log_system_error(std::source_location::current(), "[file_writer] failed to initialize sigmask: ({}) - {}", errno);
+               unreachable();
+            }
+            {
+               auto *submissionQueueEntry = io_uring_get_sqe(worker.m_ring.get());
+               if (nullptr == submissionQueueEntry) [[unlikely]]
                {
-                  break;
-               }
-               assert(nullptr != worker.m_commandQueue);
-               auto handledCommands{0,};
-               worker.m_commandQueue->pop(
-                  [&worker, &handledCommands] (auto const command, auto const commandTarget)
-                  {
-                     worker.handle_command(command, commandTarget);
-                     ++handledCommands;
-                  }
-               );
-               if (0 < handledCommands)
-               {
-                  worker.m_commandQueue->prepare(*worker.m_ring);
-               }
-               if (auto const returnCode{io_uring_submit(worker.m_ring.get()),}; 0 > returnCode) [[unlikely]]
-               {
-                  log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
+                  log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
                   unreachable();
                }
+               io_uring_sqe_set_data(submissionQueueEntry, worker.m_commandQueue.get());
+               io_uring_prep_poll_multishot(submissionQueueEntry, worker.m_eventfd, POLLIN);
             }
+            while (false == stopToken.stop_requested()) [[likely]]
+            {
+               worker.poll(sigmask);
+            }
+            {
+               auto *submissionQueueEntry = io_uring_get_sqe(worker.m_ring.get());
+               if (nullptr == submissionQueueEntry) [[unlikely]]
+               {
+                  log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
+                  unreachable();
+               }
+               io_uring_prep_poll_remove(submissionQueueEntry, static_cast<uint64_t>(std::bit_cast<uintptr_t>(worker.m_commandQueue.get())));
+            }
+            worker.poll(sigmask);
          }
       };
    }
@@ -298,6 +269,7 @@ private:
    file_descriptor *m_freeFileDescriptors{nullptr,};
    std::vector<int> m_registeredFiles{};
    std::unique_ptr<memory_pool> const m_fileMemory;
+   int m_eventfd{-1,};
 
    [[nodiscard]] explicit file_writer_thread_worker(size_t const capacityOfFileDescriptorList) :
       m_commandQueue{std::make_unique<command_queue<file_writer_command>>(capacityOfFileDescriptorList),},
@@ -321,9 +293,20 @@ private:
          log_system_error(std::source_location::current(), "[file_writer] failed to initialize io_uring: ({}) - {}", -returnCode);
          unreachable();
       }
-      m_commandQueue->prepare(*m_ring);
       m_registeredFiles.resize(capacityOfFileDescriptorList, 0);
-      io_uring_register_files(m_ring.get(), m_registeredFiles.data(), static_cast<uint32_t>(m_registeredFiles.size()));
+      if (
+         auto const returnCode{io_uring_register_files(m_ring.get(), m_registeredFiles.data(), static_cast<uint32_t>(m_registeredFiles.size())),};
+         0 > returnCode
+      ) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[file_writer] failed to register files: ({}) - {}", -returnCode);
+         unreachable();
+      }
+      if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[file_writer] failed to open eventfd: ({}) - {}", errno);
+         unreachable();
+      }
       for (
          uint32_t registeredFileIndex{static_cast<uint32_t>(m_registeredFiles.size()),};
          0 < registeredFileIndex;
@@ -352,6 +335,10 @@ private:
          assert(nullptr == fileDescriptor->fileWriter);
          m_freeFileDescriptors = fileDescriptor->next;
          m_fileMemory->push_object(*fileDescriptor);
+      }
+      if (-1 == close(m_eventfd)) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[file_writer] failed to close eventfd: ({}) - {}", errno);
       }
       assert(nullptr != m_ring);
       if (auto const returnCode{io_uring_unregister_files(m_ring.get()),}; 0 > returnCode)
@@ -436,19 +423,43 @@ private:
       assert(nullptr == fileDescriptor.next);
       if (nullptr != fileDescriptor.fileWriter) [[likely]]
       {
-         assert(file_status::busy == fileDescriptor.fileStatus);
-         fileDescriptor.fileStatus = file_status::ready;
-         auto &fileWriter = *fileDescriptor.fileWriter;
-         assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
-         if (0 == returnCode) [[likely]]
+         if (file_status::busy == fileDescriptor.fileStatus) [[likely]]
          {
-            write(fileWriter);
+            fileDescriptor.fileStatus = file_status::ready;
+            auto &fileWriter = *fileDescriptor.fileWriter;
+            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
+            if (0 == returnCode) [[likely]]
+            {
+               write(fileWriter);
+            }
+            else
+            {
+               close_file(fileWriter);
+               std::error_code errorCode{-returnCode, std::system_category(),};
+               fileWriter.io_closed(errorCode);
+            }
          }
          else
          {
-            std::error_code errorCode{returnCode, std::system_category(),};
-            close_file(fileWriter);
-            fileWriter.io_closed(errorCode);
+            assert(file_status::opening == fileDescriptor.fileStatus);
+            fileDescriptor.fileStatus = file_status::ready;
+            auto &fileWriter = *fileDescriptor.fileWriter;
+            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
+            if (0 == returnCode) [[likely]]
+            {
+               write(fileWriter);
+            }
+            else
+            {
+               fileWriter.m_fileDescriptor = nullptr;
+               fileDescriptor.fileStatus = file_status::none;
+               fileDescriptor.closeOnCompletion = false;
+               fileDescriptor.fileWriter = nullptr;
+               fileDescriptor.next = m_freeFileDescriptors;
+               m_freeFileDescriptors = std::addressof(fileDescriptor);
+               std::error_code errorCode{-returnCode, std::system_category(),};
+               fileWriter.io_closed(errorCode);
+            }
          }
       }
       else if (file_status::flushing == fileDescriptor.fileStatus)
@@ -498,7 +509,11 @@ private:
       }
       else
       {
-         assert(file_status::busy == fileWriter.m_fileDescriptor->fileStatus);
+         assert(
+            false
+            || (file_status::opening == fileWriter.m_fileDescriptor->fileStatus)
+            || (file_status::busy == fileWriter.m_fileDescriptor->fileStatus)
+         );
          fileWriter.m_fileDescriptor->closeOnCompletion = true;
       }
    }
@@ -559,7 +574,7 @@ private:
       assert(false == fileDescriptor.closeOnCompletion);
       assert(nullptr == fileDescriptor.fileWriter);
       fileWriter.m_fileDescriptor = std::addressof(fileDescriptor);
-      fileDescriptor.fileStatus = file_status::busy;
+      fileDescriptor.fileStatus = file_status::opening;
       fileDescriptor.fileWriter = std::addressof(fileWriter);
       io_uring_sqe_set_data(submissionQueueEntry, std::addressof(fileDescriptor));
       io_uring_prep_openat_direct(submissionQueueEntry, AT_FDCWD, config.path().c_str(), flags, S_IRWXU | S_IRWXG, fileDescriptor.registeredFileIndex);
@@ -588,19 +603,20 @@ private:
       task.completionPromise.set_value();
    }
 
-   void poll()
+   void poll(sigset_t &sigmask)
    {
       assert(nullptr != m_ring);
+      if (auto const returnCode{io_uring_submit(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
+         unreachable();
+      }
       io_uring_cqe *completionQueueEntry{nullptr,};
       if (
-         auto const returnCode{io_uring_wait_cqe(m_ring.get(), std::addressof(completionQueueEntry)),};
+         auto const returnCode{io_uring_wait_cqes(m_ring.get(), std::addressof(completionQueueEntry), 1, nullptr,std::addressof(sigmask)),};
          0 > returnCode
       ) [[unlikely]]
       {
-         if (EINTR == -returnCode)
-         {
-            return;
-         }
          log_system_error(std::source_location::current(), "[file_writer] failed to wait for completion queue entry: ({}) - {}", -returnCode);
          unreachable();
       }
@@ -608,14 +624,39 @@ private:
       uint32_t numberOfCompletionQueueEntriesRemoved{0,};
       io_uring_for_each_cqe(m_ring.get(), completionQueueHead, completionQueueEntry)
       {
-         auto *fileDescriptor{std::bit_cast<file_descriptor *>(io_uring_cqe_get_data(completionQueueEntry)),};
-         if (nullptr != fileDescriptor)
+         auto *userdata{io_uring_cqe_get_data(completionQueueEntry),};
+         assert(nullptr != userdata);
+         if (m_commandQueue.get() == userdata)
          {
-            handle_operation_completion(*fileDescriptor, completionQueueEntry->res);
+            eventfd_t eventfdValue{0,};
+            if (-1 == eventfd_read(m_eventfd, std::addressof(eventfdValue))) [[unlikely]]
+            {
+               log_system_error(std::source_location::current(), "[file_writer] failed to reset eventfd: ({}) - {}", errno);
+               unreachable();
+            }
+            m_commandQueue->pop(
+               [this] (auto const command, auto const commandTarget)
+               {
+                  handle_command(command, commandTarget);
+               }
+            );
+         }
+         else
+         {
+            handle_operation_completion(*std::bit_cast<file_descriptor *>(userdata), completionQueueEntry->res);
          }
          ++numberOfCompletionQueueEntriesRemoved;
       }
       io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
+   }
+
+   void wake_up_ring()
+   {
+      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[file_writer] failed to raise eventfd: ({}) - {}", errno);
+         unreachable();
+      }
    }
 
    void write(file_writer &fileWriter)
