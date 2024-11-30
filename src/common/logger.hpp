@@ -97,7 +97,11 @@ inline void log_system_error(
    log_system_error(
       sourceLocation,
       fmt,
+#if (defined(_WIN32) || defined(_WIN64))
       std::error_code{errorCode, std::system_category(),}
+#else
+      std::error_code{errorCode, std::generic_category(),}
+#endif
    );
 }
 

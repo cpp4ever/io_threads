@@ -36,12 +36,12 @@
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor
 
 #include <liburing.h>
-#include <poll.h>
 #include <sys/eventfd.h>
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
 #include <cstdint> ///< for uint16_t
+#include <cstring> ///< for std::memcpy
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -234,30 +234,36 @@ public:
                log_system_error(std::source_location::current(), "[file_writer] failed to initialize sigmask: ({}) - {}", errno);
                unreachable();
             }
+            if (
+               auto const returnCode
+               {
+                  io_uring_register_files(
+                     worker.m_ring.get(),
+                     worker.m_registeredFiles.data(),
+                     static_cast<uint32_t>(worker.m_registeredFiles.size())
+                  ),
+               };
+               0 > returnCode
+            ) [[unlikely]]
             {
-               auto *submissionQueueEntry = io_uring_get_sqe(worker.m_ring.get());
+               log_system_error(std::source_location::current(), "[file_writer] failed to register files: ({}) - {}", -returnCode);
+               unreachable();
+            }
+            {
+               auto *submissionQueueEntry{io_uring_get_sqe(worker.m_ring.get()),};
                if (nullptr == submissionQueueEntry) [[unlikely]]
                {
                   log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
                   unreachable();
                }
                io_uring_sqe_set_data(submissionQueueEntry, worker.m_commandQueue.get());
-               io_uring_prep_poll_multishot(submissionQueueEntry, worker.m_eventfd, POLLIN);
+               io_uring_prep_read(submissionQueueEntry, worker.m_eventfd, std::addressof(worker.m_eventfdValue), sizeof(worker.m_eventfdValue), 0);
             }
-            while (false == stopToken.stop_requested()) [[likely]]
+            worker.poll(stopToken, sigmask);
+            if (auto const returnCode{io_uring_unregister_files(worker.m_ring.get()),}; 0 > returnCode)
             {
-               worker.poll(sigmask);
+               log_system_error(std::source_location::current(), "[file_writer] failed to unregister files: ({}) - {}", -returnCode);
             }
-            {
-               auto *submissionQueueEntry = io_uring_get_sqe(worker.m_ring.get());
-               if (nullptr == submissionQueueEntry) [[unlikely]]
-               {
-                  log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
-                  unreachable();
-               }
-               io_uring_prep_poll_remove(submissionQueueEntry, static_cast<uint64_t>(std::bit_cast<uintptr_t>(worker.m_commandQueue.get())));
-            }
-            worker.poll(sigmask);
          }
       };
    }
@@ -270,6 +276,7 @@ private:
    std::vector<int> m_registeredFiles{};
    std::unique_ptr<memory_pool> const m_fileMemory;
    int m_eventfd{-1,};
+   eventfd_t m_eventfdValue{0,};
 
    [[nodiscard]] explicit file_writer_thread_worker(size_t const capacityOfFileDescriptorList) :
       m_commandQueue{std::make_unique<command_queue<file_writer_command>>(capacityOfFileDescriptorList),},
@@ -278,7 +285,7 @@ private:
          std::make_unique<memory_pool>(
             capacityOfFileDescriptorList,
             std::align_val_t{alignof(file_descriptor),},
-            sizeof(file_descriptor)
+            sizeof(file_descriptor) + PATH_MAX
          )
       }
    {
@@ -294,14 +301,6 @@ private:
          unreachable();
       }
       m_registeredFiles.resize(capacityOfFileDescriptorList, 0);
-      if (
-         auto const returnCode{io_uring_register_files(m_ring.get(), m_registeredFiles.data(), static_cast<uint32_t>(m_registeredFiles.size())),};
-         0 > returnCode
-      ) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register files: ({}) - {}", -returnCode);
-         unreachable();
-      }
       if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[file_writer] failed to open eventfd: ({}) - {}", errno);
@@ -341,10 +340,6 @@ private:
          log_system_error(std::source_location::current(), "[file_writer] failed to close eventfd: ({}) - {}", errno);
       }
       assert(nullptr != m_ring);
-      if (auto const returnCode{io_uring_unregister_files(m_ring.get()),}; 0 > returnCode)
-      {
-         log_system_error(std::source_location::current(), "[file_writer] failed to unregister files: ({}) - {}", -returnCode);
-      }
       io_uring_queue_exit(m_ring.get());
    }
 
@@ -354,20 +349,21 @@ private:
       assert(file_status::ready == fileWriter.m_fileDescriptor->fileStatus);
       assert(std::addressof(fileWriter) == fileWriter.m_fileDescriptor->fileWriter);
       assert(nullptr == fileWriter.m_fileDescriptor->next);
-      auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
+      auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
       if (nullptr == submissionQueueEntry) [[unlikely]]
       {
          log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
          unreachable();
       }
       auto &fileDescriptor{*fileWriter.m_fileDescriptor,};
+      fileWriter.m_fileDescriptor = nullptr;
       io_uring_sqe_set_data(submissionQueueEntry, std::addressof(fileDescriptor));
+      io_uring_sqe_set_flags(submissionQueueEntry, IOSQE_FIXED_FILE);
       fileDescriptor.fileStatus = file_status::flushing;
       fileDescriptor.fileWriter = nullptr;
       submissionQueueEntry->len = 0;
       submissionQueueEntry->off = 0;
       io_uring_prep_fsync(submissionQueueEntry, fileDescriptor.registeredFileIndex, 0);
-      io_uring_sqe_set_flags(submissionQueueEntry, IOSQE_FIXED_FILE);
    }
 
    void handle_command(file_writer_command const command, intptr_t const commandTarget)
@@ -417,7 +413,7 @@ private:
       }
    }
 
-   void handle_operation_completion(file_descriptor &fileDescriptor, int const returnCode)
+   void handle_operation_completion(file_descriptor &fileDescriptor, int32_t const returnCode)
    {
       assert(file_status::none != fileDescriptor.fileStatus);
       assert(nullptr == fileDescriptor.next);
@@ -425,17 +421,17 @@ private:
       {
          if (file_status::busy == fileDescriptor.fileStatus) [[likely]]
          {
-            fileDescriptor.fileStatus = file_status::ready;
             auto &fileWriter = *fileDescriptor.fileWriter;
             assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
-            if (0 == returnCode) [[likely]]
+            if (0 <= returnCode) [[likely]]
             {
+               fileDescriptor.fileStatus = file_status::ready;
                write(fileWriter);
             }
             else
             {
                close_file(fileWriter);
-               std::error_code errorCode{-returnCode, std::system_category(),};
+               std::error_code errorCode{-returnCode, std::generic_category(),};
                fileWriter.io_closed(errorCode);
             }
          }
@@ -447,6 +443,7 @@ private:
             assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
             if (0 == returnCode) [[likely]]
             {
+               fileWriter.io_opened();
                write(fileWriter);
             }
             else
@@ -457,18 +454,18 @@ private:
                fileDescriptor.fileWriter = nullptr;
                fileDescriptor.next = m_freeFileDescriptors;
                m_freeFileDescriptors = std::addressof(fileDescriptor);
-               std::error_code errorCode{-returnCode, std::system_category(),};
+               std::error_code errorCode{-returnCode, std::generic_category(),};
                fileWriter.io_closed(errorCode);
             }
          }
       }
       else if (file_status::flushing == fileDescriptor.fileStatus)
       {
-         if (0 != returnCode) [[unlikely]]
+         if (0 > returnCode) [[unlikely]]
          {
             log_system_error(std::source_location::current(), "[file_writer] failed to flush file buffers: ({}) - {}", -returnCode);
          }
-         auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
+         auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
          if (nullptr == submissionQueueEntry) [[unlikely]]
          {
             log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
@@ -480,7 +477,7 @@ private:
       }
       else if (file_status::closing == fileDescriptor.fileStatus)
       {
-         if (0 != returnCode) [[unlikely]]
+         if (0 > returnCode) [[unlikely]]
          {
             log_system_error(std::source_location::current(), "[file_writer] failed to close file: ({}) - {}", -returnCode);
          }
@@ -561,7 +558,7 @@ private:
          );
          unreachable();
       }
-      auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
+      auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
       if (nullptr == submissionQueueEntry) [[unlikely]]
       {
          log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
@@ -576,8 +573,12 @@ private:
       fileWriter.m_fileDescriptor = std::addressof(fileDescriptor);
       fileDescriptor.fileStatus = file_status::opening;
       fileDescriptor.fileWriter = std::addressof(fileWriter);
+      auto &filePath = config.path().native();
+      auto *filePathCopy = std::bit_cast<char *>(std::addressof(fileDescriptor) + 1);
+      std::memcpy(filePathCopy, filePath.c_str(), filePath.size());
+      filePathCopy[filePath.size()] = 0;
       io_uring_sqe_set_data(submissionQueueEntry, std::addressof(fileDescriptor));
-      io_uring_prep_openat_direct(submissionQueueEntry, AT_FDCWD, config.path().c_str(), flags, S_IRWXU | S_IRWXG, fileDescriptor.registeredFileIndex);
+      io_uring_prep_openat_direct(submissionQueueEntry, AT_FDCWD, filePathCopy, flags, S_IRWXU | S_IRWXG, fileDescriptor.registeredFileIndex);
    }
 
    void handle_ready_to_write(file_writer &fileWriter)
@@ -603,51 +604,70 @@ private:
       task.completionPromise.set_value();
    }
 
-   void poll(sigset_t &sigmask)
+   void poll(std::stop_token const stopToken, sigset_t &sigmask)
    {
       assert(nullptr != m_ring);
-      if (auto const returnCode{io_uring_submit(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      for (auto stopping{false,}; false == stopping; )
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
-         unreachable();
-      }
-      io_uring_cqe *completionQueueEntry{nullptr,};
-      if (
-         auto const returnCode{io_uring_wait_cqes(m_ring.get(), std::addressof(completionQueueEntry), 1, nullptr,std::addressof(sigmask)),};
-         0 > returnCode
-      ) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[file_writer] failed to wait for completion queue entry: ({}) - {}", -returnCode);
-         unreachable();
-      }
-      uint32_t completionQueueHead;
-      uint32_t numberOfCompletionQueueEntriesRemoved{0,};
-      io_uring_for_each_cqe(m_ring.get(), completionQueueHead, completionQueueEntry)
-      {
-         auto *userdata{io_uring_cqe_get_data(completionQueueEntry),};
-         assert(nullptr != userdata);
-         if (m_commandQueue.get() == userdata)
+         if (auto const returnCode{io_uring_submit(m_ring.get()),}; 0 > returnCode) [[unlikely]]
          {
-            eventfd_t eventfdValue{0,};
-            if (-1 == eventfd_read(m_eventfd, std::addressof(eventfdValue))) [[unlikely]]
+            log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
+            unreachable();
+         }
+         io_uring_cqe *completionQueueEntry{nullptr,};
+         if (
+            auto const returnCode{io_uring_wait_cqes(m_ring.get(), std::addressof(completionQueueEntry), 1, nullptr, std::addressof(sigmask)),};
+            0 > returnCode
+         ) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[file_writer] failed to wait for completion queue entry: ({}) - {}", -returnCode);
+            unreachable();
+         }
+         stopping = stopToken.stop_requested();
+         uint32_t completionQueueHead;
+         uint32_t numberOfCompletionQueueEntriesRemoved{0,};
+         io_uring_for_each_cqe(m_ring.get(), completionQueueHead, completionQueueEntry)
+         {
+            auto *userdata{io_uring_cqe_get_data(completionQueueEntry),};
+            assert(nullptr != userdata);
+            if (m_commandQueue.get() == userdata)
             {
-               log_system_error(std::source_location::current(), "[file_writer] failed to reset eventfd: ({}) - {}", errno);
-               unreachable();
-            }
-            m_commandQueue->pop(
-               [this] (auto const command, auto const commandTarget)
+               if (0 <= completionQueueEntry->res) [[likely]]
                {
-                  handle_command(command, commandTarget);
+                  if (false == stopping) [[likely]]
+                  {
+                     auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
+                     if (nullptr == submissionQueueEntry) [[unlikely]]
+                     {
+                        log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
+                        unreachable();
+                     }
+                     io_uring_sqe_set_data(submissionQueueEntry, m_commandQueue.get());
+                     io_uring_prep_read(submissionQueueEntry, m_eventfd, std::addressof(m_eventfdValue), sizeof(m_eventfdValue), 0);
+                  }
+                  m_commandQueue->pop(
+                     [this] (auto const command, auto const commandTarget)
+                     {
+                        handle_command(command, commandTarget);
+                     }
+                  );
                }
-            );
+               else
+               {
+                  assert(0 > completionQueueEntry->res);
+                  log_system_error(std::source_location::current(), "[file_writer] failed to reset eventfd: ({}) - {}", errno);
+                  unreachable();
+               }
+            }
+            else if (nullptr != userdata)
+            {
+               handle_operation_completion(*std::bit_cast<file_descriptor *>(userdata), completionQueueEntry->res);
+            }
+            ++numberOfCompletionQueueEntriesRemoved;
          }
-         else
-         {
-            handle_operation_completion(*std::bit_cast<file_descriptor *>(userdata), completionQueueEntry->res);
-         }
-         ++numberOfCompletionQueueEntriesRemoved;
+         io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
+         assert((false == stopping) || (1 == numberOfCompletionQueueEntriesRemoved));
       }
-      io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
    }
 
    void wake_up_ring()
@@ -676,13 +696,14 @@ private:
          }
          return;
       }
-      auto *submissionQueueEntry = io_uring_get_sqe(m_ring.get());
+      auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
       if (nullptr == submissionQueueEntry) [[unlikely]]
       {
          log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry");
          unreachable();
       }
       io_uring_sqe_set_data(submissionQueueEntry, std::addressof(fileDescriptor));
+      io_uring_sqe_set_flags(submissionQueueEntry, IOSQE_FIXED_FILE);
       fileDescriptor.fileStatus = file_status::busy;
       io_uring_prep_write(
          submissionQueueEntry,
@@ -691,7 +712,6 @@ private:
          static_cast<uint32_t>(dataChunk.bytesLength),
          -1
       );
-      io_uring_sqe_set_flags(submissionQueueEntry, IOSQE_FIXED_FILE);
    }
 };
 

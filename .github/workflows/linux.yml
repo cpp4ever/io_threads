@@ -1,0 +1,175 @@
+# Part of the io_threads project (https://github.com/cpp4ever/io_threads), under the MIT License
+# SPDX-License-Identifier: MIT
+#
+# Copyright (c) 2024 Mikhail Smirnov
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+name: Linux
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "${{matrix.os}} ${{matrix.compiler}} ${{matrix.build_type}} ${{matrix.feature}}"
+    runs-on: ${{matrix.os}}
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        compiler: [clang-11, clang-12, clang-13, clang-14, clang-15, gcc-9, gcc-10, gcc-11, gcc-12]
+        feature:
+          - AddressSanitizer
+          - CodeCoverage
+          - LeakSanitizer
+          # - MemorySanitizer # Requires full instrumentation of all dependencies
+          - ThreadSanitizer
+          - UndefinedBehaviorSanitizer
+        os: [ubuntu-22.04]
+        include:
+          - feature: AddressSanitizer
+            cmake_extra_args: -DSANITIZER=ASan
+          - feature: CodeCoverage
+            cmake_extra_args: -DENABLE_COVERAGE=ON
+          - feature: LeakSanitizer
+            cmake_extra_args: -DSANITIZER=LSan
+          # - feature: MemorySanitizer
+          #   cmake_extra_args: -DSANITIZER=MSan
+          - feature: ThreadSanitizer
+            cmake_extra_args: -DSANITIZER=TSan
+          - feature: UndefinedBehaviorSanitizer
+            cmake_extra_args: -DSANITIZER=UBSan
+          - compiler: clang-11
+            cc: clang-11
+            cxx: clang++-11
+            packages: clang-11 libc++-11-dev libc++abi-11-dev
+          - compiler: clang-12
+            cc: clang-12
+            cxx: clang++-12
+            packages: clang-12 libc++-12-dev libc++abi-12-dev
+          - compiler: clang-13
+            cc: clang-13
+            cxx: clang++-13
+            packages: clang-13 libc++-13-dev libc++abi-13-dev
+          - compiler: clang-14
+            cc: clang-14
+            cxx: clang++-14
+            packages: clang-14 libc++-14-dev libc++abi-14-dev
+          - compiler: clang-15
+            cc: clang-15
+            cxx: clang++-15
+            packages: clang-15 libc++-15-dev libc++abi-15-dev
+          - compiler: gcc-9
+            cc: gcc-9
+            cxx: g++-9
+            packages: g++-9 libstdc++-9-dev
+          - compiler: gcc-10
+            cc: gcc-10
+            cxx: g++-10
+            packages: g++-10 libstdc++-10-dev
+          - compiler: gcc-11
+            cc: gcc-11
+            cxx: g++-11
+            packages: g++-11 libstdc++-11-dev
+          - compiler: gcc-12
+            cc: gcc-12
+            cxx: g++-12
+            packages: g++-12 libstdc++-12-dev
+        exclude:
+          - build_type: Release
+            feature: CodeCoverage # Makes no sense for the Release build
+          # - compiler: gcc-9
+          #   feature: MemorySanitizer # Not supported
+          # - compiler: gcc-10
+          #   feature: MemorySanitizer # Not supported
+          # - compiler: gcc-11
+          #   feature: MemorySanitizer # Not supported
+          # - compiler: gcc-12
+          #   feature: MemorySanitizer # Not supported
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Install
+      run: |
+        sudo sysctl vm.mmap_rnd_bits=28
+        sudo apt-get update
+        sudo apt-get install ${{matrix.packages}} cmake libssl-dev liburing-dev ninja-build
+        pipx install git+https://github.com/gcovr/gcovr.git@7.2#egg=gcovr
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        cmake --version
+        gcovr --version
+        ninja --version
+        cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: Configure
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        echo "CC=${{matrix.cc}}" >> $GITHUB_ENV
+        echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
+        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
+        echo "CXX=${{matrix.cxx}}" >> $GITHUB_ENV
+        echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
+        echo "UBSAN_OPTIONS=silence_unsigned_overflow=1" >> $GITHUB_ENV
+        cmake -DCMAKE_BUILD_TYPE=${{matrix.build_type}} ${{matrix.cmake_extra_args}} -G "Ninja" -S ${{github.workspace}}
+
+    - name: Build
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake --build . --config ${{matrix.build_type}} --target io_threads_tests
+
+    - name: Test
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        ctest --build-config ${{matrix.build_type}} --output-on-failure -R file_write.*
+
+    - name: Coverage
+      if: ${{matrix.feature == 'CodeCoverage'}}
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        cmake --build . --config ${{matrix.build_type}} --target gcov
+        gcovr \
+          --cobertura ${{runner.workspace}}/build/coverage.xml \
+          --filter ${{github.workspace}}/include/ \
+          --filter ${{github.workspace}}/src/ \
+          --gcov-filter ${{runner.workspace}}/build/ \
+          --gcov-object-directory ${{runner.workspace}}/build/ \
+          --gcov-use-existing-files \
+          --print-summary \
+          --root ${{github.workspace}} \
+          --timestamp ${{env.SOURCE_DATE_EPOCH}}
+
+    - name: Upload coverage reports to Codecov
+      if: ${{matrix.feature == 'CodeCoverage'}}
+      uses: codecov/codecov-action@v4
+      with:
+        directory: ${{runner.workspace}}/build
+        fail_ci_if_error: true
+        files: coverage.xml
+        flags: unittests
+        root_dir: ${{github.workspace}}
+        token: ${{secrets.CODECOV_TOKEN}}
+        verbose: true
+        working-directory: ${{github.workspace}}
