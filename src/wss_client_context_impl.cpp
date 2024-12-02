@@ -280,7 +280,6 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
 {
    assert((std::byte{1,}) == inboundConnectionCloseFrame.header.fin);
    assert(inboundConnectionCloseFrame.frameLength == inboundConnectionCloseFrame.bytesLength);
-   assert(0 <= inboundConnectionCloseFrame.bytesLength);
    assert(nullptr != inboundConnectionCloseFrame.bytes);
    if (true == session.closed)
    {
@@ -371,7 +370,6 @@ std::error_code wss_client_context::wss_client_context_impl::handle_incomplete_f
       || ((std::byte{0,}) == inboundIncompleteFrame.header.fin)
       || (inboundIncompleteFrame.bytesLength < inboundIncompleteFrame.frameLength)
    );
-   assert(0 <= inboundIncompleteFrame.bytesLength);
    assert(nullptr != inboundIncompleteFrame.bytes);
    if (nullptr == session.inboundFrame)
    {
@@ -430,7 +428,6 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
 {
    assert((std::byte{1,}) == inboundPingFrame.header.fin);
    assert(inboundPingFrame.frameLength == inboundPingFrame.bytesLength);
-   assert(0 <= inboundPingFrame.bytesLength);
    assert(nullptr != inboundPingFrame.bytes);
    if ((false == session.closed) && (nullptr == session.outboundFrame)) [[likely]]
    {

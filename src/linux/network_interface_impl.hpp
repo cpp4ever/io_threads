@@ -96,6 +96,8 @@ public:
 
    static std::vector<std::shared_ptr<network_interface_impl>> active_network_interfaces()
    {
+      ifaddrs *interfaces{nullptr,};
+      getifaddrs(std::addressof(interfaces));
       std::vector<std::shared_ptr<network_interface_impl>> networkInterfaces{};
       return networkInterfaces;
    }
