@@ -44,10 +44,10 @@ memory_pool::memory_pool(
    m_itemAlignment{std::max(memoryAlignment, std::align_val_t{alignof(slist_item)}),},
    m_itemSize{std::max(memorySize, sizeof(slist_item)),}
 {
-   for (size_t index{0}; initialPoolCapacity > index; ++index)
+   for (size_t index{0,}; initialPoolCapacity > index; ++index)
    {
       auto *memory{allocate(),};
-      std::memset(memory, 0, memory_size());
+      std::memset(std::bit_cast<void *>(memory), 0, memory_size());
       m_slistHead = std::launder(std::construct_at<slist_item>(memory, slist_item{.next = m_slistHead,}));
    }
 }
