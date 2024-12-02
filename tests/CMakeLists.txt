@@ -89,3 +89,5 @@ endif()
 
 include(GoogleTest)
 gtest_discover_tests(io_threads_tests PROPERTIES ${IO_THREADS_CTEST_PROPERTIES})
+
+add_coverage(io_threads_tests)

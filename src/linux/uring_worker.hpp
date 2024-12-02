@@ -172,7 +172,7 @@ public:
                else
                {
                   assert(0 > completionQueueEntry->res);
-                  log_system_error(std::source_location::current(), "[io_uring] failed to reset eventfd: ({}) - {}", errno);
+                  log_system_error(std::source_location::current(), "[io_uring] failed to handle commands: ({}) - {}", -completionQueueEntry->res);
                   unreachable();
                }
             }
@@ -183,6 +183,13 @@ public:
             ++numberOfCompletionQueueEntriesRemoved;
          }
          io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
+         if (true == stopping) [[unlikely]]
+         {
+            if (auto const returnCode{io_uring_get_events(m_ring.get()),}; 0 > returnCode)
+            {
+               log_system_error(std::source_location::current(), "[io_uring] failed to get events: ({}) - {}", -returnCode);
+            }
+         }
       }
    }
 

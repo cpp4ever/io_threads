@@ -53,7 +53,7 @@ private:
    {
       std::optional<socket_address> ipv4{std::nullopt,};
       std::optional<socket_address> ipv6{std::nullopt,};
-      bool loopback{false,};
+      bool const loopback{false,};
    };
 
 public:
@@ -115,28 +115,57 @@ public:
          );
          unreachable();
       }
-      std::map<std::string_view, network_interface_addresses> mapIfnameToAddresses{};
+      std::map<std::string_view, network_interface_addresses> mapIfaceNameToAddress{};
+      auto const getOrCreateAddress = [&mapIfaceNameToAddress] (ifaddrs const &iface) -> network_interface_addresses &
+      {
+         std::string_view const ifaceName{iface.ifa_name,};
+         auto const isLoopback{(IFF_LOOPBACK == (iface.ifa_flags & IFF_LOOPBACK)),};
+         if (
+            auto const ifaceNameToAddress = mapIfaceNameToAddress.find(ifaceName);
+            mapIfaceNameToAddress.end() != ifaceNameToAddress
+         )
+         {
+            if (isLoopback != ifaceNameToAddress->second.loopback) [[unlikely]]
+            {
+               log_error(std::source_location::current(), "[network_interface] loopback and non-loopback addresses within the same network interface");
+               unreachable();
+            }
+            return ifaceNameToAddress->second;
+         }
+         return mapIfaceNameToAddress.emplace(
+            ifaceName,
+            network_interface_addresses{.loopback = isLoopback,}
+         ).first->second;
+      };
       for (ifaddrs const *iface = ifaces; nullptr != iface; iface = iface->ifa_next)
       {
-         if (nullptr == iface->ifa_addr)
+         if (
+            false
+            || (nullptr == iface->ifa_addr)
+            || (IFF_RUNNING != (iface->ifa_flags & IFF_RUNNING))
+         )
          {
             continue;
          }
          if (AF_INET == iface->ifa_addr->sa_family)
          {
-            auto &ifaceAddress = mapIfnameToAddresses[std::string_view{iface->ifa_name,}];
-            ifaceAddress.ipv4.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in *>(iface->ifa_addr)));
-            ifaceAddress.loopback = IFF_LOOPBACK == (iface->ifa_flags & IFF_LOOPBACK);
+            auto &ifaceAddress = getOrCreateAddress(*iface);
+            if (false == ifaceAddress.ipv4.has_value())
+            {
+               ifaceAddress.ipv4.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in *>(iface->ifa_addr)));
+            }
          }
          else if (AF_INET6 == iface->ifa_addr->sa_family)
          {
-            auto &ifaceAddress = mapIfnameToAddresses[std::string_view{iface->ifa_name,}];
-            ifaceAddress.ipv6.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in6 *>(iface->ifa_addr)));
-            ifaceAddress.loopback = IFF_LOOPBACK == (iface->ifa_flags & IFF_LOOPBACK);
+            auto &ifaceAddress = getOrCreateAddress(*iface);
+            if (false == ifaceAddress.ipv6.has_value())
+            {
+               ifaceAddress.ipv6.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in6 *>(iface->ifa_addr)));
+            }
          }
       }
       std::vector<std::shared_ptr<network_interface_impl>> networkInterfaces{};
-      for (auto [ifaceName, ifaceAddress] : mapIfnameToAddresses)
+      for (auto [ifaceName, ifaceAddress] : mapIfaceNameToAddress)
       {
          networkInterfaces.emplace_back(
             std::make_shared<network_interface_impl>(

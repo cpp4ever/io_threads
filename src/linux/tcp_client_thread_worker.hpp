@@ -250,6 +250,7 @@ private:
    void handle_ready_to_send(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
+      (void)client;
    }
 
    void handle_recv_completion(tcp_client &client)

@@ -127,11 +127,11 @@ if(IO_THREADS_DEV)
    else()
       target_compile_options(io_threads PUBLIC -Wall -Werror -Wextra -Wpedantic)
    endif()
-   add_coverage(io_threads)
 
    enable_testing()
    add_subdirectory(tests)
    set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY VS_STARTUP_PROJECT io_threads_tests)
 
+   add_coverage(io_threads)
    coverage_evaluate()
 endif()
