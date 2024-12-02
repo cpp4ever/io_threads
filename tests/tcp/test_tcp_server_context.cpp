@@ -172,3 +172,5 @@ boost::beast::websocket::stream<test_tls_stream> test_tcp_server_context<boost::
 }
 
 }
+
+#include <boost/beast/src.hpp>

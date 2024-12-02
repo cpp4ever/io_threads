@@ -166,68 +166,60 @@ TEST_F(file_write_queue, queuing)
    auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
    std::filesystem::remove_all(testDirectory);
    std::filesystem::create_directories(testDirectory);
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testFileWritersCount = 1000;
-   auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
-   std::vector<file_writer_test_data> testFileWriters;
-   testFileWriters.reserve(testFileWritersCount);
-   constexpr size_t testMinStringLength = 1024;
-   constexpr size_t testMaxStringLength = test_string_view_serializer::buffer_capacity_limit;
-   for (size_t testIndex = 0; testIndex < testFileWritersCount; ++testIndex)
    {
-      auto testFilePath = testDirectory / random_string(10).append(".test");
-      testFileWriters.push_back(
-         file_writer_test_data
-         {
-            .filePath = testFilePath,
-            .queue = std::make_unique<test_file_write_queue>(testFileWriterThread),
-            .data = {},
-         }
-      );
-      testFileWriters.back().queue->expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
-      testFileWriters.back().data.push_back(random_string(testMinStringLength, testMaxStringLength));
-      testFileWriters.back().queue->push(testFileWriters.back().data.back());
-   }
-   constexpr size_t testIterationsCount = testFileWritersCount * 10;
-   for (size_t testIteration = 0; testIteration < testIterationsCount; ++testIteration)
-   {
-      auto &testData = testFileWriters[random_number<size_t>(0, testFileWritersCount - 1)];
-      testData.data.push_back(random_string(testMinStringLength, testMaxStringLength));
-      testData.queue->push(testData.data.back());
-   }
-   for (auto &testFileWriter : testFileWriters)
-   {
-      testFileWriter.queue->expect_close();
-   }
-   for (auto &testFileWriter : testFileWriters)
-   {
-      EXPECT_EQ(std::future_status::ready, testFileWriter.queue->wait_for(std::chrono::minutes{1}));
-   }
-   std::string testData;
-   for (auto &testFileWriter : testFileWriters)
-   {
-      testFileWriter.queue.reset();
-      std::ifstream testFile{testFileWriter.filePath, std::ios::binary | std::ios::in};
-      for (auto const &expectedData : testFileWriter.data)
+      constexpr uint16_t testCpuId = 0;
+      constexpr size_t testFileWritersCount = 1000;
+      auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
+      std::vector<file_writer_test_data> testFileWriters;
+      testFileWriters.reserve(testFileWritersCount);
+      constexpr size_t testMinStringLength = 1024;
+      constexpr size_t testMaxStringLength = test_string_view_serializer::buffer_capacity_limit;
+      for (size_t testIndex = 0; testIndex < testFileWritersCount; ++testIndex)
       {
-         testData.resize(expectedData.size());
-         EXPECT_TRUE(testFile.read(testData.data(), testData.size()));
-         EXPECT_EQ(expectedData, testData);
+         auto testFilePath = testDirectory / random_string(10).append(".test");
+         testFileWriters.push_back(
+            file_writer_test_data
+            {
+               .filePath = testFilePath,
+               .queue = std::make_unique<test_file_write_queue>(testFileWriterThread),
+               .data = {},
+            }
+         );
+         testFileWriters.back().queue->expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
+         testFileWriters.back().data.push_back(random_string(testMinStringLength, testMaxStringLength));
+         testFileWriters.back().queue->push(testFileWriters.back().data.back());
       }
-      testFile.close();
+      constexpr size_t testIterationsCount = testFileWritersCount * 10;
+      for (size_t testIteration = 0; testIteration < testIterationsCount; ++testIteration)
+      {
+         auto &testData = testFileWriters[random_number<size_t>(0, testFileWritersCount - 1)];
+         testData.data.push_back(random_string(testMinStringLength, testMaxStringLength));
+         testData.queue->push(testData.data.back());
+      }
+      for (auto &testFileWriter : testFileWriters)
+      {
+         testFileWriter.queue->expect_close();
+      }
+      for (auto &testFileWriter : testFileWriters)
+      {
+         EXPECT_EQ(std::future_status::ready, testFileWriter.queue->wait_for(std::chrono::minutes{1}));
+      }
+      std::string testData;
+      for (auto &testFileWriter : testFileWriters)
+      {
+         testFileWriter.queue.reset();
+         std::ifstream testFile{testFileWriter.filePath, std::ios::binary | std::ios::in};
+         for (auto const &expectedData : testFileWriter.data)
+         {
+            testData.resize(expectedData.size());
+            EXPECT_TRUE(testFile.read(testData.data(), testData.size()));
+            EXPECT_EQ(expectedData, testData);
+         }
+         testFile.close();
+      }
+      testFileWriters.clear();
    }
-   testFileWriters.clear();
-   std::error_code errorCode;
-   std::filesystem::remove_all(testDirectory, errorCode);
-#if (defined(_WIN32) || defined(_WIN64))
-   if (true == bool{errorCode})
-   {
-      EXPECT_NE(FALSE, CancelSynchronousIo(GetCurrentThread())) << GetLastError();
-      errorCode = {};
-      std::filesystem::remove_all(testDirectory, errorCode);
-   }
-#endif
-   EXPECT_FALSE(errorCode) << errorCode.message();
+   std::filesystem::remove_all(testDirectory);
 }
 
 }

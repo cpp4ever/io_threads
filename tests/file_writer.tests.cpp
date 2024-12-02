@@ -125,18 +125,20 @@ TEST_F(file_writer, not_found)
 #endif
    auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
    std::filesystem::remove_all(testDirectory);
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testFileWritersCount = 1;
-   auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
-   test_file_writer testFileWriter{testFileWriterThread};
-   testFileWriter.expect_error(testNotFoundErrorCode);
-   auto const testFilePath = testDirectory / random_string(10).append(".test");
-   testFileWriter.expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
-   EXPECT_EQ(std::future_status::ready, testFileWriter.wait_for(std::chrono::seconds{1}));
-   std::filesystem::create_directories(testDirectory);
-   testFileWriter.expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
-   testFileWriter.expect_close();
-   EXPECT_EQ(std::future_status::ready, testFileWriter.wait_for(std::chrono::seconds{1}));
+   {
+      constexpr uint16_t testCpuId = 0;
+      constexpr size_t testFileWritersCount = 1;
+      auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
+      test_file_writer testFileWriter{testFileWriterThread};
+      testFileWriter.expect_error(testNotFoundErrorCode);
+      auto const testFilePath = testDirectory / random_string(10).append(".test");
+      testFileWriter.expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
+      EXPECT_EQ(std::future_status::ready, testFileWriter.wait_for(std::chrono::seconds{1}));
+      std::filesystem::create_directories(testDirectory);
+      testFileWriter.expect_ready_to_open(file_writer_config{testFilePath, file_writer_option::create_new});
+      testFileWriter.expect_close();
+      EXPECT_EQ(std::future_status::ready, testFileWriter.wait_for(std::chrono::seconds{1}));
+   }
    std::filesystem::remove_all(testDirectory);
 }
 
