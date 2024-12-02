@@ -34,8 +34,10 @@
 /// for
 ///   io_uring,
 ///   io_uring_cq_advance,
+///   io_uring_cq_ready,
 ///   io_uring_cqe,
 ///   io_uring_cqe_get_data,
+///   io_uring_ring_dontfork,
 ///   io_uring_get_sqe,
 ///   io_uring_for_each_cqe,
 ///   io_uring_queue_exit,
@@ -80,6 +82,10 @@ public:
       {
          log_system_error(std::source_location::current(), "[io_uring] failed to initialize the ring: ({}) - {}", -returnCode);
          unreachable();
+      }
+      if (auto const returnCode{io_uring_ring_dontfork(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
       }
       if (-1 == sigfillset(m_sigmask.get())) [[unlikely]]
       {
@@ -135,7 +141,7 @@ public:
    {
       assert(nullptr != m_ring);
       uringCommandQueue.prep_read(submission_entry(this));
-      for (auto stopping{false,}; false == stopping; )
+      for (auto stopping{false,}; (false == stopping) || (0 < io_uring_cq_ready(m_ring.get())); )
       {
          io_uring_cqe *completionQueueEntry{nullptr,};
          if (
@@ -177,7 +183,6 @@ public:
             ++numberOfCompletionQueueEntriesRemoved;
          }
          io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
-         assert((false == stopping) || (1 == numberOfCompletionQueueEntriesRemoved));
       }
    }
 
