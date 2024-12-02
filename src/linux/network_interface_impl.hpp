@@ -31,6 +31,7 @@
 #include "linux/socket_address_impl.hpp" ///< for io_threads::socket_address::socket_address_impl
 
 #include <ifaddrs.h>
+#include <net/if.h> ///< for IFF_LOOPBACK
 
 #include <cstddef> ///< for size_t, std::bit_cast
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
@@ -121,9 +122,33 @@ public:
          {
             continue;
          }
+         if (AF_INET == iface->ifa_addr->sa_family)
+         {
+            auto &ifaceAddress = mapIfnameToAddresses[std::string_view{iface->ifa_name,}];
+            ifaceAddress.ipv4.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in *>(iface->ifa_addr)));
+            ifaceAddress.loopback = IFF_LOOPBACK == (iface->ifa_flags & IFF_LOOPBACK);
+         }
+         else if (AF_INET6 == iface->ifa_addr->sa_family)
+         {
+            auto &ifaceAddress = mapIfnameToAddresses[std::string_view{iface->ifa_name,}];
+            ifaceAddress.ipv6.emplace(std::make_shared<socket_address::socket_address_impl>(*std::bit_cast<sockaddr_in6 *>(iface->ifa_addr)));
+            ifaceAddress.loopback = IFF_LOOPBACK == (iface->ifa_flags & IFF_LOOPBACK);
+         }
+      }
+      std::vector<std::shared_ptr<network_interface_impl>> networkInterfaces{};
+      for (auto [ifaceName, ifaceAddress] : mapIfnameToAddresses)
+      {
+         networkInterfaces.emplace_back(
+            std::make_shared<network_interface_impl>(
+               std::string{ifaceName,},
+               std::string{ifaceName,},
+               std::move(ifaceAddress.ipv4),
+               std::move(ifaceAddress.ipv6),
+               ifaceAddress.loopback
+            )
+         );
       }
       freeifaddrs(ifaces);
-      std::vector<std::shared_ptr<network_interface_impl>> networkInterfaces{};
       return networkInterfaces;
    }
 

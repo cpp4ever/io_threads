@@ -200,6 +200,7 @@ private:
          )
       }
    {
+      (void)capacityOfInputOutputBuffers;
       assert(0 < capacityOfInputOutputBuffers);
    }
 

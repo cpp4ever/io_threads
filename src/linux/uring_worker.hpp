@@ -117,7 +117,7 @@ public:
    uring_worker &operator = (uring_worker &&) = delete;
    uring_worker &operator = (uring_worker const &) = delete;
 
-   [[nodiscard]] io_uring_sqe &submission_entry(void *userdata, uint32_t const flags)
+   [[nodiscard]] io_uring_sqe &submission_entry(void *userdata)
    {
       assert(nullptr != userdata);
       assert(nullptr != m_ring);
@@ -128,14 +128,13 @@ public:
          unreachable();
       }
       io_uring_sqe_set_data(submissionQueueEntry, userdata);
-      io_uring_sqe_set_flags(submissionQueueEntry, flags);
       return *submissionQueueEntry;
    }
 
    void run(std::stop_token const stopToken, uring_command_queue &uringCommandQueue, uring_listener &uringListener)
    {
       assert(nullptr != m_ring);
-      uringCommandQueue.prep_read(submission_entry(this, 0));
+      uringCommandQueue.prep_read(submission_entry(this));
       for (auto stopping{false,}; false == stopping; )
       {
          io_uring_cqe *completionQueueEntry{nullptr,};
@@ -160,7 +159,7 @@ public:
                {
                   if (false == stopping) [[likely]]
                   {
-                     uringCommandQueue.prep_read(submission_entry(this, 0));
+                     uringCommandQueue.prep_read(submission_entry(this));
                   }
                   uringCommandQueue.handle_read(uringListener, completionQueueEntry->res, completionQueueEntry->flags);
                }

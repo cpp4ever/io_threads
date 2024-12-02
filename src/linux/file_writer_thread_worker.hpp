@@ -241,10 +241,11 @@ private:
       fileDescriptor.fileStatus = file_status::flushing;
       fileDescriptor.fileWriter = nullptr;
       fileWriter.m_fileDescriptor = nullptr;
-      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor), IOSQE_FIXED_FILE),};
+      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
       submissionQueueEntry.len = 0;
       submissionQueueEntry.off = 0;
       io_uring_prep_fsync(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex, 0);
+      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
    }
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget)
@@ -343,7 +344,7 @@ private:
          {
             log_system_error(std::source_location::current(), "[file_writer] failed to flush file buffers: ({}) - {}", -result);
          }
-         auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor), 0),};
+         auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
          fileDescriptor.fileStatus = file_status::closing;
          io_uring_prep_close_direct(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex);
       }
@@ -437,7 +438,7 @@ private:
       std::memcpy(filePathCopy, filePath.c_str(), filePath.size());
       filePathCopy[filePath.size()] = 0;
       io_uring_prep_openat_direct(
-         std::addressof(m_uringWorker->submission_entry(std::addressof(fileDescriptor), 0)),
+         std::addressof(m_uringWorker->submission_entry(std::addressof(fileDescriptor))),
          AT_FDCWD,
          filePathCopy,
          flags,
@@ -486,7 +487,7 @@ private:
          }
          return;
       }
-      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor), IOSQE_FIXED_FILE),};
+      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
       fileDescriptor.fileStatus = file_status::busy;
       io_uring_prep_write(
          std::addressof(submissionQueueEntry),
@@ -495,6 +496,7 @@ private:
          static_cast<uint32_t>(dataChunk.bytesLength),
          -1
       );
+      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
    }
 };
 
