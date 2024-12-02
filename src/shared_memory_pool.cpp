@@ -49,7 +49,7 @@ shared_memory_pool::shared_memory_pool(
    for (size_t index{0}; initialPoolCapacity > index; ++index)
    {
       auto *memory{allocate(),};
-      std::memset(memory, 0, memory_size());
+      std::memset(std::bit_cast<void *>(memory), 0, memory_size());
       slistHead = std::launder(std::construct_at<slist_item>(memory, slist_item{.next = slistHead,}));
    }
    m_slistHead.store(slistHead, std::memory_order_release);

@@ -30,6 +30,8 @@
 #include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 #include "linux/socket_address_impl.hpp" ///< for io_threads::socket_address::socket_address_impl
 
+#include <ifaddrs.h>
+
 #include <cstddef> ///< for size_t, std::bit_cast
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
 #include <new> ///< for operator delete, operator new, std::align_val_t, std::launder

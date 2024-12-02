@@ -31,8 +31,8 @@
 #include "linux/socket_address_impl.hpp" ///< for io_threads::socket_address_impl
 
 #include <netdb.h> ///< for addrinfo, AI_ALL, freeaddrinfo, getaddrinfo
-#include <netinet/in.h> ///< for IPPROTO_TCP, sockaddr_in, sockaddr_in6
-#include <sys/socket.h> ///< for sa_family_t, SOCK_STREAM
+#include <netinet/in.h> ///< for htons, IPPROTO_TCP, sockaddr_in, sockaddr_in6
+#include <sys/socket.h> ///< for AF_INET, AF_INET6, sa_family_t, SOCK_STREAM
 
 #include <bit> ///< for std::bit_cast
 #include <cstdint> ///< for uint16_t
