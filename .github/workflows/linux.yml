@@ -36,7 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         build_type: [Debug, Release]
-        compiler: [clang-11, clang-12, clang-13, clang-14, clang-15, gcc-9, gcc-10, gcc-11, gcc-12]
+        compiler: [clang-18, gcc-14]
         feature:
           - AddressSanitizer
           - CodeCoverage
@@ -44,7 +44,7 @@ jobs:
           # - MemorySanitizer # Requires full instrumentation of all dependencies
           - ThreadSanitizer
           - UndefinedBehaviorSanitizer
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         include:
           - feature: AddressSanitizer
             cmake_extra_args: -DSANITIZER=ASan
@@ -58,52 +58,18 @@ jobs:
             cmake_extra_args: -DSANITIZER=TSan
           - feature: UndefinedBehaviorSanitizer
             cmake_extra_args: -DSANITIZER=UBSan
-          - compiler: clang-11
-            cc: clang-11
-            cxx: clang++-11
-            packages: clang-11 libc++-11-dev libc++abi-11-dev
-          - compiler: clang-12
-            cc: clang-12
-            cxx: clang++-12
-            packages: clang-12 libc++-12-dev libc++abi-12-dev
-          - compiler: clang-13
-            cc: clang-13
-            cxx: clang++-13
-            packages: clang-13 libc++-13-dev libc++abi-13-dev
-          - compiler: clang-14
-            cc: clang-14
-            cxx: clang++-14
-            packages: clang-14 libc++-14-dev libc++abi-14-dev
-          - compiler: clang-15
-            cc: clang-15
-            cxx: clang++-15
-            packages: clang-15 libc++-15-dev libc++abi-15-dev
-          - compiler: gcc-9
-            cc: gcc-9
-            cxx: g++-9
-            packages: g++-9 libstdc++-9-dev
-          - compiler: gcc-10
-            cc: gcc-10
-            cxx: g++-10
-            packages: g++-10 libstdc++-10-dev
-          - compiler: gcc-11
-            cc: gcc-11
-            cxx: g++-11
-            packages: g++-11 libstdc++-11-dev
-          - compiler: gcc-12
-            cc: gcc-12
-            cxx: g++-12
-            packages: g++-12 libstdc++-12-dev
+          - compiler: clang-18
+            cc: clang-18
+            cxx: clang++-18
+            packages: clang-18 libc++-18-dev libc++abi-18-dev
+          - compiler: gcc-14
+            cc: gcc-14
+            cxx: g++-14
+            packages: g++-14 libstdc++-14-dev
         exclude:
           - build_type: Release
             feature: CodeCoverage # Makes no sense for the Release build
-          # - compiler: gcc-9
-          #   feature: MemorySanitizer # Not supported
-          # - compiler: gcc-10
-          #   feature: MemorySanitizer # Not supported
-          # - compiler: gcc-11
-          #   feature: MemorySanitizer # Not supported
-          # - compiler: gcc-12
+          # - compiler: gcc-14
           #   feature: MemorySanitizer # Not supported
 
     steps:
