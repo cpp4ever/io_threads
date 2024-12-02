@@ -47,6 +47,14 @@ namespace io_threads
 
 class network_interface::network_interface_impl final
 {
+private:
+   struct network_interface_addresses final
+   {
+      std::optional<socket_address> ipv4{std::nullopt,};
+      std::optional<socket_address> ipv6{std::nullopt,};
+      bool loopback{false,};
+   };
+
 public:
    network_interface_impl() = delete;
    network_interface_impl(network_interface_impl &&) = delete;
@@ -96,8 +104,25 @@ public:
 
    static std::vector<std::shared_ptr<network_interface_impl>> active_network_interfaces()
    {
-      ifaddrs *interfaces{nullptr,};
-      getifaddrs(std::addressof(interfaces));
+      ifaddrs *ifaces{nullptr,};
+      if (-1 == getifaddrs(std::addressof(ifaces))) [[unlikely]]
+      {
+         log_system_error(
+            std::source_location::current(),
+            "[network_interface] failed to get network interfaces: ({}) - {}",
+            errno
+         );
+         unreachable();
+      }
+      std::map<std::string_view, network_interface_addresses> mapIfnameToAddresses{};
+      for (ifaddrs const *iface = ifaces; nullptr != iface; iface = iface->ifa_next)
+      {
+         if (nullptr == iface->ifa_addr)
+         {
+            continue;
+         }
+      }
+      freeifaddrs(ifaces);
       std::vector<std::shared_ptr<network_interface_impl>> networkInterfaces{};
       return networkInterfaces;
    }

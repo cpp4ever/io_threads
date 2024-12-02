@@ -301,9 +301,9 @@ private:
          {
             auto &fileWriter = *fileDescriptor.fileWriter;
             assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
+            fileDescriptor.fileStatus = file_status::ready;
             if (0 <= result) [[likely]]
             {
-               fileDescriptor.fileStatus = file_status::ready;
                write(fileWriter);
             }
             else
