@@ -23,6 +23,7 @@
    SOFTWARE.
 -->
 
+[![Linux](https://github.com/cpp4ever/io_threads/actions/workflows/linux.yml/badge.svg?branch=main)](https://github.com/cpp4ever/io_threads/actions/workflows/linux.yml)
 [![Windows](https://github.com/cpp4ever/io_threads/actions/workflows/windows.yml/badge.svg?branch=main)](https://github.com/cpp4ever/io_threads/actions/workflows/windows.yml)
 [![codecov](https://codecov.io/gh/cpp4ever/io_threads/graph/badge.svg?token=Z9VFAO02ZA)](https://codecov.io/gh/cpp4ever/io_threads)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=cpp4ever_io_threads&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=cpp4ever_io_threads)

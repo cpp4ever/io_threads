@@ -34,6 +34,7 @@
 #include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status
 #include "linux/uring_command_queue.hpp" ///< for io_threads::uring_command_queue
+#include "linux/uring_stop_token.hpp" ///< for io_threads::uring_stop_token
 #include "linux/uring_worker.hpp" ///< for io_threads::uring_worker
 
 /// for
@@ -170,24 +171,26 @@ public:
          [coreCpuId, capacityOfFileDescriptorList, &workerPromise] (std::stop_token const stopToken)
          {
             set_thread_affinity(coreCpuId);
-            file_writer_thread_worker threadWorker{capacityOfFileDescriptorList,};
+            file_writer_thread_worker threadWorker{stopToken, capacityOfFileDescriptorList,};
             assert(nullptr != threadWorker.m_uringWorker);
             assert(nullptr != threadWorker.m_uringCommandQueue);
             workerPromise.set_value(threadWorker);
-            threadWorker.m_uringWorker->run(stopToken, *threadWorker.m_uringCommandQueue, threadWorker);
+            threadWorker.m_uringWorker->run(threadWorker.m_stopToken, *threadWorker.m_uringCommandQueue, threadWorker);
          }
       };
    }
 
 private:
    std::unique_ptr<uring_worker> const m_uringWorker;
+   uring_stop_token m_stopToken;
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
    std::unique_ptr<uring_command_queue> const m_uringCommandQueue;
    file_descriptor *m_freeFileDescriptors{nullptr,};
    std::unique_ptr<memory_pool> const m_fileMemory;
 
-   [[nodiscard]] explicit file_writer_thread_worker(size_t const capacityOfFileDescriptorList) :
+   [[nodiscard]] file_writer_thread_worker(std::stop_token const &stopToken, size_t const capacityOfFileDescriptorList) :
       m_uringWorker{std::make_unique<uring_worker>(capacityOfFileDescriptorList, capacityOfFileDescriptorList + 1),},
+      m_stopToken{stopToken,},
       m_uringCommandQueue{std::make_unique<uring_command_queue>(capacityOfFileDescriptorList),},
       m_fileMemory
       {
@@ -246,6 +249,7 @@ private:
       submissionQueueEntry.off = 0;
       io_uring_prep_fsync(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex, 0);
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+      m_stopToken.increment_tasks_count();
    }
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget)
@@ -347,6 +351,7 @@ private:
          auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
          fileDescriptor.fileStatus = file_status::closing;
          io_uring_prep_close_direct(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex);
+         m_stopToken.increment_tasks_count();
       }
       else if (file_status::closing == fileDescriptor.fileStatus)
       {
@@ -364,6 +369,7 @@ private:
          log_error(std::source_location::current(), "[file_writer] unexpected file status {}: it must be a bug", to_underlying(fileDescriptor.fileStatus));
          unreachable();
       }
+      m_stopToken.decrement_tasks_count();
    }
 
    void handle_ready_to_close(file_writer &fileWriter)
@@ -445,6 +451,7 @@ private:
          S_IRWXU | S_IRWXG,
          fileDescriptor.registeredFileIndex
       );
+      m_stopToken.increment_tasks_count();
    }
 
    void handle_ready_to_write(file_writer &fileWriter)
@@ -497,6 +504,7 @@ private:
          -1
       );
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+      m_stopToken.increment_tasks_count();
    }
 };
 

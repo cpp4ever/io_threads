@@ -29,12 +29,12 @@
 #include <common/utility.hpp> ///< for io_threads::unreachable
 #include <linux/uring_command_queue.hpp> ///< for io_threads::uring_command_queue
 #include <linux/uring_listener.hpp> ///< for io_threads::uring_listener
+#include <linux/uring_stop_token.hpp> ///< for io_threads::uring_stop_token
 
 #include <errno.h> ///< for errno
 /// for
 ///   io_uring,
 ///   io_uring_cq_advance,
-///   io_uring_cq_ready,
 ///   io_uring_cqe,
 ///   io_uring_cqe_get_data,
 ///   io_uring_ring_dontfork,
@@ -58,7 +58,6 @@
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <source_location> ///< for std::source_location
-#include <stop_token> ///< for std::stop_token
 #include <vector> ///< for std::vector
 
 namespace io_threads
@@ -137,11 +136,11 @@ public:
       return *submissionQueueEntry;
    }
 
-   void run(std::stop_token const stopToken, uring_command_queue &uringCommandQueue, uring_listener &uringListener)
+   void run(uring_stop_token const &stopToken, uring_command_queue &uringCommandQueue, uring_listener &uringListener)
    {
       assert(nullptr != m_ring);
       uringCommandQueue.prep_read(submission_entry(this));
-      for (auto stopping{false,}; (false == stopping) || (0 < io_uring_cq_ready(m_ring.get())); )
+      for (auto stopping{false,}; (false == stopping) || (false == stopToken.stop_possible()); )
       {
          io_uring_cqe *completionQueueEntry{nullptr,};
          if (
@@ -183,13 +182,6 @@ public:
             ++numberOfCompletionQueueEntriesRemoved;
          }
          io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
-         if (true == stopping) [[unlikely]]
-         {
-            if (auto const returnCode{io_uring_get_events(m_ring.get()),}; 0 > returnCode)
-            {
-               log_system_error(std::source_location::current(), "[io_uring] failed to get events: ({}) - {}", -returnCode);
-            }
-         }
       }
    }
 
