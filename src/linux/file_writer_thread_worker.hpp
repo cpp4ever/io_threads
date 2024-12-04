@@ -109,8 +109,7 @@ public:
          {
             .routine{ioRoutine},
          };
-         assert(nullptr != m_uringCommandQueue);
-         m_uringCommandQueue->push(static_cast<intptr_t>(file_writer_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
+         m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
          ioTask.completionFuture.wait();
       }
    }
@@ -123,8 +122,7 @@ public:
       }
       else
       {
-         assert(nullptr != m_uringCommandQueue);
-         m_uringCommandQueue->push(static_cast<intptr_t>(file_writer_command::ready_to_close), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_close), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       }
    }
 
@@ -136,8 +134,7 @@ public:
       }
       else
       {
-         assert(nullptr != m_uringCommandQueue);
-         m_uringCommandQueue->push(static_cast<intptr_t>(file_writer_command::ready_to_open), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_open), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       }
    }
 
@@ -149,15 +146,13 @@ public:
       }
       else
       {
-         assert(nullptr != m_uringCommandQueue);
-         m_uringCommandQueue->push(static_cast<intptr_t>(file_writer_command::ready_to_write), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+         m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_write), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       }
    }
 
    void stop()
    {
-      assert(nullptr != m_uringCommandQueue);
-      m_uringCommandQueue->push();
+      m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::unknown), 0);
    }
 
    [[nodiscard]] static std::jthread start(
@@ -173,36 +168,41 @@ public:
             set_thread_affinity(coreCpuId);
             file_writer_thread_worker threadWorker{stopToken, capacityOfFileDescriptorList,};
             assert(nullptr != threadWorker.m_uringWorker);
-            assert(nullptr != threadWorker.m_uringCommandQueue);
             workerPromise.set_value(threadWorker);
-            threadWorker.m_uringWorker->run(threadWorker.m_stopToken, *threadWorker.m_uringCommandQueue, threadWorker);
+            while (
+               false
+               || (false == threadWorker.m_uringStopToken.stop_possible())
+               || (false == threadWorker.m_uringStopToken.stop_requested())
+            )
+            {
+               threadWorker.m_uringWorker->submit_and_wait(threadWorker);
+            }
          }
       };
    }
 
 private:
    std::unique_ptr<uring_worker> const m_uringWorker;
-   uring_stop_token m_stopToken;
+   uring_stop_token m_uringStopToken;
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
-   std::unique_ptr<uring_command_queue> const m_uringCommandQueue;
+   uring_command_queue m_uringCommandQueue;
    file_descriptor *m_freeFileDescriptors{nullptr,};
    std::unique_ptr<memory_pool> const m_fileMemory;
 
    [[nodiscard]] file_writer_thread_worker(std::stop_token const &stopToken, size_t const capacityOfFileDescriptorList) :
       m_uringWorker{std::make_unique<uring_worker>(capacityOfFileDescriptorList, capacityOfFileDescriptorList + 1),},
-      m_stopToken{stopToken,},
-      m_uringCommandQueue{std::make_unique<uring_command_queue>(capacityOfFileDescriptorList),},
+      m_uringStopToken{stopToken,},
+      m_uringCommandQueue{capacityOfFileDescriptorList,},
       m_fileMemory
       {
          std::make_unique<memory_pool>(
             capacityOfFileDescriptorList,
             std::align_val_t{alignof(file_descriptor),},
-            sizeof(file_descriptor) + PATH_MAX
+            sizeof(file_descriptor)
          )
       }
    {
       assert(0 < capacityOfFileDescriptorList);
-      assert(nullptr != m_uringCommandQueue);
       for (
          uint32_t registeredFileIndex{static_cast<uint32_t>(capacityOfFileDescriptorList),};
          0 < registeredFileIndex;
@@ -219,6 +219,8 @@ private:
             )
          );
       }
+      m_uringCommandQueue.prep_read(m_uringWorker->submission_entry(this));
+      m_uringStopToken.increment_tasks_count();
    }
 
    ~file_writer_thread_worker()
@@ -249,13 +251,21 @@ private:
       submissionQueueEntry.off = 0;
       io_uring_prep_fsync(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex, 0);
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
-      m_stopToken.increment_tasks_count();
+      m_uringStopToken.increment_tasks_count();
    }
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget)
    {
       switch (commandId)
       {
+      case to_underlying(file_writer_command::unknown):
+      {
+         assert(0 == commandTarget);
+         m_uringCommandQueue.prep_close(m_uringWorker->submission_entry(this));
+         m_uringStopToken.increment_tasks_count();
+      }
+      break;
+
       case to_underlying(file_writer_command::execute):
       {
          assert(0 != commandTarget);
@@ -297,6 +307,17 @@ private:
    {
       assert(0 != userdata);
       assert(0 == flags);
+      if (std::bit_cast<intptr_t>(this) == userdata)
+      {
+         if (false == m_uringStopToken.stop_requested()) [[likely]]
+         {
+            m_uringCommandQueue.prep_read(m_uringWorker->submission_entry(this));
+            m_uringStopToken.increment_tasks_count();
+         }
+         m_uringCommandQueue.handle_read(*this, result, flags);
+         m_uringStopToken.decrement_tasks_count();
+         return;
+      }
       auto &fileDescriptor{*std::bit_cast<file_descriptor *>(userdata),};
       assert(file_status::none != fileDescriptor.fileStatus);
       assert(nullptr == fileDescriptor.next);
@@ -351,7 +372,7 @@ private:
          auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
          fileDescriptor.fileStatus = file_status::closing;
          io_uring_prep_close_direct(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex);
-         m_stopToken.increment_tasks_count();
+         m_uringStopToken.increment_tasks_count();
       }
       else if (file_status::closing == fileDescriptor.fileStatus)
       {
@@ -369,7 +390,7 @@ private:
          log_error(std::source_location::current(), "[file_writer] unexpected file status {}: it must be a bug", to_underlying(fileDescriptor.fileStatus));
          unreachable();
       }
-      m_stopToken.decrement_tasks_count();
+      m_uringStopToken.decrement_tasks_count();
    }
 
    void handle_ready_to_close(file_writer &fileWriter)
@@ -397,7 +418,7 @@ private:
    void handle_ready_to_open(file_writer &fileWriter)
    {
       assert(nullptr == fileWriter.m_fileDescriptor);
-      auto const config{fileWriter.io_ready_to_open(),};
+      file_writer_config const config{fileWriter.io_ready_to_open(),};
       int flags{O_CREAT | O_NONBLOCK | O_WRONLY,};
       switch (config.option())
       {
@@ -440,18 +461,17 @@ private:
       fileDescriptor.fileStatus = file_status::opening;
       fileDescriptor.fileWriter = std::addressof(fileWriter);
       auto &filePath = config.path().native();
-      auto *filePathCopy = std::bit_cast<char *>(std::addressof(fileDescriptor) + 1);
-      std::memcpy(filePathCopy, filePath.c_str(), filePath.size());
-      filePathCopy[filePath.size()] = 0;
+      std::memcpy(fileDescriptor.filePath.data(), filePath.c_str(), filePath.size());
+      fileDescriptor.filePath[filePath.size()] = 0;
       io_uring_prep_openat_direct(
          std::addressof(m_uringWorker->submission_entry(std::addressof(fileDescriptor))),
          AT_FDCWD,
-         filePathCopy,
+         fileDescriptor.filePath.data(),
          flags,
          S_IRWXU | S_IRWXG,
          fileDescriptor.registeredFileIndex
       );
-      m_stopToken.increment_tasks_count();
+      m_uringStopToken.increment_tasks_count();
    }
 
    void handle_ready_to_write(file_writer &fileWriter)
@@ -504,7 +524,7 @@ private:
          -1
       );
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
-      m_stopToken.increment_tasks_count();
+      m_uringStopToken.increment_tasks_count();
    }
 };
 

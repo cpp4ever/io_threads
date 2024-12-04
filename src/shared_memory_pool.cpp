@@ -26,7 +26,7 @@
 #include "common/shared_memory_pool.hpp" ///< for io_threads::shared_memory_pool
 
 #include <algorithm> ///< for std::max
-#include <atomic> ///< for std::memory_order_relaxed, std::memory_order_release
+#include <atomic> ///< for std::memory_order_acquire, std::memory_order_relaxed, std::memory_order_release
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
@@ -72,7 +72,7 @@ shared_memory_pool::~shared_memory_pool()
 
 std::byte *shared_memory_pool::pop()
 {
-   auto *item = m_slistHead.load(std::memory_order_relaxed);
+   auto *item = m_slistHead.load(std::memory_order_acquire);
    while (
       true
       && (nullptr != item)
@@ -81,7 +81,7 @@ std::byte *shared_memory_pool::pop()
             item,
             item->next,
             std::memory_order_release,
-            std::memory_order_relaxed
+            std::memory_order_acquire
          )
       )
    )

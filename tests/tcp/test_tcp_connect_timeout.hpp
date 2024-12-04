@@ -23,20 +23,15 @@
    SOFTWARE.
 */
 
-#include <io_threads/socket_address.hpp> ///< for io_threads::make_socket_address
-#include <io_threads/tcp_client_address.hpp> ///< for io_threads::tcp_client_address
-#include <io_threads/tcp_client_config.hpp> ///< for io_threads::tcp_client_config
+#include <io_threads/tcp_client_config.hpp>
 
-#include <gtest/gtest.h> ///< for ASSERT_EQ, ASSERT_FALSE, ASSERT_TRUE
+#include <gtest/gtest.h>
 #if (defined(_WIN32) || defined(_WIN64))
-#  include <winerror.h> ///< for WSAETIMEDOUT
+#  include <winerror.h>
 #endif
 
-#include <array> ///< for std::to_array
-#include <cstdint> ///< for uint16_t
-#include <future> ///< for std::future_status
-#include <string_view> ///< for std::string_view
-#include <system_error> ///< for std::error_code, std::system_category
+#include <array>
+#include <future>
 
 namespace io_threads::tests
 {

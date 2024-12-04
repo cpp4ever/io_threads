@@ -25,12 +25,11 @@
 
 #pragma once
 
-#include <gtest/gtest.h> ///< for testing::Test
+#include <gtest/gtest.h>
 
-#include <cstddef> ///< for size_t
-#include <random> ///< for std::mt19937_64, std::uniform_int_distribution, std::uniform_real_distribution
-#include <string> ///< for std::string
-#include <type_traits> ///< for std::is_floating_point_v, std::is_integral_v, std::is_same_v
+#include <random>
+#include <string>
+#include <type_traits>
 
 namespace io_threads::tests
 {

@@ -23,15 +23,39 @@
    SOFTWARE.
 */
 
-#pragma once
+#include "testsuite.hpp"
 
-#include <boost/system/error_code.hpp>
-#include <gtest/gtest.h>
+#include <io_threads/system_network_interfaces.hpp>
 
 namespace io_threads::tests
 {
 
-#define EXPECT_ERROR_CODE(errorCode)  \
-   EXPECT_FALSE(errorCode) << errorCode.value() << ": " << errorCode.message()
+namespace
+{
+
+using network_interface = testsuite;
+
+}
+
+TEST_F(network_interface, network_interface)
+{
+   system_network_interfaces testSystemNetworkInterfaces{};
+   auto const testLoopbackInterface = testSystemNetworkInterfaces.loopback();
+   ASSERT_TRUE(testLoopbackInterface.has_value());
+   EXPECT_FALSE(testLoopbackInterface->friendly_name().empty());
+   EXPECT_TRUE(testLoopbackInterface->ip_v4().has_value() || testLoopbackInterface->ip_v6().has_value());
+   EXPECT_TRUE(testLoopbackInterface->is_loopback());
+   EXPECT_FALSE(testLoopbackInterface->system_name().empty());
+   EXPECT_EQ(testLoopbackInterface, testSystemNetworkInterfaces.find(testLoopbackInterface->system_name()));
+   if (true == testLoopbackInterface->ip_v4().has_value())
+   {
+      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ip_v4().value(),})));
+   }
+   if (true == testLoopbackInterface->ip_v6().has_value())
+   {
+      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ip_v6().value(),})));
+   }
+   EXPECT_EQ(std::format("{}", testLoopbackInterface), std::format("{}", testLoopbackInterface.value()));
+}
 
 }

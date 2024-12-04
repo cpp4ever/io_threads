@@ -79,7 +79,6 @@ jobs:
 
     - name: Install
       run: |
-        sudo sysctl vm.mmap_rnd_bits=28
         sudo apt-get update
         sudo apt-get install ${{matrix.packages}} cmake libssl-dev liburing-dev ninja-build
         pipx install git+https://github.com/gcovr/gcovr.git@7.2#egg=gcovr
@@ -89,16 +88,16 @@ jobs:
         gcovr --version
         ninja --version
         cmake -E make_directory ${{runner.workspace}}/build
-
-    - name: Configure
-      working-directory: ${{runner.workspace}}/build
-      run: |
         echo "CC=${{matrix.cc}}" >> $GITHUB_ENV
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
         echo "CXX=${{matrix.cxx}}" >> $GITHUB_ENV
         echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
         echo "UBSAN_OPTIONS=silence_unsigned_overflow=1" >> $GITHUB_ENV
+
+    - name: Configure
+      working-directory: ${{runner.workspace}}/build
+      run: |
         cmake -DCMAKE_BUILD_TYPE=${{matrix.build_type}} ${{matrix.cmake_extra_args}} -G "Ninja" -S ${{github.workspace}}
 
     - name: Build
@@ -109,7 +108,7 @@ jobs:
     - name: Test
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config ${{matrix.build_type}} --output-on-failure -R file_write.*
+        ctest --build-config ${{matrix.build_type}} --output-on-failure -R '(file_write|network_interface).*'
 
     - name: Coverage
       if: ${{matrix.feature == 'CodeCoverage'}}

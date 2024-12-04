@@ -29,27 +29,27 @@
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 
+#include <netdb.h> ///< for gai_strerror, getnameinfo, NI_NUMERICHOST, NI_NUMERICSERV, NI_MAXHOST, NI_MAXSERV
 #include <netinet/in.h> ///< for sockaddr_in, sockaddr_in6
+#include <sys/socket.h> ///< for AF_INET
 
-#include <algorithm> ///< for std::max
-#include <array> ///< for std::to_array
-#include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
 #include <cstdint> ///< for uint16_t
 #include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
 #include <source_location> ///< for std::source_location
-#include <string> ///< for std::string, std::wstring
+#include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
-#include <system_error> ///< for std::error_code, std::system_category
+#include <system_error> ///< for std::error_code
 
 namespace io_threads
 {
 
-struct sockaddr_inet
+struct sockaddr_inet final
 {
    union
    {
+      sa_family_t addressFamily;
+      sockaddr ip;
       sockaddr_in ipv4;
       sockaddr_in6 ipv6;
    };
@@ -63,16 +63,49 @@ public:
    socket_address_impl(socket_address_impl const &) = delete;
 
    [[nodiscard]] explicit socket_address_impl(sockaddr_in const &ipv4Address) :
-      socket_address_impl{sockaddr_inet{.ipv4{ipv4Address}}}
+      socket_address_impl{sockaddr_inet{.ipv4 = ipv4Address,}}
    {}
 
    [[nodiscard]] explicit socket_address_impl(sockaddr_in6 const &ipv6Address) :
-      socket_address_impl{sockaddr_inet{.ipv6{ipv6Address}}}
+      socket_address_impl{sockaddr_inet{.ipv6 = ipv6Address,}}
    {}
 
    [[nodiscard]] explicit socket_address_impl(sockaddr_inet const &address) :
       m_sockaddr{address}
    {
+      char addressHost[NI_MAXHOST]{0,};
+      char addressPort[NI_MAXSERV]{0,};
+      if (
+         auto const returnCode
+         {
+            getnameinfo(
+               std::addressof(m_sockaddr.ip),
+               (AF_INET == m_sockaddr.addressFamily) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6),
+               addressHost,
+               sizeof(addressHost),
+               addressPort,
+               sizeof(addressPort),
+               NI_NUMERICHOST | NI_NUMERICSERV
+            ),
+         };
+         0 != returnCode
+      ) [[unlikely]]
+      {
+         if (EAI_SYSTEM == returnCode)
+         {
+            log_system_error(std::source_location::current(), "[socket_address] failed to convert address to IP string: ({}) - {}", errno);
+         }
+         else
+         {
+            log_error(std::source_location::current(), "[socket_address] failed to convert address to IP string: ({}) - {}", returnCode, gai_strerror(returnCode));
+         }
+         unreachable();
+      }
+      assert(false == (std::string_view{addressHost,}.empty()));
+      assert(false == (std::string_view{addressPort,}.empty()));
+      m_address.assign(addressHost).append(":").append(addressPort);
+      m_address.shrink_to_fit();
+      assert(":" != m_address);
    }
 
    [[nodiscard]] explicit operator std::string() const
@@ -106,8 +139,8 @@ public:
    }
 
 private:
-   sockaddr_inet m_sockaddr;
-   std::string m_address{};
+   sockaddr_inet const m_sockaddr;
+   std::string m_address{"",};
 };
 
 }

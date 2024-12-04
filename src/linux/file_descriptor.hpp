@@ -27,6 +27,8 @@
 
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 
+#include <array> ///< for std::array
+#include <climits> ///< for PATH_MAX
 #include <cstdint> ///< for uint32_t
 
 namespace io_threads
@@ -49,6 +51,7 @@ struct file_descriptor final
    bool closeOnCompletion{false,};
    file_writer *fileWriter{nullptr,};
    file_descriptor *next{nullptr,};
+   std::array<char, PATH_MAX> filePath{0,};
 };
 
 }

@@ -24,17 +24,12 @@
 */
 
 #include "tcp/test_ssl_certificate.hpp"
-#include "tcp/test_tcp_connect_timeout.hpp" ///< for io_threads::tests::test_tcp_connect_timeout
-#include "tcp/test_tcp_server_context.hpp" ///< for io_threads::tests::test_tls_stream
-#include "tcp/websocket/test_websocket_client.hpp" ///< for test_websocket_client
+#include "tcp/test_tcp_connect_timeout.hpp"
+#include "tcp/test_tcp_server_context.hpp"
+#include "tcp/websocket/test_websocket_client.hpp"
 #include "testsuite.hpp"
 
-#include <gmock/gmock.h> ///< for MOCK_METHOD
-#include <gtest/gtest.h> ///< for TEST_F
-#include <io_threads/wss_client.hpp> ///< for io_threads::wss_client
-
-#include <atomic> ///< for std::atomic_bool, std::memory_order_relaxed
-#include <future> ///< for std::future, std::promise
+#include <io_threads/wss_client.hpp>
 
 namespace io_threads::tests
 {
@@ -49,8 +44,8 @@ private:
 
    struct internal_state final
    {
-      std::promise<void> done = {};
-      std::future<void> doneFuture = done.get_future();
+      std::promise<void> done{};
+      std::future<void> doneFuture{done.get_future(),};
    };
 
 public:
@@ -146,11 +141,11 @@ public:
    {
       EXPECT_CALL(*this, io_frame_received(testing::_, testing::_))
          .WillOnce(
-            [expectedInboundMessage, recvHandler] (auto const dataFrame, auto const finalFrame)
+            [expectedInboundMessage, recvHandler] (auto const &dataFrame, auto const finalFrame)
             {
                EXPECT_EQ(websocket_frame_type::text, dataFrame.type);
                EXPECT_TRUE(finalFrame);
-               auto const inboundMessage = std::string_view
+               std::string_view const inboundMessage
                {
                   std::bit_cast<char const *>(dataFrame.bytes),
                   dataFrame.bytesLength,
@@ -170,9 +165,9 @@ public:
    }
 
 private:
-   std::unique_ptr<internal_state> m_internalState = {};
-   std::string m_lastOutboundMessage = {};
-   std::atomic_bool m_connected = false;
+   std::unique_ptr<internal_state> m_internalState{nullptr,};
+   std::string m_lastOutboundMessage{"",};
+   std::atomic_bool m_connected{false,};
 
    void io_connected() final
    {
@@ -195,58 +190,58 @@ using wss_client = testsuite;
 
 TEST_F(wss_client, connect_timeout)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 0;
-   constexpr size_t testCapacityOfTcpBuffers = 1;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfTcpBuffers{1,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfTcpBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 0;
-   auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity};
-   constexpr size_t testCapacityOfWssClientSessionList = 0;
-   constexpr size_t testCapacityOfWssBuffers = 1;
-   auto testWebsocketContext = wss_client_context
+   constexpr size_t testTlsSessionsCapacity{0,};
+   tls_client_context const testTlsContext{testThread, test_domain, testTlsSessionsCapacity,};
+   constexpr size_t testCapacityOfWssClientSessionList{0,};
+   constexpr size_t testCapacityOfWssBuffers{1,};
+   wss_client_context const testWebsocketContext
    {
       testTlsContext,
       testCapacityOfWssClientSessionList,
-      testCapacityOfWssBuffers
+      testCapacityOfWssBuffers,
    };
-   auto testClient = test_wss_client{testWebsocketContext};
-   constexpr uint16_t testPort = 444;
+   test_wss_client testClient{testWebsocketContext,};
+   constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
 }
 
 TEST_F(wss_client, wss)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 0;
-   constexpr size_t testCapacityOfTcpBuffers = 4 * 1024;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfTcpBuffers{4 * 1024,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfTcpBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 1;
-   auto testTlsContext = tls_client_context
+   constexpr size_t testTlsSessionsCapacity{1,};
+   tls_client_context const testTlsContext
    {
       testThread,
       test_domain,
-      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12},
+      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12,},
       testTlsSessionsCapacity,
    };
-   constexpr size_t testCapacityOfWssClientSessionList = 1;
-   constexpr size_t testCapacityOfWssBuffers = 256;
-   auto testWebsocketContext = wss_client_context
+   constexpr size_t testCapacityOfWssClientSessionList{1,};
+   constexpr size_t testCapacityOfWssBuffers{256,};
+   wss_client_context const testWebsocketContext
    {
       testTlsContext,
       testCapacityOfWssClientSessionList,
-      testCapacityOfWssBuffers
+      testCapacityOfWssBuffers,
    };
-   auto testClient = test_wss_client{testWebsocketContext};
+   test_wss_client testClient{testWebsocketContext,};
    test_websocket_client<boost::beast::websocket::stream<test_tls_stream, true>>(testClient);
 }
 

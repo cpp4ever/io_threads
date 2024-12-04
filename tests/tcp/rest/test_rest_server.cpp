@@ -23,31 +23,11 @@
    SOFTWARE.
 */
 
-#include "tcp/rest/test_rest_server.hpp" ///< for io_threads::tests::test_rest_server
-#include "tcp/test_tcp_common.hpp" ///< for EXPECT_ERROR_CODE
-#include "tcp/test_tcp_server_context.hpp" ///< for io_threads::tests::test_tcp_server_context, io_threads::tests::test_tls_stream
+#include "tcp/rest/test_rest_server.hpp"
+#include "tcp/test_tcp_common.hpp"
+#include "tcp/test_tcp_server_context.hpp"
 
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <sdkddkver.h> ///< for _WIN32_WINNT
-#endif
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::address
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::socket
-#if (not defined(_WIN32) && not defined(_WIN64))
-#  include <boost/asio/ssl/stream_base.hpp> ///< for boost::asio::ssl::stream_base::handshake_type
-#endif
-#include <boost/asio/strand.hpp> ///< for boost::asio::make_strand
-#include <boost/beast.hpp> ///< for boost::beast::get_lowest_layer, boost::beast::tcp_stream
-#include <boost/beast/http.hpp> ///< for boost::beast::http::async_read, boost::beast::http::async_write
-#include <boost/system/error_code.hpp> ///< for boost::system::error_code
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <boost/wintls/handshake_type.hpp> ///< for boost::wintls::handshake_type
-#endif
-
-#include <chrono> ///< for std::chrono::seconds
-#include <cstdint> ///< for uint16_t
-#include <memory> ///< for std::make_unique
-#include <thread> ///< for std::thread
-#include <type_traits> ///< for std::is_same_v
+#include <boost/asio/strand.hpp>
 
 namespace io_threads::tests
 {

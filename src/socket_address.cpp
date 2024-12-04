@@ -34,8 +34,10 @@
 
 #include <cassert> ///< for assert
 #include <cstdint> ///< for uint16_t
+#include <format> ///< for std::format
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::nullopt, std::optional
+#include <ostream> ///< for std::ostream
 #include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
@@ -72,6 +74,11 @@ socket_address::socket_address_impl const *socket_address::operator -> () const 
 
 socket_address &socket_address::operator = (socket_address &&rhs) noexcept = default;
 socket_address &socket_address::operator = (socket_address const &rhs) = default;
+
+std::ostream &operator << (std::ostream &sink, socket_address const &socketAddress)
+{
+   return sink << std::format("{}", socketAddress);
+}
 
 std::optional<socket_address> make_socket_address(std::string_view const address, std::error_code &errorCode)
 {

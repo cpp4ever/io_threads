@@ -25,26 +25,11 @@
 
 #pragma once
 
-#include "tcp/websocket/test_websocket_server.hpp" ///< for test_websocket_server
+#include "tcp/websocket/test_websocket_server.hpp"
 
-#include <io_threads/system_network_interfaces.hpp> ///< for io_threads::system_network_interfaces
-#include <io_threads/tcp_client_config.hpp> ///< for io_threads::tcp_client_config
-#include "io_threads/websocket_client_config.hpp" ///< for io_threads::websocket_client_config
-
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <sdkddkver.h> ///< for _WIN32_WINNT
-#endif
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::make_address
-#include <gmock/gmock.h> ///< for EXPECT_CALL, testing::AnyOf, testing::StrictMock, testing::_
-#include <gtest/gtest.h> ///< for EXPECT_EQ
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <winerror.h> ///< for WSAECONNABORTED, WSAECONNRESET
-#endif
-
-#include <chrono> ///< for std::chrono::seconds
-#include <future> ///< for std::future_status
-#include <string> ///< for std::string
-#include <string_view> ///< for std::string_view
+#include <io_threads/system_network_interfaces.hpp>
+#include <io_threads/tcp_client_config.hpp>
+#include <io_threads/websocket_client_config.hpp>
 
 namespace io_threads::tests
 {

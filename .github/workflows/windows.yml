@@ -58,13 +58,13 @@ jobs:
         cmake --version
         cmake -E make_directory ${{runner.workspace}}/build
         echo "C:\Program Files\OpenCppCoverage" >> $env:GITHUB_PATH
+        echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $GITHUB_ENV
+        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
+        echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
 
     - name: Configure
       working-directory: ${{runner.workspace}}/build
       run: |
-        echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $GITHUB_ENV
-        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
-        echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
         cmake -A ${{matrix.platform}} -T ${{matrix.toolset}} -S ${{github.workspace}}
 
     - name: Build

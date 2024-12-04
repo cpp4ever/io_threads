@@ -23,41 +23,17 @@
    SOFTWARE.
 */
 
-#include "tcp/test_tcp_common.hpp" ///< for EXPECT_ERROR_CODE
-#include "tcp/test_tcp_server_context.hpp" ///< for io_threads::tests::test_tcp_server_context, io_threads::tests::test_tls_stream
-#include "tcp/websocket/test_websocket_server.hpp" ///< for io_threads::tests::test_websocket_server
+#include "tcp/test_tcp_common.hpp"
+#include "tcp/test_tcp_server_context.hpp"
+#include "tcp/websocket/test_websocket_server.hpp"
 
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::address
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::socket
-#include <boost/asio/error.hpp> ///< for boost::asio::error::make_error_code
-#if (not defined(WIN32))
-#  include <boost/asio/ssl/stream_base.hpp> ///< for boost::asio::ssl::stream_base::handshake_type
-#  include <boost/asio/ssl/error.hpp> ///< for boost::asio::ssl::error::stream_errors
-#endif
-#include <boost/asio/strand.hpp> ///< for boost::asio::make_strand
-#include <boost/beast.hpp> ///< for boost::beast::get_lowest_layer, boost::beast::role_type, boost::beast::tcp_stream
-/// for
-///   boost::beast::websocket::close_code,
-///   boost::beast::websocket::close_reason,
-///   boost::beast::websocket::error,
-///   boost::beast::websocket::make_error_code,
-///   boost::beast::websocket::stream,
-///   boost::beast::websocket::stream_base::timeout
-#include <boost/beast/websocket.hpp>
-#if (not defined(WIN32))
-#  include <boost/beast/websocket/ssl.hpp> ///< for boost::beast::async_teardown
-#endif
-#include <boost/system/error_code.hpp> ///< for boost::system::error_code
-#if (defined(WIN32))
-#  include <boost/wintls/handshake_type.hpp> ///< for boost::wintls::handshake_type
+#include <boost/asio/strand.hpp>
+#if (not defined(_WIN32) && not defined(_WIN64))
+#  include <boost/asio/ssl/error.hpp>
+#  include <boost/beast/websocket/ssl.hpp>
 #endif
 
-#include <memory> ///< for std::make_unique
-#include <thread> ///< for std::thread
-#include <type_traits> ///< for std::is_same_v
-#include <utility> ///< for std::forward, std::move
-
-#if (defined(WIN32))
+#if (defined(_WIN32) || defined(_WIN64))
 namespace boost::beast
 {
 
@@ -82,17 +58,14 @@ test_websocket_server<test_websocket_stream>::test_websocket_server(boost::asio:
    m_streams(),
    m_thread()
 {
-   m_thread = std::make_unique<std::thread>(
-      &test_websocket_server::thread_handler,
-      this
-   );
+   m_thread = std::thread{&test_websocket_server::thread_handler, this,};
 }
 
 template<typename test_websocket_stream>
 test_websocket_server<test_websocket_stream>::~test_websocket_server()
 {
    m_ioContext.stop();
-   m_thread->join();
+   m_thread.join();
 }
 
 template<typename test_websocket_stream>
@@ -111,7 +84,7 @@ void test_websocket_server<test_websocket_stream>::async_read(test_websocket_str
       {
          if (
             false
-#if (not defined(WIN32))
+#if (not defined(_WIN32) && not defined(_WIN64))
             || (boost::asio::ssl::error::make_error_code(boost::asio::ssl::error::stream_errors::stream_truncated) == testErrorCode)
 #endif
             || (boost::beast::websocket::make_error_code(boost::beast::websocket::error::closed) == testErrorCode)
@@ -161,7 +134,7 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
                constexpr auto handshakeTimeout = std::chrono::milliseconds{100};
                boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
                stream.next_layer().async_handshake(
-#if (defined(WIN32))
+#if (defined(_WIN32) || defined(_WIN64))
                   boost::wintls::handshake_type::server,
 #else
                   boost::asio::ssl::stream_base::server,

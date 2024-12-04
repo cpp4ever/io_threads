@@ -28,15 +28,13 @@
 #if (defined(_WIN32) || defined(_WIN64))
 #  include <sdkddkver.h> ///< for _WIN32_WINNT
 #endif
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::socket
 #if (not defined(_WIN32) && not defined(_WIN64))
-#  include <boost/asio/ssl/stream.hpp> ///< for boost::asio::ssl::stream
+#  include <boost/asio/ssl/stream.hpp>
 #endif
-#include <boost/beast.hpp> ///< for boost::beast::tcp_stream
-#include <boost/beast/websocket.hpp> ///< for boost::beast::websocket::stream
+#include <boost/beast.hpp>
 #if (defined(_WIN32) || defined(_WIN64))
-#  include <boost/wintls/context.hpp> ///< for boost::wintls::context
-#  include <boost/wintls/stream.hpp> ///< for boost::wintls::stream
+#  include <boost/wintls/context.hpp>
+#  include <boost/wintls/stream.hpp>
 #endif
 
 namespace io_threads::tests

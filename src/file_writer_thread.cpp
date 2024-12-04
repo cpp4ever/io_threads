@@ -148,13 +148,11 @@ void file_writer_thread::execute(std::function<void()> const &ioRoutine) const
 file_writer_thread::file_writer::file_writer(file_writer_thread const &fileWriterThread) noexcept :
    m_fileWriterThread{fileWriterThread.m_impl,}
 {
-   assert(nullptr == m_fileDescriptor);
    assert(nullptr != m_fileWriterThread);
 }
 
 file_writer_thread::file_writer::~file_writer()
 {
-   assert(nullptr == m_fileDescriptor);
    assert(nullptr != m_fileWriterThread);
 }
 
@@ -166,14 +164,12 @@ void file_writer_thread::file_writer::ready_to_close()
 
 void file_writer_thread::file_writer::ready_to_open()
 {
-   assert(nullptr == m_fileDescriptor);
    assert(nullptr != m_fileWriterThread);
    m_fileWriterThread->ready_to_open(*this);
 }
 
 void file_writer_thread::file_writer::ready_to_write()
 {
-   assert(nullptr != m_fileDescriptor);
    assert(nullptr != m_fileWriterThread);
    m_fileWriterThread->ready_to_write(*this);
 }

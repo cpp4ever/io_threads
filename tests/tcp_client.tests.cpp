@@ -23,20 +23,11 @@
    SOFTWARE.
 */
 
-#include "tcp/test_tcp_connect_timeout.hpp" ///< for io_threads::tests::test_tcp_connect_timeout
-#include "tcp/rest/test_rest_client.hpp" ///< for io_threads::tests::test_rest_client
-#include "testsuite.hpp" ///< for io_threads::tests::testsuite
+#include "tcp/test_tcp_connect_timeout.hpp"
+#include "tcp/rest/test_rest_client.hpp"
+#include "testsuite.hpp"
 
-#include <boost/beast.hpp> ///< for boost::beast::tcp_stream
-#include <gmock/gmock.h> ///< for EXPECT_CALL, MOCK_METHOD, testing::Return, testing::StrictMock, testing::_
-#include <gtest/gtest.h> ///< for TEST_F
-#include <io_threads/tcp_client.hpp> ///< for io_threads::tcp_client
-
-#include <atomic> ///< for std::atomic_bool, std::memory_order_relaxed
-#include <cstdint> ///< for uint16_t
-#include <future> ///< for std::future, std::promise
-#include <string> ///< for std::string
-#include <string_view> ///< for std::string_view
+#include <io_threads/tcp_client.hpp>
 
 namespace io_threads::tests
 {
@@ -51,8 +42,8 @@ private:
 
    struct internal_state final
    {
-      std::promise<void> done = {};
-      std::future<void> doneFuture = done.get_future();
+      std::promise<void> done{};
+      std::future<void> doneFuture{done.get_future(),};
    };
 
 public:
@@ -98,10 +89,10 @@ public:
    {
       EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
          .WillOnce(
-            [this, message] (auto const dataChunk, auto &bytesWritten)
+            [this, message] (auto const &dataChunk, auto &bytesWritten)
             {
                EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const, auto &bytesWritten)
+                  [this] (auto const &, auto &bytesWritten)
                   {
                      bytesWritten = 0;
                      EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
@@ -126,9 +117,9 @@ public:
    {
       EXPECT_CALL(*this, io_data_received(testing::_, testing::_))
          .WillOnce(
-            [expectedMessage, recvHandler] (auto const dataChunk, auto &bytesRead)
+            [expectedMessage, recvHandler] (auto const &dataChunk, auto &bytesRead)
             {
-               auto const receivedMessage = std::string_view
+               std::string_view const receivedMessage
                {
                   std::bit_cast<char const *>(dataChunk.bytes),
                   dataChunk.bytesLength,
@@ -149,8 +140,8 @@ public:
    }
 
 private:
-   std::unique_ptr<internal_state> m_internalState = {};
-   std::atomic_bool m_connected = false;
+   std::unique_ptr<internal_state> m_internalState{nullptr,};
+   std::atomic_bool m_connected{false,};
 
    void io_connected() final
    {
@@ -177,32 +168,32 @@ using tcp_client = testsuite;
 
 TEST_F(tcp_client, connect_timeout)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 0;
-   constexpr size_t testCapacityOfInputOutputBuffers = 1;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfInputOutputBuffers{1,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   auto testClient = test_tcp_client{testThread};
-   constexpr uint16_t testPort = 81;
+   test_tcp_client testClient{testThread,};
+   constexpr uint16_t testPort{81,};
    test_tcp_connect_timeout(testClient, testPort);
 }
 
 TEST_F(tcp_client, http)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 1;
-   constexpr size_t testCapacityOfInputOutputBuffers = 256;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
+   constexpr size_t testCapacityOfInputOutputBuffers{256,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   auto testClient = test_tcp_client{testThread};
+   test_tcp_client testClient{testThread,};
    test_rest_client<boost::beast::tcp_stream>(testClient);
 }
 

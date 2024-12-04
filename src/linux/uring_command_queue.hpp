@@ -31,10 +31,10 @@
 #include <linux/uring_listener.hpp> ///< for io_threads::uring_listener
 
 #include <errno.h> ///< for errno
-#include <liburing.h> ///< for io_uring_prep_read, io_uring_sqe
-#include <sys/eventfd.h> ///< for close, EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
+#include <liburing.h> ///< for io_uring_prep_close, io_uring_prep_read, io_uring_sqe
+#include <sys/eventfd.h> ///< for EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
 
-#include <atomic> ///< for std::atomic, std::memory_order_relaxed, std::memory_order_release
+#include <atomic> ///< for std::atomic, std::memory_order_acq_rel, std::memory_order_relaxed, std::memory_order_release
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
@@ -70,41 +70,59 @@ public:
       }
    }
 
-   ~uring_command_queue()
-   {
-      if (-1 == close(m_eventfd)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[io_uring] failed to close eventfd: ({}) - {}", errno);
-      }
-   }
-
    uring_command_queue &operator = (uring_command_queue &&) = delete;
    uring_command_queue &operator = (uring_command_queue const &) = delete;
+
+   void prep_close(io_uring_sqe &submissionQueueEntry)
+   {
+      io_uring_prep_close(std::addressof(submissionQueueEntry), m_eventfd);
+      m_eventfdClosed = true;
+   }
 
    void prep_read(io_uring_sqe &submissionQueueEntry)
    {
       io_uring_prep_read(std::addressof(submissionQueueEntry), m_eventfd, std::addressof(m_eventfdValue), sizeof(m_eventfdValue), 0);
    }
 
-   void handle_read(uring_listener &uringListener, [[maybe_unused]] int32_t const result, [[maybe_unused]] uint32_t const flags)
+   void handle_read(uring_listener &uringListener, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
-      assert(static_cast<int32_t>(sizeof(m_eventfdValue)) == result);
-      assert(0 == flags);
-      queue_item *orderedItems{nullptr,};
-      auto *unorderedItems{m_slistHead.exchange(nullptr, std::memory_order_relaxed),};
-      while (nullptr != unorderedItems)
+      if (0 <= result) [[likely]]
       {
-         auto *item{std::launder(unorderedItems),};
-         unorderedItems = item->next;
-         item->next = orderedItems;
-         orderedItems = item;
+         assert(
+            false
+            || (static_cast<int32_t>(sizeof(m_eventfdValue)) == result)
+            || (true == m_eventfdClosed)
+         );
+         assert(0 == flags);
+         queue_item *orderedItems{nullptr,};
+         auto *unorderedItems{m_slistHead.exchange(nullptr, std::memory_order_acq_rel),};
+         while (nullptr != unorderedItems)
+         {
+            auto *item{std::launder(unorderedItems),};
+            unorderedItems = item->next;
+            item->next = orderedItems;
+            orderedItems = item;
+         }
+         while (nullptr != orderedItems)
+         {
+            auto *item{std::launder(orderedItems),};
+            orderedItems = item->next;
+            uringListener.handle_command(item->commandId, item->commandTarget);
+            m_memoryPool.push_object(*item);
+         }
       }
-      while (nullptr != orderedItems)
+      else
       {
-         auto *item{std::launder(orderedItems),};
-         orderedItems = item->next;
-         uringListener.handle_command(item->commandId, item->commandTarget);
-         m_memoryPool.push_object(*item);
+         assert(0 > result);
+         if (true == m_eventfdClosed)
+         {
+            log_system_error(std::source_location::current(), "[io_uring] failed to close eventfd: ({}) - {}", -result);
+         }
+         else
+         {
+            log_system_error(std::source_location::current(), "[io_uring] failed to read eventfd: ({}) - {}", -result);
+            unreachable();
+         }
       }
    }
 
@@ -137,19 +155,11 @@ public:
       }
    }
 
-   void push()
-   {
-      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
-      {
-         log_system_error(std::source_location::current(), "[io_uring] failed to raise eventfd: ({}) - {}", errno);
-         unreachable();
-      }
-   }
-
 private:
    shared_memory_pool m_memoryPool;
    std::atomic<queue_item *> m_slistHead{nullptr};
    int m_eventfd{-1,};
+   bool m_eventfdClosed{false,};
    eventfd_t m_eventfdValue{0,};
 };
 

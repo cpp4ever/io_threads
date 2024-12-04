@@ -40,5 +40,12 @@ if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
    set_target_properties(boost_context PROPERTIES CXX_EXTENSIONS ON)
    set_target_properties(boost_coroutine PROPERTIES CXX_EXTENSIONS ON)
 endif()
+target_compile_definitions(
+   boost_asio
+   INTERFACE
+      BOOST_ASIO_SEPARATE_COMPILATION=1
+      $<$<PLATFORM_ID:Linux>:BOOST_ASIO_HAS_IO_URING=1>
+      $<$<CXX_COMPILER_ID:GNU>:BOOST_ASIO_DISABLE_FENCED_BLOCK=1 BOOST_OPTIONAL_USE_SINGLETON_DEFINITION_OF_NONE=1>
+)
 target_compile_definitions(boost_beast INTERFACE BOOST_BEAST_SEPARATE_COMPILATION=1)
 organize_thirdparty_directory_targets("${boost_SOURCE_DIR}" thirdparty)

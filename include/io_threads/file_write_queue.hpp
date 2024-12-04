@@ -29,7 +29,7 @@
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_thread.hpp" ///< for io_threads::file_writer_thread
 
-#include <atomic> ///< for std::atomic, std::atomic_bool, std::memory_order_relaxed, std::memory_order_release
+#include <atomic> ///< for std::atomic, std::atomic_bool, std::memory_order_acq_rel, std::memory_order_relaxed, std::memory_order_release
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
@@ -152,6 +152,7 @@ public:
             )
          )
       };
+      auto wakeUpIo{nullptr == task->next,};
       while (
          false == m_unorderedTasks.compare_exchange_strong(
             task->next,
@@ -161,7 +162,7 @@ public:
          )
       )
       {}
-      if ((nullptr == task->next) && (true == m_open.load(std::memory_order_relaxed)))
+      if ((true == wakeUpIo) && (true == m_open.load(std::memory_order_relaxed)))
       {
          ready_to_write();
       }
@@ -211,7 +212,7 @@ private:
          {
             break;
          }
-         auto *unorderedTasks{m_unorderedTasks.exchange(nullptr, std::memory_order_relaxed)};
+         auto *unorderedTasks{m_unorderedTasks.exchange(nullptr, std::memory_order_acq_rel)};
          while (nullptr != unorderedTasks)
          {
             auto *task{std::launder(unorderedTasks)};
@@ -236,7 +237,7 @@ private:
             std::destroy_at(task);
             m_taskAllocator.deallocate(task);
          }
-         m_orderedTasks = m_unorderedTasks.exchange(nullptr, std::memory_order_relaxed);
+         m_orderedTasks = m_unorderedTasks.exchange(nullptr, std::memory_order_acq_rel);
       } while (nullptr != m_orderedTasks);
       m_open.store(false, std::memory_order_relaxed);
    }

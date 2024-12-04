@@ -25,17 +25,14 @@
 
 #pragma once
 
-#include <boost/asio/io_context.hpp> ///< for boost::asio::io_context
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::address
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::acceptor
-#include <boost/beast.hpp> ///< for boost::beast::flat_buffer, boost::beast::tcp_stream
-#include <boost/beast/websocket.hpp> ///< for boost::beast::websocket::stream
-#include <gmock/gmock.h> ///< for MOCK_METHOD
+#if (defined(_WIN32) || defined(_WIN64))
+#  include <sdkddkver.h> ///< for _WIN32_WINNT
+#endif
+#include <boost/beast.hpp>
+#include <gmock/gmock.h>
 
-#include <cstdint> ///< for uint16_t
-#include <deque> ///< for std::deque
-#include <memory> ///< for std::unique_ptr
-#include <thread> ///< for std::thread
+#include <deque>
+#include <thread>
 
 namespace io_threads::tests
 {
@@ -67,7 +64,7 @@ private:
    boost::beast::flat_buffer m_inboundBuffer;
    std::string m_outboundBuffer;
    std::deque<test_websocket_stream> m_streams;
-   std::unique_ptr<std::thread> m_thread;
+   std::thread m_thread;
 
    void async_read(test_websocket_stream &stream);
    void async_socket_accept();

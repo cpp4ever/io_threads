@@ -26,8 +26,10 @@
 #pragma once
 
 #include <cstdint> ///< for uint16_t
+#include <format> ///< for std::format_to, std::formatter
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::optional
+#include <ostream> ///< for std::ostream
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
 
@@ -52,11 +54,61 @@ public:
    socket_address &operator = (socket_address &&rhs) noexcept;
    socket_address &operator = (socket_address const &rhs);
 
+   [[maybe_unused, nodiscard]] bool operator == (socket_address const &rhs) const noexcept
+   {
+      return bool{std::string_view{*this,} == std::string_view{rhs,},};
+   }
+
+   [[maybe_unused, nodiscard]] bool operator != (socket_address const &rhs) const noexcept
+   {
+      return bool{false == (operator == (rhs)),};
+   }
+
 private:
    std::shared_ptr<socket_address_impl> m_impl;
 };
+
+std::ostream &operator << (std::ostream &sink, socket_address const &socketAddress);
 
 [[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view address, std::error_code &errorCode);
 [[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view ip, uint16_t port, std::error_code &errorCode);
 
 }
+
+template<>
+struct std::formatter<io_threads::socket_address, char>
+{
+   template<typename parse_context>
+   constexpr typename parse_context::iterator parse(parse_context &parseContext)
+   {
+      return typename parse_context::iterator{parseContext.begin(),};
+   }
+
+   template<typename format_context>
+   typename format_context::iterator format(io_threads::socket_address const &socketAddress, format_context &formatContext) const
+   {
+      return typename format_context::iterator{std::format_to(formatContext.out(), "{}", std::string_view{socketAddress,}),};
+   }
+};
+
+template<>
+struct std::formatter<std::optional<io_threads::socket_address>, char>
+{
+   template<typename parse_context>
+   constexpr typename parse_context::iterator parse(parse_context &parseContext)
+   {
+      return typename parse_context::iterator{parseContext.begin(),};
+   }
+
+   template<typename format_context>
+   typename format_context::iterator format(std::optional<io_threads::socket_address> const &socketAddress, format_context &formatContext) const
+   {
+      return typename format_context::iterator
+      {
+         (true == socketAddress.has_value())
+            ? std::format_to(formatContext.out(), "{}", socketAddress.value())
+            : std::format_to(formatContext.out(), "null")
+         ,
+      };
+   }
+};

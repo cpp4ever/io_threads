@@ -25,17 +25,14 @@
 
 #include "testsuite.hpp"
 
-#include "io_threads/file_writer.hpp"
-#include "io_threads/file_writer_thread.hpp"
-
-#include <gmock/gmock.h> ///< for MOCK_METHOD
-#include <gtest/gtest.h> ///< for TEST_F
+#include <gmock/gmock.h>
+#include <io_threads/file_writer.hpp>
+#include <io_threads/file_writer_thread.hpp>
 #if (defined(_WIN32) || defined(_WIN64))
-#  include <winerror.h> ///< for WSAECONNABORTED, WSAECONNRESET
+#  include <winerror.h>
 #endif
 
-#include <atomic> ///< for std::atomic_bool, std::memory_order_relaxed
-#include <future> ///< for std::future, std::promise
+#include <future>
 
 namespace io_threads::tests
 {

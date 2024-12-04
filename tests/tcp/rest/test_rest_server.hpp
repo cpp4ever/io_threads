@@ -28,19 +28,11 @@
 #if (defined(_WIN32) || defined(_WIN64))
 #  include <sdkddkver.h> ///< for _WIN32_WINNT
 #endif
-#include <boost/asio/io_context.hpp> ///< for boost::asio::io_context
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::address
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::acceptor
-#include <boost/beast.hpp> ///< for boost::beast::flat_buffer, boost::beast::tcp_stream
-#include <boost/beast/http.hpp> ///< for boost::beast::http::request, boost::beast::http::response, boost::beast::http::string_body
-#include <gmock/gmock.h> ///< for MOCK_METHOD
-#include <gtest/gtest.h> ///< for EXPECT_EQ
+#include <boost/beast.hpp>
+#include <gmock/gmock.h>
 
-#include <cstdint> ///< for uint16_t
-#include <deque> ///< for std::deque
-#include <memory> ///< for std::unique_ptr
-#include <string_view> ///< for std::string_view
-#include <thread> ///< for std::thread
+#include <deque>
+#include <thread>
 
 namespace io_threads::tests
 {

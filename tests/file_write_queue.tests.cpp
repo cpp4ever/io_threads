@@ -25,17 +25,13 @@
 
 #include "testsuite.hpp"
 
-#include <gmock/gmock.h> ///< for MOCK_METHOD
-#include <gtest/gtest.h> ///< for TEST_F
+#include <gmock/gmock.h>
 #include <io_threads/file_write_queue.hpp>
 #include <io_threads/file_writer_thread.hpp>
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <Windows.h>
-#endif
 
-#include <deque> ///< for std::deque
-#include <fstream> ///< for std::ifstream
-#include <future> ///< for std::future, std::promise
+#include <deque>
+#include <fstream>
+#include <future>
 
 namespace io_threads::tests
 {

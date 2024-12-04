@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include <array> ///< for std::to_array
-#include <bit> ///< for std::bit_cast
-#include <cstdint> ///< for uint8_t
-#include <string_view> ///< for std::string_view
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <string_view>
 
 namespace io_threads::tests
 {

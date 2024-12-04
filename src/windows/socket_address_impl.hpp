@@ -93,11 +93,11 @@ public:
    socket_address_impl(socket_address_impl const &) = delete;
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_IN const &ipv4Address) :
-      socket_address_impl{SOCKADDR_INET{.Ipv4{ipv4Address,},},}
+      socket_address_impl{SOCKADDR_INET{.Ipv4 = ipv4Address,},}
    {}
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_IN6 const &ipv6Address) :
-      socket_address_impl{SOCKADDR_INET{.Ipv6{ipv6Address,},},}
+      socket_address_impl{SOCKADDR_INET{.Ipv6 = ipv6Address,},}
    {}
 
    [[nodiscard]] explicit socket_address_impl(SOCKADDR_INET const &address) :
@@ -306,8 +306,8 @@ public:
    }
 
 private:
-   SOCKADDR_INET m_sockaddr;
-   std::string m_address{};
+   SOCKADDR_INET const m_sockaddr;
+   std::string m_address{"",};
 };
 
 }

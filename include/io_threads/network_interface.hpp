@@ -27,8 +27,10 @@
 
 #include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 
+#include <format> ///< for std::format_to, std::formatter
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::optional
+#include <ostream> ///< for std::ostream
 #include <string_view> ///< for std::string_view
 
 namespace io_threads
@@ -47,6 +49,27 @@ public:
    network_interface &operator = (network_interface &&rhs) noexcept;
    network_interface &operator = (network_interface const &rhs);
 
+   [[maybe_unused, nodiscard]] bool operator == (network_interface const &rhs) const noexcept
+   {
+      return bool
+      {
+         false
+         || (m_impl == rhs.m_impl)
+         || (
+               true
+               && (system_name() == rhs.system_name())
+               && (ip_v4() == rhs.ip_v4())
+               && (ip_v6() == rhs.ip_v6())
+            )
+         ,
+      };
+   }
+
+   [[maybe_unused, nodiscard]] bool operator != (network_interface const &rhs) const noexcept
+   {
+      return bool{false == (operator == (rhs)),};
+   }
+
    [[nodiscard]] std::string_view friendly_name() const noexcept;
 
    [[nodiscard]] std::optional<socket_address> const &ip_v4() const noexcept;
@@ -64,4 +87,55 @@ private:
    [[nodiscard]] explicit network_interface(std::shared_ptr<network_interface_impl> const &impl) noexcept;
 };
 
+std::ostream &operator << (std::ostream &sink, network_interface const &networkInterface);
+
 }
+
+template<>
+struct std::formatter<io_threads::network_interface, char>
+{
+   template<typename parse_context>
+   constexpr typename parse_context::iterator parse(parse_context &parseContext)
+   {
+      return typename parse_context::iterator{parseContext.begin(),};
+   }
+
+   template<typename format_context>
+   typename format_context::iterator format(io_threads::network_interface const &networkInterface, format_context &formatContext) const
+   {
+      return typename format_context::iterator
+      {
+         std::format_to(
+            formatContext.out(),
+            R"raw({{"friendly_name": "{}", "system_name": "{}", "ipv4": "{}", "ipv6": "{}", "loopback":{}}})raw",
+            networkInterface.friendly_name(),
+            networkInterface.system_name(),
+            networkInterface.ip_v4(),
+            networkInterface.ip_v6(),
+            networkInterface.is_loopback()
+         ),
+      };
+   }
+};
+
+template<>
+struct std::formatter<std::optional<io_threads::network_interface>, char>
+{
+   template<typename parse_context>
+   constexpr typename parse_context::iterator parse(parse_context &parseContext)
+   {
+      return typename parse_context::iterator{parseContext.begin(),};
+   }
+
+   template<typename format_context>
+   typename format_context::iterator format(std::optional<io_threads::network_interface> const &networkInterface, format_context &formatContext) const
+   {
+      return typename format_context::iterator
+      {
+         (true == networkInterface.has_value())
+            ? std::format_to(formatContext.out(), "{}", networkInterface.value())
+            : std::format_to(formatContext.out(), "null")
+         ,
+      };
+   }
+};

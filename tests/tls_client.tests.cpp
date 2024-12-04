@@ -24,20 +24,13 @@
 */
 
 #include "tcp/test_ssl_certificate.hpp"
-#include "tcp/test_tcp_connect_timeout.hpp" ///< for io_threads::tests::test_tcp_connect_timeout
-#include "tcp/test_tcp_server_context.hpp" ///< for io_threads::tests::test_tls_stream
-#include "tcp/rest/test_rest_client.hpp" ///< for io_threads::tests::test_rest_client
+#include "tcp/test_tcp_connect_timeout.hpp"
+#include "tcp/test_tcp_server_context.hpp"
+#include "tcp/rest/test_rest_client.hpp"
 #include "testsuite.hpp"
 
-#include <gmock/gmock.h> ///< for EXPECT_CALL, MOCK_METHOD, testing::Return, testing::StrictMock, testing::_
-#include <gtest/gtest.h> ///< for TEST_F
-#include <io_threads/dns_resolver.hpp> ///< for io_threads::dns_resolver
-#include <io_threads/tls_client.hpp> ///< for io_threads::tls_client
-
-#include <atomic> ///< for std::atomic_bool, std::memory_order_relaxed
-#include <cstdint> ///< for uint16_t
-#include <future> ///< for std::future, std::promise
-#include <string_view> ///< for std::string_view
+#include <io_threads/dns_resolver.hpp>
+#include <io_threads/tls_client.hpp>
 
 namespace io_threads::tests
 {
@@ -52,8 +45,8 @@ private:
 
    struct internal_state final
    {
-      std::promise<void> done = {};
-      std::future<void> doneFuture = done.get_future();
+      std::promise<void> done{};
+      std::future<void> doneFuture{done.get_future(),};
    };
 
 public:
@@ -100,10 +93,10 @@ public:
    {
       EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
          .WillRepeatedly(
-            [this, message] (auto const dataChunk, auto &bytesWritten)
+            [this, message] (auto const &dataChunk, auto &bytesWritten)
             {
                EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const, auto &bytesWritten)
+                  [this] (auto const &, auto &bytesWritten)
                   {
                      bytesWritten = 0;
                      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
@@ -128,7 +121,7 @@ public:
    {
       EXPECT_CALL(*this, io_data_decrypted(testing::_))
          .WillOnce(
-            [recvHandler] (auto const dataChunk)
+            [recvHandler] (auto const &dataChunk)
             {
                recvHandler(dataChunk);
                return std::error_code{};
@@ -142,9 +135,9 @@ public:
    {
       EXPECT_CALL(*this, io_data_decrypted(testing::_))
          .WillOnce(
-            [expectedMessage, recvHandler] (auto const dataChunk)
+            [expectedMessage, recvHandler] (auto const &dataChunk)
             {
-               auto const receivedMessage = std::string_view
+               std::string_view const receivedMessage
                {
                   std::bit_cast<char const *>(dataChunk.bytes),
                   dataChunk.bytesLength,
@@ -164,8 +157,8 @@ public:
    }
 
 private:
-   std::unique_ptr<internal_state> m_internalState = {};
-   std::atomic_bool m_connected = false;
+   std::unique_ptr<internal_state> m_internalState{nullptr,};
+   std::atomic_bool m_connected{false,};
 
    void io_connected() final
    {
@@ -187,42 +180,42 @@ using tls_client = testsuite;
 
 TEST_F(tls_client, connect_timeout)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 0;
-   constexpr size_t testCapacityOfInputOutputBuffers = 1;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfInputOutputBuffers{1,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 0;
-   auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity};
-   auto testClient = test_tls_client{testTlsContext};
-   constexpr uint16_t testPort = 444;
+   constexpr size_t testTlsSessionsCapacity{0,};
+   auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity,};
+   auto testClient = test_tls_client{testTlsContext,};
+   constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
 }
 
 TEST_F(tls_client, https)
 {
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 0;
-   constexpr size_t testCapacityOfInputOutputBuffers = 4 * 1024;
-   auto const testThread = io_threads::tcp_client_thread
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfInputOutputBuffers{4 * 1024,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 1;
-   auto testTlsContext = tls_client_context
+   constexpr size_t testTlsSessionsCapacity{1,};
+   tls_client_context const testTlsContext
    {
       testThread,
       test_domain,
-      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12},
+      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12,},
       testTlsSessionsCapacity,
    };
-   auto testClient = test_tls_client{testTlsContext};
+   auto testClient = test_tls_client{testTlsContext,};
    test_rest_client<test_tls_stream>(testClient);
 }
 
@@ -231,8 +224,8 @@ namespace
 
 struct test_host_port_error_code final
 {
-   std::string_view host = {};
-   uint16_t port = 443;
+   std::string_view host{"",};
+   uint16_t port{443,};
    std::vector<std::error_code> const &errorCodes;
 };
 
@@ -263,65 +256,68 @@ TEST_F(tls_client, badssl)
    };
    std::vector<std::error_code> const testCertificateRevokedErrorCodes{std::error_code{CRYPT_E_REVOKED, std::system_category(),},};
 #endif
-   auto const testBadAddresses = std::to_array(
-      {
-         /// https://badssl.com/dashboard/
-         ///   Certificate Validation (High Risk)
-               test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testCertificateExpiredErrorCodes},
-               test_host_port_error_code{.host = "wrong.host.badssl.com", .errorCodes = testWrongHostErrorCodes},
-               test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-               test_host_port_error_code{.host = "untrusted-root.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-         ///   Interception Certificates (High Risk)
-               test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-               test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-               test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-               test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-               test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testUntrustedRootErrorCodes},
-         ///   Broken Cryptography (Medium Risk)
-               test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
-               test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
-               test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
-               test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
+   auto const testBadAddresses
+   {
+      std::to_array(
+         {
+            /// https://badssl.com/dashboard/
+            ///   Certificate Validation (High Risk)
+                  test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testCertificateExpiredErrorCodes,},
+                  test_host_port_error_code{.host = "wrong.host.badssl.com", .errorCodes = testWrongHostErrorCodes,},
+                  test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "untrusted-root.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+            ///   Interception Certificates (High Risk)
+                  test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+            ///   Broken Cryptography (Medium Risk)
+                  test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
 #if (not defined(IO_THREADS_DH1024_ALLOWED)) ///< Skip test of DH-1024 deprecation
-               test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
+                  test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
 #endif
-               test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
-         ///   Legacy Cryptography (Moderate Risk)
-               test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testAlgorithmMismatchErrorCodes},
-               test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testAlgorithmMismatchErrorCodes},
+                  test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+            ///   Legacy Cryptography (Moderate Risk)
+                  test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testAlgorithmMismatchErrorCodes,},
+                  test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testAlgorithmMismatchErrorCodes,},
 #if (not defined(IO_THREADS_CBC_ALLOWED)) ///< Skip test of CBC ciphers deprecation
-               test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testAlgorithmMismatchErrorCodes},
+                  test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testAlgorithmMismatchErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_3DES_ALLOWED)) ///< Skip test of 3DES cipher deprecation
-               test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
+                  test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_DH2048_ALLOWED)) ///< Skip test of DH-2048 deprecation
-               test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testIllegalMessageErrorCodes},
+                  test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
 #endif
-         ///   Domain Security Policies
-               test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testCertificateRevokedErrorCodes},
+            ///   Domain Security Policies
+                  test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testCertificateRevokedErrorCodes,},
 
-         /// https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html
-         ///   CVE-2020-0601 (CurveBall) Vulnerability
-               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testUntrustedRootErrorCodes},
-         ///   Logjam Vulnerability
-               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testIllegalMessageErrorCodes},
-         ///   FREAK Vulnerability
-               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testAlgorithmMismatchErrorCodes},
-      }
-   );
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 1;
-   constexpr size_t testCapacityOfInputOutputBuffers = tls_packet_size_limit;
-   auto const testThread = io_threads::tcp_client_thread
+            /// https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html
+            ///   CVE-2020-0601 (CurveBall) Vulnerability
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testUntrustedRootErrorCodes,},
+            ///   Logjam Vulnerability
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testIllegalMessageErrorCodes,},
+            ///   FREAK Vulnerability
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testAlgorithmMismatchErrorCodes,},
+         }
+      ),
+   };
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
+   constexpr size_t testCapacityOfInputOutputBuffers{tls_packet_size_limit,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 0;
-   constexpr auto testTimeout = std::chrono::seconds{5};
-   constexpr auto testTcpKeepAlive = tcp_keep_alive
+   constexpr size_t testTlsSessionsCapacity{0,};
+   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
       .probeTimeout = testTimeout,
@@ -329,18 +325,19 @@ TEST_F(tls_client, badssl)
    };
    for (auto const &testBadAddress : testBadAddresses)
    {
-      auto testIPv4Addresses = dns_resolver::resolve_ipv4(testBadAddress.host, testBadAddress.port);
+      auto testIPv4Addresses{dns_resolver::resolve_ipv4(testBadAddress.host, testBadAddress.port),};
       ASSERT_FALSE(testIPv4Addresses.empty());
-      auto testTlsContext = tls_client_context{testThread, testBadAddress.host, testTlsSessionsCapacity};
-      auto testClient = test_tls_client{testTlsContext};
+      tls_client_context const testTlsContext{testThread, testBadAddress.host, testTlsSessionsCapacity,};
+      test_tls_client testClient{testTlsContext,};
       testClient.expect_error(testing::AnyOfArray(testBadAddress.errorCodes));
       testClient.expect_ready_to_send(std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testBadAddress.host));
-      auto const testClientConfig =
-         tcp_client_config{tcp_client_address{testIPv4Addresses.front()}}
-         .with_keep_alive(testTcpKeepAlive)
-         .with_nodelay()
-         .with_user_timeout(testTimeout)
-      ;
+      auto const testClientConfig
+      {
+         tcp_client_config{tcp_client_address{testIPv4Addresses.front(),},}
+            .with_keep_alive(testTcpKeepAlive)
+            .with_nodelay()
+            .with_user_timeout(testTimeout)
+      };
       testClient.expect_ready_to_connect(testClientConfig);
       ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout * 2)) << testBadAddress.host;
    }
@@ -351,46 +348,49 @@ namespace
 
 struct test_host_port final
 {
-   std::string_view host = {};
-   uint16_t port = 443;
+   std::string_view host{"",};
+   uint16_t port{443,};
 };
 
 }
 
 TEST_F(tls_client, goodssl)
 {
-   constexpr auto testGoodAddresses = std::to_array(
-      {
-         /// https://badssl.com/dashboard/
-            test_host_port{.host = "tls-v1-2.badssl.com", .port = 1012},
-            test_host_port{.host = "sha256.badssl.com"},
-            test_host_port{.host = "rsa2048.badssl.com"},
-            test_host_port{.host = "ecc256.badssl.com"},
-            test_host_port{.host = "ecc384.badssl.com"},
+   constexpr auto testGoodAddresses
+   {
+      std::to_array(
+         {
+            /// https://badssl.com/dashboard/
+               test_host_port{.host = "tls-v1-2.badssl.com", .port = 1012},
+               test_host_port{.host = "sha256.badssl.com"},
+               test_host_port{.host = "rsa2048.badssl.com"},
+               test_host_port{.host = "ecc256.badssl.com"},
+               test_host_port{.host = "ecc384.badssl.com"},
 #if (not defined(_WIN32) && not defined(_WIN64))
-            test_host_port{.host = "extended-validation.badssl.com"},
+               test_host_port{.host = "extended-validation.badssl.com"},
 #endif
-            test_host_port{.host = "mozilla-modern.badssl.com"},
+               test_host_port{.host = "mozilla-modern.badssl.com"},
 
-         /// https://browserleaks.com/tls
-            test_host_port{.host = "tls12.browserleaks.com"},
+            /// https://browserleaks.com/tls
+               test_host_port{.host = "tls12.browserleaks.com"},
 #if (defined(IO_THREADS_TLSv1_3_AVAILABLE))
-            test_host_port{.host = "tls13.browserleaks.com"},
+               test_host_port{.host = "tls13.browserleaks.com"},
 #endif
-      }
-   );
-   constexpr uint16_t testCpuId = 0;
-   constexpr size_t testCapacityOfSocketDescriptorList = 1;
-   constexpr size_t testCapacityOfInputOutputBuffers = tls_packet_size_limit;
-   auto const testThread = io_threads::tcp_client_thread
+         }
+      ),
+   };
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
+   constexpr size_t testCapacityOfInputOutputBuffers{tls_packet_size_limit,};
+   tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffers,
    };
-   constexpr size_t testTlsSessionsCapacity = 1;
-   constexpr auto testTimeout = std::chrono::seconds{5};
-   constexpr auto testTcpKeepAlive = tcp_keep_alive
+   constexpr size_t testTlsSessionsCapacity{1,};
+   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
       .probeTimeout = testTimeout,
@@ -398,9 +398,9 @@ TEST_F(tls_client, goodssl)
    };
    for (auto const &testGoodAddress : testGoodAddresses)
    {
-      auto testIPv4Addresses = dns_resolver::resolve_ipv4(testGoodAddress.host, testGoodAddress.port);
-      auto testTlsContext = tls_client_context{testThread, testGoodAddress.host, testTlsSessionsCapacity};
-      auto testClient = test_tls_client{testTlsContext};
+      auto const testIPv4Addresses{dns_resolver::resolve_ipv4(testGoodAddress.host, testGoodAddress.port),};
+      tls_client_context const testTlsContext{testThread, testGoodAddress.host, testTlsSessionsCapacity,};
+      test_tls_client testClient{testTlsContext,};
       testClient.expect_recv(
          [&testClient] (auto const)
          {
@@ -408,12 +408,14 @@ TEST_F(tls_client, goodssl)
          }
       );
       testClient.expect_ready_to_send(std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testGoodAddress.host));
-      auto const testClientConfig =
-         tcp_client_config{tcp_client_address{testIPv4Addresses.front()}}
-         .with_keep_alive(testTcpKeepAlive)
-         .with_nodelay()
-         .with_user_timeout(testTimeout)
-      ;
+      auto const testClientConfig
+      {
+         tcp_client_config{tcp_client_address{testIPv4Addresses.front(),},}
+            .with_keep_alive(testTcpKeepAlive)
+            .with_nodelay()
+            .with_user_timeout(testTimeout)
+         ,
+      };
       testClient.expect_ready_to_connect(testClientConfig);
       ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout * 2)) << testGoodAddress.host;
    }

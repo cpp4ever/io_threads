@@ -23,34 +23,9 @@
    SOFTWARE.
 */
 
-#include "tcp/test_ssl_certificate.hpp" ///< for test_certificate_pem, test_private_key_rsa
-#include "tcp/test_tcp_common.hpp" ///< for EXPECT_ERROR_CODE
-#include "tcp/test_tcp_server_context.hpp" ///< for test_tcp_server_context
-
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <sdkddkver.h> ///< for _WIN32_WINNT
-#endif
-#include <boost/asio/buffer.hpp> ///< for boost::asio::buffer
-#include <boost/asio/ip/tcp.hpp> ///< for boost::asio::ip::tcp::socket
-#if (not defined(_WIN32) && not defined(_WIN64))
-#  include <boost/asio/ssl/context.hpp> ///< for boost::asio::ssl::context
-#endif
-#include <boost/beast.hpp> ///< for boost::beast::tcp_stream
-#include <boost/system/error_code.hpp> ///< for boost::system::error_code
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <boost/wintls/certificate.hpp> ///< for boost::wintls::assign_private_key, boost::wintls::delete_private_key, boost::wintls::import_private_key, boost::wintls::x509_to_cert_context
-#  include <boost/wintls/context.hpp> ///< for boost::wintls::context
-#  include <boost/wintls/file_format.hpp> ///< for boost::wintls::file_format
-#  include <boost/wintls/method.hpp> ///< for boost::wintls::method
-#endif
-#include <gtest/gtest.h> ///< for EXPECT_TRUE
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <winerror.h> ///< for NTE_EXISTS, NTE_BAD_KEYSET
-#endif
-
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <string> ///< for std::string
-#endif
+#include "tcp/test_ssl_certificate.hpp"
+#include "tcp/test_tcp_common.hpp"
+#include "tcp/test_tcp_server_context.hpp"
 
 namespace io_threads::tests
 {
@@ -60,7 +35,7 @@ boost::beast::tcp_stream test_tcp_server_context<boost::beast::tcp_stream>::acce
    return boost::beast::tcp_stream{std::move(socket)};
 }
 
-#if (defined(WIN32))
+#if (defined(_WIN32) || defined(_WIN64))
 class [[nodiscard]] test_tls_context final
 {
 public:
@@ -173,4 +148,8 @@ boost::beast::websocket::stream<test_tls_stream> test_tcp_server_context<boost::
 
 }
 
+#include <boost/asio/impl/src.hpp>
+#if (not defined(_WIN32) && not defined(_WIN64))
+#  include <boost/asio/ssl/impl/src.hpp>
+#endif
 #include <boost/beast/src.hpp>

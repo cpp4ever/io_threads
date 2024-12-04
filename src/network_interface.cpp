@@ -35,8 +35,10 @@
 #endif
 
 #include <cassert> ///< for assert
+#include <format> ///< for std::format
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::optional
+#include <ostream> ///< for std::ostream
 #include <string_view> ///< for std::string_view
 
 namespace io_threads
@@ -107,6 +109,11 @@ network_interface::system_network_interfaces::system_network_interfaces()
          m_loopbackNetworkInterface.emplace(networkInterface);
       }
    }
+}
+
+std::ostream &operator << (std::ostream &sink, network_interface const &networkInterface)
+{
+   return sink << std::format("{}", networkInterface);
 }
 
 }

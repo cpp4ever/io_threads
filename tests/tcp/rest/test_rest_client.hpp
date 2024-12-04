@@ -25,28 +25,12 @@
 
 #pragma once
 
-#include "tcp/rest/test_rest_server.hpp" ///< for EXPECT_HTTP_REQUEST, test_rest_server
+#include "tcp/rest/test_rest_server.hpp"
 
-#include <io_threads/system_network_interfaces.hpp> ///< for io_threads::system_network_interfaces
-#include <io_threads/tcp_client_config.hpp> ///< for io_threads::tcp_client_config
+#include <io_threads/system_network_interfaces.hpp>
+#include <io_threads/tcp_client_config.hpp>
 
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <sdkddkver.h> ///< for _WIN32_WINNT
-#endif
-#include <boost/asio/ip/address.hpp> ///< for boost::asio::ip::make_address
-#include <boost/beast/http/field.hpp> ///< for boost::beast::http::field
-#include <boost/beast/http/status.hpp> /// boost::beast::http::status
-#include <boost/beast/http/verb.hpp> ///< for boost::beast::http::verb
-#include <gmock/gmock.h> ///< for EXPECT_CALL, testing::AnyOf, testing::Return, testing::StrictMock, testing::_
-#if (defined(_WIN32) || defined(_WIN64))
-#  include <winerror.h> ///< for WSAECONNABORTED, WSAECONNRESET
-#endif
-
-#include <format> ///< for std::format
-#include <future> ///< for std::future_status
-#include <map> ///< for std::map
-#include <string> ///< for std::string, std::to_string
-#include <string_view> ///< for std::string_view
+#include <format>
 
 namespace io_threads::tests
 {

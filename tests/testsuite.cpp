@@ -23,13 +23,10 @@
    SOFTWARE.
 */
 
-#include "testsuite.hpp" ///< for io_threads::tests::testsuite
+#include "testsuite.hpp"
 
-#include <algorithm> ///< for std::generate_n
-#include <chrono> ///< for std::chrono::system_clock
-#include <cstddef> ///< for size_t
-#include <iterator> ///< for std::back_inserter
-#include <string> ///< for std::string
+#include <algorithm>
+#include <chrono>
 
 namespace io_threads::tests
 {
