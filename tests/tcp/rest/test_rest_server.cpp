@@ -86,7 +86,7 @@ void test_rest_server<test_rest_stream>::async_accept_socket()
                boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
                stream.async_handshake(
 #if (defined(_WIN32) || defined(_WIN64))
-                  boost::wintls::handshake_type::server,
+                  wintls::handshake_type::server,
 #else
                   boost::asio::ssl::stream_base::server,
 #endif
@@ -136,7 +136,7 @@ void test_rest_server<test_rest_stream>::async_read(test_rest_stream &stream)
             false
             || (boost::beast::http::make_error_code(boost::beast::http::error::end_of_stream) == errorCode)
 #if (defined(_WIN32) || defined(_WIN64))
-            || (boost::wintls::error::make_error_code(SEC_I_CONTEXT_EXPIRED) == errorCode)
+            || (wintls::error::make_error_code(SEC_I_CONTEXT_EXPIRED) == errorCode)
 #else
             || false
 #endif

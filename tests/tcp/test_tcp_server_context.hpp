@@ -33,8 +33,7 @@
 #endif
 #include <boost/beast.hpp>
 #if (defined(_WIN32) || defined(_WIN64))
-#  include <boost/wintls/context.hpp>
-#  include <boost/wintls/stream.hpp>
+#  include <wintls.hpp>
 #endif
 
 namespace io_threads::tests
@@ -50,7 +49,7 @@ struct [[nodiscard]] test_tcp_server_context<boost::beast::tcp_stream>
 };
 
 #if (defined(WIN32))
-using test_tls_stream = boost::wintls::stream<boost::beast::tcp_stream>;
+using test_tls_stream = wintls::stream<boost::beast::tcp_stream>;
 #else
 using test_tls_stream = boost::asio::ssl::stream<boost::beast::tcp_stream>;
 #endif

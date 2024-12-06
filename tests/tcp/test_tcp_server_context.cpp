@@ -40,26 +40,26 @@ class [[nodiscard]] test_tls_context final
 {
 public:
    test_tls_context() :
-      m_context(boost::wintls::method::system_default),
+      m_context(wintls::method::system_default),
       m_privateKeyName("test-io-threads-certificate")
    {
       boost::system::error_code errorCode;
-      boost::wintls::delete_private_key(m_privateKeyName, errorCode);
+      wintls::delete_private_key(m_privateKeyName, errorCode);
       EXPECT_TRUE((false == bool{errorCode}) || (NTE_BAD_KEYSET == errorCode.value())) << errorCode.message();
-      auto certificate = boost::wintls::x509_to_cert_context(
+      auto certificate = wintls::x509_to_cert_context(
          boost::asio::buffer(test_certificate_pem()),
-         boost::wintls::file_format::pem,
+         wintls::file_format::pem,
          errorCode
       );
       EXPECT_ERROR_CODE(errorCode);
-      boost::wintls::import_private_key(
+      wintls::import_private_key(
          boost::asio::buffer(test_private_key_rsa()),
-         boost::wintls::file_format::pem,
+         wintls::file_format::pem,
          m_privateKeyName,
          errorCode
       );
       EXPECT_TRUE((false == bool{errorCode}) || (NTE_EXISTS == errorCode.value())) << errorCode.message();
-      boost::wintls::assign_private_key(certificate.get(), m_privateKeyName, errorCode);
+      wintls::assign_private_key(certificate.get(), m_privateKeyName, errorCode);
       EXPECT_ERROR_CODE(errorCode);
       m_context.use_certificate(certificate.get(), errorCode);
       EXPECT_ERROR_CODE(errorCode);
@@ -71,20 +71,20 @@ public:
    ~test_tls_context()
    {
       boost::system::error_code errorCode;
-      boost::wintls::delete_private_key(m_privateKeyName, errorCode);
+      wintls::delete_private_key(m_privateKeyName, errorCode);
       EXPECT_ERROR_CODE(errorCode);
    }
 
    test_tls_context &operator = (test_tls_context &&) = delete;
    test_tls_context &operator = (test_tls_context const &) = delete;
 
-   boost::wintls::context &ssl_context() noexcept
+   wintls::context &ssl_context() noexcept
    {
       return m_context;
    }
 
 private:
-   boost::wintls::context m_context;
+   wintls::context m_context;
    std::string m_privateKeyName;
 };
 #else

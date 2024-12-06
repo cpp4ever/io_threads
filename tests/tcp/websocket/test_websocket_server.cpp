@@ -135,7 +135,7 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
                boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
                stream.next_layer().async_handshake(
 #if (defined(_WIN32) || defined(_WIN64))
-                  boost::wintls::handshake_type::server,
+                  wintls::handshake_type::server,
 #else
                   boost::asio::ssl::stream_base::server,
 #endif

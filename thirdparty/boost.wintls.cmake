@@ -35,7 +35,7 @@ if(WIN32)
       GIT_REPOSITORY https://github.com/laudrup/boost-wintls.git
       GIT_SHALLOW ON
       GIT_SUBMODULES_RECURSE ON
-      GIT_TAG v0.9.8
+      GIT_TAG v0.9.9
    )
    FetchContent_Populate(wintls)
    file(GLOB BOOST_WINTLS_HEADERS "${wintls_SOURCE_DIR}/include/*.hpp")
