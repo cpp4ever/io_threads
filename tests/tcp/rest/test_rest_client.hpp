@@ -184,265 +184,381 @@ void test_rest_client(test_client &testClient)
       {
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
-         auto const testDisconnect = [&testClient] ()
+         std::atomic_intptr_t testDisconnectStepLock{0,};
+         auto const testDisconnect
          {
-            testClient.expect_disconnect();
+            [&testDisconnectStepLock, &testClient] ()
+            {
+               if (0 == testDisconnectStepLock.fetch_add(1, std::memory_order_acq_rel))
+               {
+                  return;
+               }
+               testClient.expect_disconnect();
+            },
          };
-         auto const testInternalCleanupCheck = [&testServer, &testClient, &testDisconnect, testPeerHost, &testContentType] ()
+         std::atomic_intptr_t testInternalCleanupCheckStepLock{0,};
+         auto const testInternalCleanupCheck
          {
-            EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
-               .WillOnce(
-                  [testPeerHost, &testContentType] (auto const &testRequest, auto &testResponse)
-                  {
-                     auto testHeaders = std::map<std::string_view, std::string_view>
-                     {
-                        {"Accept", "*/*"},
-                        {"Host", testPeerHost},
-                     };
-                     EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
-
-                     testResponse.clear();
-                     testResponse.result(boost::beast::http::status::ok);
-                     testResponse.version(testRequest.version());
-                     testResponse.keep_alive(true);
-                     testResponse.set(boost::beast::http::field::content_type, testContentType);
-                     testResponse.body() = "{}";
-                     testResponse.prepare_payload();
-                     testResponse.content_length(testResponse.body().size());
-                     return true;
-                  }
-               )
-            ;
-            EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
-            auto const testHttpRequest = std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost);
-            auto const testHttpResponse = std::format("HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: 2\r\n\r\n{{}}", testContentType);
-            testClient.expect_recv(testHttpResponse, testDisconnect);
-            testClient.expect_ready_to_send(testHttpRequest);
-         };
-         auto const testDeleteRequest = [&testServer, &testClient, &testInternalCleanupCheck, testPeerHost, &testContentType] ()
-         {
-            constexpr auto testTarget = std::string_view{"/test_method/delete?test_operation=delete"};
-            constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"delete"})raw"};
-            constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"deleted"})raw"};
-            EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
-               .WillOnce(
-                  [
-                     testPeerHost,
-                     testTarget,
-                     &testContentType,
-                     testRequestBody,
-                     testResponseBody
-                  ] (auto const &testRequest, auto &testResponse)
-                  {
-                     auto const testContentLength = std::to_string(testRequestBody.size());
-                     auto testHeaders = std::map<std::string_view, std::string_view>
-                     {
-                        {"Accept", "*/*"},
-                        {"Content-Length", testContentLength},
-                        {"Content-Type", testContentType},
-                        {"Host", testPeerHost},
-                        {"Test-Method", "DELETE"},
-                        {"Test-Operation", "DELETE"},
-                     };
-                     EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::delete_, testTarget, testHeaders, testRequestBody);
-
-                     testResponse.clear();
-                     testResponse.result(boost::beast::http::status::accepted);
-                     testResponse.version(testRequest.version());
-                     testResponse.keep_alive(true);
-                     testResponse.set(boost::beast::http::field::content_type, testContentType);
-                     testResponse.body() = testResponseBody;
-                     testResponse.prepare_payload();
-                     testResponse.content_length(testResponse.body().size());
-                     return true;
-                  }
-               )
-            ;
-            EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
-            auto const testHttpRequest = std::format(
-               "DELETE {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:DELETE\r\nTest-Operation:DELETE\r\n\r\n{}",
-               testTarget,
+            [
+               &testInternalCleanupCheckStepLock,
+               &testServer,
+               &testClient,
+               &testDisconnect,
                testPeerHost,
-               testRequestBody.size(),
-               testContentType,
-               testRequestBody
-            );
-            auto const testHttpResponse = std::format(
-               "HTTP/1.1 202 Accepted\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-               testContentType,
-               testResponseBody.size(),
-               testResponseBody
-            );
-            testClient.expect_recv(testHttpResponse, testInternalCleanupCheck);
-            testClient.expect_ready_to_send(testHttpRequest);
-         };
-         auto const testUpdateRequest = [&testServer, &testClient, &testDeleteRequest, testPeerHost, &testContentType] ()
-         {
-            constexpr auto testTarget = std::string_view{"/test_method/put?test_operation=update"};
-            constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"update"})raw"};
-            constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"updated"})raw"};
-            EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
-               .WillOnce(
-                  [
-                     testPeerHost,
-                     testTarget,
-                     &testContentType,
-                     testRequestBody,
-                     testResponseBody
-                  ] (auto const &testRequest, auto &testResponse)
-                  {
-                     auto const testContentLength = std::to_string(testRequestBody.size());
-                     auto testHeaders = std::map<std::string_view, std::string_view>
+               &testContentType
+            ] ()
+            {
+               if (0 == testInternalCleanupCheckStepLock.fetch_add(1, std::memory_order_acq_rel))
+               {
+                  return;
+               }
+               EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+                  .WillOnce(
+                     [testPeerHost, &testContentType] (auto const &testRequest, auto &testResponse)
                      {
-                        {"Accept", "*/*"},
-                        {"Host", testPeerHost},
-                        {"Content-Length", testContentLength},
-                        {"Content-Type", testContentType},
-                        {"Test-Method", "PUT"},
-                        {"Test-Operation", "UPDATE"},
-                     };
-                     EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::put, testTarget, testHeaders, testRequestBody);
+                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        {
+                           {"Accept", "*/*"},
+                           {"Host", testPeerHost},
+                        };
+                        EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
 
-                     testResponse.clear();
-                     testResponse.result(boost::beast::http::status::ok);
-                     testResponse.version(testRequest.version());
-                     testResponse.keep_alive(true);
-                     testResponse.set(boost::beast::http::field::content_type, testContentType);
-                     testResponse.body() = testResponseBody;
-                     testResponse.prepare_payload();
-                     testResponse.content_length(testResponse.body().size());
-                     return true;
-                  }
-               )
-            ;
-            EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
-            auto const testHttpRequest = std::format(
-               "PUT {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:PUT\r\nTest-Operation:UPDATE\r\n\r\n{}",
-               testTarget,
-               testPeerHost,
-               testRequestBody.size(),
-               testContentType,
-               testRequestBody
-            );
-            auto const testHttpResponse = std::format(
-               "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-               testContentType,
-               testResponseBody.size(),
-               testResponseBody
-            );
-            testClient.expect_recv(testHttpResponse, testDeleteRequest);
-            testClient.expect_ready_to_send(testHttpRequest);
-         };
-         auto const testReadRequest = [&testServer, &testClient, &testUpdateRequest, testPeerHost, &testContentType] ()
-         {
-            constexpr auto testTarget = std::string_view{"/test_method/get?test_operation=read"};
-            constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"read"})raw"};
-            EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
-               .WillOnce(
-                  [
-                     testPeerHost,
-                     testTarget,
-                     &testContentType,
-                     testResponseBody
-                  ] (auto const &testRequest, auto &testResponse)
-                  {
-                     auto testHeaders = std::map<std::string_view, std::string_view>
+                        testResponse.clear();
+                        testResponse.result(boost::beast::http::status::ok);
+                        testResponse.version(testRequest.version());
+                        testResponse.keep_alive(true);
+                        testResponse.set(boost::beast::http::field::content_type, testContentType);
+                        testResponse.body() = "{}";
+                        testResponse.prepare_payload();
+                        testResponse.content_length(testResponse.body().size());
+                        return true;
+                     }
+                  )
+               ;
+               EXPECT_CALL(testServer, should_keep_alive())
+                  .WillOnce(
+                     [&testDisconnect]
                      {
-                        {"Accept", "*/*"},
-                        {"Host", testPeerHost},
-                        {"Test-Method", "GET"},
-                        {"Test-Operation", "READ"},
-                     };
-                     EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, testTarget, testHeaders, "");
-
-                     testResponse.clear();
-                     testResponse.result(boost::beast::http::status::ok);
-                     testResponse.version(testRequest.version());
-                     testResponse.keep_alive(true);
-                     testResponse.set(boost::beast::http::field::content_type, testContentType);
-                     testResponse.body() = testResponseBody;
-                     testResponse.prepare_payload();
-                     testResponse.content_length(testResponse.body().size());
-                     return true;
-                  }
-               )
-            ;
-            EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
-            auto const testHttpRequest = std::format(
-               "GET {} HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\nTest-Method:GET\r\nTest-Operation:READ\r\n\r\n{}",
-               testTarget,
-               testPeerHost,
-               testContentType
-            );
-            auto const testHttpResponse = std::format(
-               "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-               testContentType,
-               testResponseBody.size(),
-               testResponseBody
-            );
-            testClient.expect_recv(testHttpResponse, testUpdateRequest);
-            testClient.expect_ready_to_send(testHttpRequest);
+                        testDisconnect();
+                        return true;
+                     }
+                  )
+               ;
+               auto const testHttpRequest = std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost);
+               auto const testHttpResponse = std::format("HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: 2\r\n\r\n{{}}", testContentType);
+               testClient.expect_recv(testHttpResponse, testDisconnect);
+               testClient.expect_ready_to_send(testHttpRequest);
+            },
          };
-         auto const testCreateRequest = [&testServer, &testClient, &testReadRequest, testPeerHost, &testContentType] ()
+         std::atomic_intptr_t testDeleteRequestStepLock{0,};
+         auto const testDeleteRequest
          {
-            constexpr auto testTarget = std::string_view{"/test_method/post?test_operation=create"};
-            constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"create"})raw"};
-            constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"created"})raw"};
-            EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
-               .WillOnce(
-                  [
-                     testPeerHost,
-                     testTarget,
-                     &testContentType,
-                     testRequestBody,
-                     testResponseBody
-                  ] (auto const &testRequest, auto &testResponse)
-                  {
-                     auto const testContentLength = std::to_string(testRequestBody.size());
-                     auto testHeaders = std::map<std::string_view, std::string_view>
-                     {
-                        {"Accept", "*/*"},
-                        {"Content-Length", testContentLength},
-                        {"Content-Type", testContentType},
-                        {"Host", testPeerHost},
-                        {"Test-Method", "POST"},
-                        {"Test-Operation", "CREATE"},
-                     };
-                     EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::post, testTarget, testHeaders, testRequestBody);
-
-                     testResponse.clear();
-                     testResponse.result(boost::beast::http::status::created);
-                     testResponse.version(testRequest.version());
-                     testResponse.keep_alive(true);
-                     testResponse.set(boost::beast::http::field::content_type, testContentType);
-                     testResponse.body() = testResponseBody;
-                     testResponse.prepare_payload();
-                     testResponse.content_length(testResponse.body().size());
-                     return true;
-                  }
-               )
-            ;
-            EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
-            auto const testHttpRequest = std::format(
-               "POST {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:POST\r\nTest-Operation:CREATE\r\n\r\n{}",
-               testTarget,
+            [
+               &testDeleteRequestStepLock,
+               &testServer,
+               &testClient,
+               &testInternalCleanupCheck,
                testPeerHost,
-               testRequestBody.size(),
-               testContentType,
-               testRequestBody
-            );
-            auto const testHttpResponse = std::format(
-               "HTTP/1.1 201 Created\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-               testContentType,
-               testResponseBody.size(),
-               testResponseBody
-            );
-            testClient.expect_recv(testHttpResponse, testReadRequest);
-            testClient.expect_ready_to_send(testHttpRequest);
+               &testContentType
+            ] ()
+            {
+               if (0 == testDeleteRequestStepLock.fetch_add(1, std::memory_order_acq_rel))
+               {
+                  return;
+               }
+               constexpr auto testTarget = std::string_view{"/test_method/delete?test_operation=delete"};
+               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"delete"})raw"};
+               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"deleted"})raw"};
+               EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+                  .WillOnce(
+                     [
+                        testPeerHost,
+                        testTarget,
+                        &testContentType,
+                        testRequestBody,
+                        testResponseBody
+                     ] (auto const &testRequest, auto &testResponse)
+                     {
+                        auto const testContentLength = std::to_string(testRequestBody.size());
+                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        {
+                           {"Accept", "*/*"},
+                           {"Content-Length", testContentLength},
+                           {"Content-Type", testContentType},
+                           {"Host", testPeerHost},
+                           {"Test-Method", "DELETE"},
+                           {"Test-Operation", "DELETE"},
+                        };
+                        EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::delete_, testTarget, testHeaders, testRequestBody);
+
+                        testResponse.clear();
+                        testResponse.result(boost::beast::http::status::accepted);
+                        testResponse.version(testRequest.version());
+                        testResponse.keep_alive(true);
+                        testResponse.set(boost::beast::http::field::content_type, testContentType);
+                        testResponse.body() = testResponseBody;
+                        testResponse.prepare_payload();
+                        testResponse.content_length(testResponse.body().size());
+                        return true;
+                     }
+                  )
+               ;
+               EXPECT_CALL(testServer, should_keep_alive())
+                  .WillOnce(
+                     [&testInternalCleanupCheck]
+                     {
+                        testInternalCleanupCheck();
+                        return true;
+                     }
+                  )
+               ;
+               auto const testHttpRequest = std::format(
+                  "DELETE {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:DELETE\r\nTest-Operation:DELETE\r\n\r\n{}",
+                  testTarget,
+                  testPeerHost,
+                  testRequestBody.size(),
+                  testContentType,
+                  testRequestBody
+               );
+               auto const testHttpResponse = std::format(
+                  "HTTP/1.1 202 Accepted\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                  testContentType,
+                  testResponseBody.size(),
+                  testResponseBody
+               );
+               testClient.expect_recv(testHttpResponse, testInternalCleanupCheck);
+               testClient.expect_ready_to_send(testHttpRequest);
+            },
+         };
+         std::atomic_intptr_t testUpdateRequestStepLock{0,};
+         auto const testUpdateRequest
+         {
+            [
+               &testUpdateRequestStepLock,
+               &testServer,
+               &testClient,
+               &testDeleteRequest,
+               testPeerHost,
+               &testContentType
+            ] ()
+            {
+               if (0 == testUpdateRequestStepLock.fetch_add(1, std::memory_order_acq_rel))
+               {
+                  return;
+               }
+               constexpr auto testTarget = std::string_view{"/test_method/put?test_operation=update"};
+               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"update"})raw"};
+               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"updated"})raw"};
+               EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+                  .WillOnce(
+                     [
+                        testPeerHost,
+                        testTarget,
+                        &testContentType,
+                        testRequestBody,
+                        testResponseBody
+                     ] (auto const &testRequest, auto &testResponse)
+                     {
+                        auto const testContentLength = std::to_string(testRequestBody.size());
+                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        {
+                           {"Accept", "*/*"},
+                           {"Host", testPeerHost},
+                           {"Content-Length", testContentLength},
+                           {"Content-Type", testContentType},
+                           {"Test-Method", "PUT"},
+                           {"Test-Operation", "UPDATE"},
+                        };
+                        EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::put, testTarget, testHeaders, testRequestBody);
+
+                        testResponse.clear();
+                        testResponse.result(boost::beast::http::status::ok);
+                        testResponse.version(testRequest.version());
+                        testResponse.keep_alive(true);
+                        testResponse.set(boost::beast::http::field::content_type, testContentType);
+                        testResponse.body() = testResponseBody;
+                        testResponse.prepare_payload();
+                        testResponse.content_length(testResponse.body().size());
+                        return true;
+                     }
+                  )
+               ;
+               EXPECT_CALL(testServer, should_keep_alive())
+                  .WillOnce(
+                     [&testDeleteRequest]
+                     {
+                        testDeleteRequest();
+                        return true;
+                     }
+                  )
+               ;
+               auto const testHttpRequest = std::format(
+                  "PUT {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:PUT\r\nTest-Operation:UPDATE\r\n\r\n{}",
+                  testTarget,
+                  testPeerHost,
+                  testRequestBody.size(),
+                  testContentType,
+                  testRequestBody
+               );
+               auto const testHttpResponse = std::format(
+                  "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                  testContentType,
+                  testResponseBody.size(),
+                  testResponseBody
+               );
+               testClient.expect_recv(testHttpResponse, testDeleteRequest);
+               testClient.expect_ready_to_send(testHttpRequest);
+            },
+         };
+         std::atomic_intptr_t testReadRequestStepLock{0,};
+         auto const testReadRequest
+         {
+            [
+               &testReadRequestStepLock,
+               &testServer,
+               &testClient,
+               &testUpdateRequest,
+               testPeerHost,
+               &testContentType
+            ] ()
+            {
+               if (0 == testReadRequestStepLock.fetch_add(1, std::memory_order_acq_rel))
+               {
+                  return;
+               }
+               constexpr auto testTarget = std::string_view{"/test_method/get?test_operation=read"};
+               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"read"})raw"};
+               EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+                  .WillOnce(
+                     [
+                        testPeerHost,
+                        testTarget,
+                        &testContentType,
+                        testResponseBody
+                     ] (auto const &testRequest, auto &testResponse)
+                     {
+                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        {
+                           {"Accept", "*/*"},
+                           {"Host", testPeerHost},
+                           {"Test-Method", "GET"},
+                           {"Test-Operation", "READ"},
+                        };
+                        EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, testTarget, testHeaders, "");
+
+                        testResponse.clear();
+                        testResponse.result(boost::beast::http::status::ok);
+                        testResponse.version(testRequest.version());
+                        testResponse.keep_alive(true);
+                        testResponse.set(boost::beast::http::field::content_type, testContentType);
+                        testResponse.body() = testResponseBody;
+                        testResponse.prepare_payload();
+                        testResponse.content_length(testResponse.body().size());
+                        return true;
+                     }
+                  )
+               ;
+               EXPECT_CALL(testServer, should_keep_alive())
+                  .WillOnce(
+                     [&testUpdateRequest]
+                     {
+                        testUpdateRequest();
+                        return true;
+                     }
+                  )
+               ;
+               auto const testHttpRequest = std::format(
+                  "GET {} HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\nTest-Method:GET\r\nTest-Operation:READ\r\n\r\n{}",
+                  testTarget,
+                  testPeerHost,
+                  testContentType
+               );
+               auto const testHttpResponse = std::format(
+                  "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                  testContentType,
+                  testResponseBody.size(),
+                  testResponseBody
+               );
+               testClient.expect_recv(testHttpResponse, testUpdateRequest);
+               testClient.expect_ready_to_send(testHttpRequest);
+            },
+         };
+         auto const testCreateRequest
+         {
+            [&testServer, &testClient, &testReadRequest, testPeerHost, &testContentType]()
+            {
+               constexpr auto testTarget = std::string_view{"/test_method/post?test_operation=create"};
+               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"create"})raw"};
+               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"created"})raw"};
+               EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+                  .WillOnce(
+                     [
+                        testPeerHost,
+                           testTarget,
+                           &testContentType,
+                           testRequestBody,
+                           testResponseBody
+                     ] (auto const &testRequest, auto &testResponse)
+                     {
+                        auto const testContentLength = std::to_string(testRequestBody.size());
+                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        {
+                           {"Accept", "*/*"},
+                           {"Content-Length", testContentLength},
+                           {"Content-Type", testContentType},
+                           {"Host", testPeerHost},
+                           {"Test-Method", "POST"},
+                           {"Test-Operation", "CREATE"},
+                        };
+                        EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::post, testTarget, testHeaders, testRequestBody);
+
+                        testResponse.clear();
+                        testResponse.result(boost::beast::http::status::created);
+                        testResponse.version(testRequest.version());
+                        testResponse.keep_alive(true);
+                        testResponse.set(boost::beast::http::field::content_type, testContentType);
+                        testResponse.body() = testResponseBody;
+                        testResponse.prepare_payload();
+                        testResponse.content_length(testResponse.body().size());
+                        return true;
+                     }
+                           )
+                  ;
+               EXPECT_CALL(testServer, should_keep_alive())
+                  .WillOnce(
+                     [&testReadRequest]
+                     {
+                        testReadRequest();
+                        return true;
+                     }
+                  )
+                  ;
+               auto const testHttpRequest = std::format(
+                  "POST {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:POST\r\nTest-Operation:CREATE\r\n\r\n{}",
+                  testTarget,
+                  testPeerHost,
+                  testRequestBody.size(),
+                  testContentType,
+                  testRequestBody
+               );
+               auto const testHttpResponse = std::format(
+                  "HTTP/1.1 201 Created\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                  testContentType,
+                  testResponseBody.size(),
+                  testResponseBody
+               );
+               testClient.expect_recv(testHttpResponse, testReadRequest);
+               testClient.expect_ready_to_send(testHttpRequest);
+            },
          };
          testCreateRequest();
          testClient.expect_ready_to_connect(testConfig);
          ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
+         EXPECT_EQ(2, testDisconnectStepLock.load(std::memory_order_acquire));
+         EXPECT_EQ(2, testInternalCleanupCheckStepLock.load(std::memory_order_acquire));
+         EXPECT_EQ(2, testDeleteRequestStepLock.load(std::memory_order_acquire));
+         EXPECT_EQ(2, testUpdateRequestStepLock.load(std::memory_order_acquire));
+         EXPECT_EQ(2, testReadRequestStepLock.load(std::memory_order_acquire));
       }
    }
 }

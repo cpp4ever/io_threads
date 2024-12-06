@@ -522,8 +522,8 @@ private:
                   "[tcp_client] ICMP error info: srcaddress={} protocol={} type={} code={}",
                   std::string_view{socketAddress},
                   to_underlying(icmpErrorInfo.protocol),
-                  icmpErrorInfo.type,
-                  icmpErrorInfo.code
+                  static_cast<int>(icmpErrorInfo.type),
+                  static_cast<int>(icmpErrorInfo.code)
                );
             }
          }

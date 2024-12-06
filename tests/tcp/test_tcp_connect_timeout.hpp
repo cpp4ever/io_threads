@@ -25,7 +25,7 @@
 
 #include <io_threads/tcp_client_config.hpp>
 
-#include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #if (defined(_WIN32) || defined(_WIN64))
 #  include <winerror.h>
 #endif
@@ -39,11 +39,17 @@ namespace io_threads::tests
 template<typename test_client>
 void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
 {
+   auto const testExpectedErrorCodeMatcher
+   {
+      testing::AnyOf(
 #if (defined(__linux__))
-   auto const testExpectedErrorCode = std::make_error_code(std::errc::timed_out);
+         std::make_error_code(std::errc::timed_out)
 #elif (defined(_WIN32) || defined(_WIN64))
-   auto const testExpectedErrorCode = std::error_code{WSAETIMEDOUT, std::system_category(),};
+         std::error_code{WSAEADDRNOTAVAIL, std::system_category()},
+         std::error_code{WSAETIMEDOUT, std::system_category()}
 #endif
+      ),
+   };
    constexpr auto testNonRoutableIps = std::to_array<std::string_view>({
       "10.0.0.0",
       "10.255.255.1",
@@ -58,7 +64,7 @@ void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
       auto const testSocketAddress = make_socket_address(testNonRoutableIp, testPort, testErrorCode);
       ASSERT_FALSE(testErrorCode) << testErrorCode.value() << ": " << testErrorCode.message();
       ASSERT_TRUE(testSocketAddress.has_value());
-      testClient.expect_error(testExpectedErrorCode);
+      testClient.expect_error(testExpectedErrorCodeMatcher);
       auto const testConnectTimeout = std::chrono::milliseconds{100};
       testClient.expect_ready_to_connect(
          tcp_client_config{tcp_client_address{testSocketAddress.value()}}

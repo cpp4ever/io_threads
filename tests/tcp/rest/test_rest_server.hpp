@@ -71,6 +71,7 @@ private:
    boost::beast::flat_buffer m_buffer;
    boost::beast::http::request<boost::beast::http::string_body> m_request;
    boost::beast::http::response<boost::beast::http::string_body> m_response;
+   std::unique_ptr<boost::beast::http::serializer<false, boost::beast::http::string_body>> m_responseSerializer{nullptr,};
    std::deque<test_rest_stream> m_streams;
    std::thread m_thread;
 

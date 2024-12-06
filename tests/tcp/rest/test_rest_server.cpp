@@ -162,14 +162,16 @@ void test_rest_server<test_rest_stream>::async_write(test_rest_stream &stream)
 {
    constexpr auto writeTimeout = std::chrono::seconds{1,};
    boost::beast::get_lowest_layer(stream).expires_after(writeTimeout);
+   m_responseSerializer = std::make_unique<boost::beast::http::serializer<false, boost::beast::http::string_body>>(m_response);
    boost::beast::http::async_write(
       stream,
-      m_response,
-      [this, &stream] (auto const errorCode, auto const bytesWritten)
+      *m_responseSerializer,
+      [this, &stream] (auto const errorCode, auto const)
       {
          EXPECT_ERROR_CODE(errorCode);
-         if (0 < bytesWritten)
+         if (true == m_responseSerializer->is_done())
          {
+            m_responseSerializer.reset();
             if ((false == bool{errorCode,}) && (true == should_keep_alive()))
             {
                async_read(stream);
