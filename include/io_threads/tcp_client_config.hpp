@@ -35,6 +35,31 @@
 namespace io_threads
 {
 
+enum struct quality_of_service : uint8_t
+{
+   dscp_cs0  [[maybe_unused]] = 0x00,
+   dscp_cs1  [[maybe_unused]] = 0x20,
+   dscp_cs2  [[maybe_unused]] = 0x40,
+   dscp_cs3  [[maybe_unused]] = 0x60,
+   dscp_cs4  [[maybe_unused]] = 0x80,
+   dscp_cs5  [[maybe_unused]] = 0xa0,
+   dscp_cs6  [[maybe_unused]] = 0xc0,
+   dscp_cs7  [[maybe_unused]] = 0xe0,
+   dscp_af11 [[maybe_unused]] = 0x28,
+   dcsp_af12 [[maybe_unused]] = 0x30,
+   dscp_af13 [[maybe_unused]] = 0x38,
+   dscp_af21 [[maybe_unused]] = 0x48,
+   dscp_af22 [[maybe_unused]] = 0x50,
+   dscp_af23 [[maybe_unused]] = 0x58,
+   dscp_af31 [[maybe_unused]] = 0x68,
+   dscp_af32 [[maybe_unused]] = 0x70,
+   dscp_af33 [[maybe_unused]] = 0x78,
+   dscp_af41 [[maybe_unused]] = 0x88,
+   dscp_af42 [[maybe_unused]] = 0x90,
+   dscp_af43 [[maybe_unused]] = 0x98,
+   dscp_ef   [[maybe_unused]] = 0xb8,
+};
+
 class tcp_client_config final
 {
 public:
@@ -68,6 +93,11 @@ public:
       return m_peerAddress;
    }
 
+   [[maybe_unused, nodiscard]] io_threads::quality_of_service const &quality_of_service() const noexcept
+   {
+      return m_qualityOfService;
+   }
+
    [[maybe_unused, nodiscard]] std::chrono::milliseconds user_timeout() const noexcept
    {
       return m_userTimeout;
@@ -87,6 +117,13 @@ public:
       return config;
    }
 
+   [[maybe_unused, nodiscard]] tcp_client_config with_quality_of_service(io_threads::quality_of_service const value) const noexcept
+   {
+      auto config{*this};
+      config.m_qualityOfService = value;
+      return config;
+   }
+
    [[maybe_unused, nodiscard]] tcp_client_config with_user_timeout(std::chrono::milliseconds const value) const noexcept
    {
       auto config{*this};
@@ -97,6 +134,7 @@ public:
 private:
    std::optional<tcp_keep_alive> m_keepAlive{std::nullopt};
    bool m_nodelay{false};
+   io_threads::quality_of_service m_qualityOfService{io_threads::quality_of_service::dscp_cs0,};
    tcp_client_address m_peerAddress;
    std::chrono::milliseconds m_userTimeout{std::chrono::milliseconds::zero()};
 };

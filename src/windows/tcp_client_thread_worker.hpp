@@ -27,6 +27,7 @@
 
 #include "common/logger.hpp" ///< for io_threads::log_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
+#include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
@@ -40,11 +41,6 @@
 ///   io_threads::to_completion_key
 #include "windows/completion_port.hpp"
 #include "windows/socket_address_impl.hpp" ///< for io_threads::socket_address::socket_address_impl
-/// for
-///   io_threads::from_completion_overlapped,
-///   io_threads::tcp_client_command,
-///   io_threads::to_completion_overlapped
-#include "windows/tcp_client_command.hpp"
 #include "windows/tcp_connectivity_context.hpp" ///< for io_threads::tcp_connectivity_context
 #include "windows/tcp_data_transfer_context.hpp" ///< for io_threads::tcp_data_transfer_context
 #include "windows/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
@@ -66,6 +62,7 @@
 ///   GUID,
 ///   INVALID_SOCKET,
 ///   IPPROTO_TCP,
+///   LPOVERLAPPED,
 ///   LPSOCKADDR,
 ///   LPWSAPROTOCOL_INFOW,
 ///   MoveMemory,
@@ -118,7 +115,7 @@
 #include <cassert> ///< for assert
 #include <chrono> ///< for std::chrono::milliseconds
 #include <cstddef> ///< for size_t, std::byte
-#include <cstdint> ///< for uint16_t
+#include <cstdint> ///< for intptr_t, uint16_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -133,6 +130,21 @@
 
 namespace io_threads
 {
+
+namespace
+{
+
+[[nodiscard]] tcp_client_command from_completion_overlapped(LPOVERLAPPED const overlapped) noexcept
+{
+   return tcp_client_command{std::bit_cast<intptr_t>(overlapped),};
+}
+
+[[nodiscard]] LPOVERLAPPED to_completion_overlapped(tcp_client_command const value) noexcept
+{
+   return std::bit_cast<LPOVERLAPPED>(to_underlying(value));
+}
+
+}
 
 class tcp_client::tcp_client_thread_worker final
 {
@@ -217,21 +229,21 @@ public:
 
    [[nodiscard]] static std::jthread start(
       uint16_t const coreCpuId,
-      size_t const initialCapacityOfSocketDescriptorList,
-      size_t const capacityOfInputOutputBuffers,
+      size_t const capacityOfSocketDescriptorList,
+      size_t const capacityOfInputOutputBuffer,
       std::promise<tcp_client_thread_worker &> &workerPromise
    )
    {
       [[maybe_unused]] static winsock_scope const winsockScope{};
       return std::jthread
       {
-         [coreCpuId, initialCapacityOfSocketDescriptorList, capacityOfInputOutputBuffers, &workerPromise] (std::stop_token const stopToken)
+         [coreCpuId, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer, &workerPromise] (std::stop_token const stopToken)
          {
             if (0 == SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(1) << coreCpuId)) [[unlikely]]
             {
                check_winapi_error("[tcp_client] failed to pin thread to cpu core: ({}) - {}");
             }
-            tcp_client_thread_worker worker{initialCapacityOfSocketDescriptorList, capacityOfInputOutputBuffers};
+            tcp_client_thread_worker worker{capacityOfSocketDescriptorList, capacityOfInputOutputBuffer};
             workerPromise.set_value(worker);
             while (false == stopToken.stop_requested()) [[likely]]
             {
@@ -260,31 +272,31 @@ private:
    std::unique_ptr<memory_pool> const m_socketMemory;
 
    [[nodiscard]] tcp_client_thread_worker(
-      size_t const initialCapacityOfSocketDescriptors,
-      size_t const capacityOfInputOutputBuffers
+      size_t const capacityOfSocketDescriptorList,
+      size_t const capacityOfInputOutputBuffer
    ) :
       m_completionPortEntries{std::make_unique<completion_port::entries>()},
       m_ioMemory
       {
          std::make_unique<memory_pool>(
-            initialCapacityOfSocketDescriptors * 2,
+            capacityOfSocketDescriptorList * 2,
             std::align_val_t{std::max(alignof(tcp_connectivity_context), alignof(tcp_data_transfer_context))},
             std::max(
                sizeof(tcp_connectivity_context) + std::max(sizeof(SOCKADDR_IN), sizeof(SOCKADDR_IN6)),
-               sizeof(tcp_data_transfer_context) + capacityOfInputOutputBuffers
+               sizeof(tcp_data_transfer_context) + capacityOfInputOutputBuffer
             )
          )
       },
       m_socketMemory
       {
          std::make_unique<memory_pool>(
-            initialCapacityOfSocketDescriptors,
+            capacityOfSocketDescriptorList,
             std::align_val_t{alignof(tcp_socket_descriptor)},
             sizeof(tcp_socket_descriptor)
          )
       }
    {
-      assert(0 < capacityOfInputOutputBuffers);
+      assert(0 < capacityOfInputOutputBuffer);
       constexpr int socketFamily{AF_INET};
       constexpr int socketType{SOCK_STREAM};
       constexpr int socketProtocol{IPPROTO_TCP};

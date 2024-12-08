@@ -29,7 +29,7 @@
 
 #include <array> ///< for std::array
 #include <climits> ///< for PATH_MAX
-#include <cstdint> ///< for uint32_t
+#include <cstdint> ///< for uint32_t, uint8_t
 
 namespace io_threads
 {

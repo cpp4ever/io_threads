@@ -170,12 +170,12 @@ TEST_F(tcp_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
-   constexpr size_t testCapacityOfInputOutputBuffers{1,};
+   constexpr size_t testCapacityOfInputOutputBuffer{1,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    test_tcp_client testClient{testThread,};
    constexpr uint16_t testPort{81,};
@@ -186,12 +186,12 @@ TEST_F(tcp_client, http)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
-   constexpr size_t testCapacityOfInputOutputBuffers{256,};
+   constexpr size_t testCapacityOfInputOutputBuffer{256,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    test_tcp_client testClient{testThread,};
    test_rest_client<boost::beast::tcp_stream>(testClient);

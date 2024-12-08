@@ -54,16 +54,16 @@ public:
 
    tcp_client_thread_impl(
       uint16_t const coreCpuId,
-      size_t const initialCapacityOfSocketDescriptorList,
-      size_t const capacityOfInputOutputBuffers
+      size_t const capacityOfSocketDescriptorList,
+      size_t const capacityOfInputOutputBuffer
    )
    {
       std::promise<tcp_client::tcp_client_thread_worker &> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
       m_thread = tcp_client::tcp_client_thread_worker::start(
          coreCpuId,
-         initialCapacityOfSocketDescriptorList,
-         capacityOfInputOutputBuffers,
+         capacityOfSocketDescriptorList,
+         capacityOfInputOutputBuffer,
          workerPromise
       );
       m_worker = std::addressof(workerFuture.get());
@@ -126,10 +126,10 @@ tcp_client_thread::tcp_client_thread(tcp_client_thread const &rhs) noexcept :
 
 tcp_client_thread::tcp_client_thread(
    uint16_t const coreCpuId,
-   size_t const initialCapacityOfSocketDescriptorList,
-   size_t const capacityOfInputOutputBuffers
+   size_t const capacityOfSocketDescriptorList,
+   size_t const capacityOfInputOutputBuffer
 ) :
-   m_impl{std::make_shared<tcp_client_thread_impl>(coreCpuId, initialCapacityOfSocketDescriptorList, capacityOfInputOutputBuffers),}
+   m_impl{std::make_shared<tcp_client_thread_impl>(coreCpuId, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer),}
 {
    assert(nullptr != m_impl);
 }

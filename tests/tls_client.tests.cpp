@@ -182,12 +182,12 @@ TEST_F(tls_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
-   constexpr size_t testCapacityOfInputOutputBuffers{1,};
+   constexpr size_t testCapacityOfInputOutputBuffer{1,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    constexpr size_t testTlsSessionsCapacity{0,};
    auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity,};
@@ -200,12 +200,12 @@ TEST_F(tls_client, https)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
-   constexpr size_t testCapacityOfInputOutputBuffers{4 * 1024,};
+   constexpr size_t testCapacityOfInputOutputBuffer{4 * 1024,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    constexpr size_t testTlsSessionsCapacity{1,};
    tls_client_context const testTlsContext
@@ -308,12 +308,12 @@ TEST_F(tls_client, badssl)
    };
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
-   constexpr size_t testCapacityOfInputOutputBuffers{tls_packet_size_limit,};
+   constexpr size_t testCapacityOfInputOutputBuffer{tls_packet_size_limit,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    constexpr size_t testTlsSessionsCapacity{0,};
    constexpr std::chrono::seconds testTimeout{5,};
@@ -381,12 +381,12 @@ TEST_F(tls_client, goodssl)
    };
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
-   constexpr size_t testCapacityOfInputOutputBuffers{tls_packet_size_limit,};
+   constexpr size_t testCapacityOfInputOutputBuffer{tls_packet_size_limit,};
    tcp_client_thread const testThread
    {
       testCpuId,
       testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffers,
+      testCapacityOfInputOutputBuffer,
    };
    constexpr size_t testTlsSessionsCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};

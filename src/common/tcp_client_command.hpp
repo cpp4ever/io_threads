@@ -25,31 +25,18 @@
 
 #pragma once
 
-#include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-
-#include <cstdint> ///< for uint32_t, uint8_t
-#include <system_error> ///< for std::error_code
+#include <cstdint> ///< for intptr_t
 
 namespace io_threads
 {
 
-enum struct tcp_socket_status : uint8_t
+enum struct tcp_client_command : intptr_t
 {
-   none = 0,
-   connecting,
-   ready,
-   busy,
-   disconnecting,
-};
-
-struct tcp_socket_descriptor final
-{
-   uint32_t const registeredTcpSocketIndex;
-   tcp_socket_status tcpSocketStatus{tcp_socket_status::none,};
-   bool disconnectOnCompletion{false,};
-   tcp_client *tcpClient{nullptr,};
-   tcp_socket_descriptor *next{nullptr,};
-   std::error_code disconnectReason{};
+   unknown = 0,
+   execute,
+   ready_to_connect,
+   ready_to_disconnect,
+   ready_to_send,
 };
 
 }

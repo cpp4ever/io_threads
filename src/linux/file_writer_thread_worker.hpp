@@ -33,7 +33,9 @@
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status
+#include "linux/thread_affinity.hpp" ///< for io_threads::set_thread_affinity
 #include "linux/uring_command_queue.hpp" ///< for io_threads::uring_command_queue
+#include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 #include "linux/uring_stop_token.hpp" ///< for io_threads::uring_stop_token
 #include "linux/uring_worker.hpp" ///< for io_threads::uring_worker
 
@@ -55,7 +57,6 @@
 ///   io_uring_prep_write,
 ///   IOSQE_FIXED_FILE
 #include <liburing.h>
-#include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO, sched_setaffinity
 
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
@@ -73,18 +74,6 @@
 
 namespace io_threads
 {
-
-void set_thread_affinity(uint16_t const coreCpuId)
-{
-   cpu_set_t affinityMask;
-   CPU_ZERO(std::addressof(affinityMask));
-   CPU_SET(coreCpuId, std::addressof(affinityMask));
-   if (auto const returnCode{sched_setaffinity(0, sizeof(affinityMask), std::addressof(affinityMask)),}; 0 != returnCode)
-   {
-      log_system_error(std::source_location::current(), "[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
-      unreachable();
-   }
-}
 
 class file_writer::file_writer_thread_worker final : public uring_listener
 {
@@ -165,7 +154,11 @@ public:
       {
          [coreCpuId, capacityOfFileDescriptorList, &workerPromise] (std::stop_token const stopToken)
          {
-            set_thread_affinity(coreCpuId);
+            if (auto const returnCode{set_thread_affinity(coreCpuId),}; 0 != returnCode)
+            {
+               log_system_error(std::source_location::current(), "[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
+               unreachable();
+            }
             file_writer_thread_worker threadWorker{stopToken, capacityOfFileDescriptorList,};
             assert(nullptr != threadWorker.m_uringWorker);
             workerPromise.set_value(threadWorker);
@@ -187,53 +180,20 @@ private:
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
    uring_command_queue m_uringCommandQueue;
    file_descriptor *m_freeFileDescriptors{nullptr,};
-   std::unique_ptr<memory_pool> const m_fileMemory;
 
    [[nodiscard]] file_writer_thread_worker(std::stop_token const &stopToken, size_t const capacityOfFileDescriptorList) :
-      m_uringWorker{std::make_unique<uring_worker>(capacityOfFileDescriptorList, capacityOfFileDescriptorList + 1),},
+      m_uringWorker{std::make_unique<uring_worker>(capacityOfFileDescriptorList + 1),},
       m_uringStopToken{stopToken,},
-      m_uringCommandQueue{capacityOfFileDescriptorList,},
-      m_fileMemory
-      {
-         std::make_unique<memory_pool>(
-            capacityOfFileDescriptorList,
-            std::align_val_t{alignof(file_descriptor),},
-            sizeof(file_descriptor)
-         )
-      }
+      m_uringCommandQueue{capacityOfFileDescriptorList,}
    {
-      assert(0 < capacityOfFileDescriptorList);
-      for (
-         uint32_t registeredFileIndex{static_cast<uint32_t>(capacityOfFileDescriptorList),};
-         0 < registeredFileIndex;
-         --registeredFileIndex
-      )
-      {
-         m_freeFileDescriptors = std::addressof(
-            m_fileMemory->pop_object<file_descriptor>(
-               file_descriptor
-               {
-                  .registeredFileIndex = registeredFileIndex - 1,
-                  .next = m_freeFileDescriptors,
-               }
-            )
-         );
-      }
+      m_freeFileDescriptors = m_uringWorker->register_file_descriptors(capacityOfFileDescriptorList);
       m_uringCommandQueue.prep_read(m_uringWorker->submission_entry(this));
       m_uringStopToken.increment_tasks_count();
    }
 
    ~file_writer_thread_worker()
    {
-      while (nullptr != m_freeFileDescriptors)
-      {
-         auto *fileDescriptor{std::launder(m_freeFileDescriptors),};
-         assert(file_status::none == fileDescriptor->fileStatus);
-         assert(false == fileDescriptor->closeOnCompletion);
-         assert(nullptr == fileDescriptor->fileWriter);
-         m_freeFileDescriptors = fileDescriptor->next;
-         m_fileMemory->push_object(*fileDescriptor);
-      }
+      m_uringWorker->unregister_file_descriptors(m_freeFileDescriptors);
    }
 
    void close_file(file_writer &fileWriter)
@@ -258,7 +218,7 @@ private:
    {
       switch (commandId)
       {
-      case to_underlying(file_writer_command::unknown):
+      [[unlikely]] case to_underlying(file_writer_command::unknown):
       {
          assert(0 == commandTarget);
          m_uringCommandQueue.prep_close(m_uringWorker->submission_entry(this));
@@ -452,7 +412,7 @@ private:
          unreachable();
       }
       auto &fileDescriptor{*std::launder(m_freeFileDescriptors)};
-      m_freeFileDescriptors = fileDescriptor.next;
+      m_freeFileDescriptors = std::launder(fileDescriptor.next);
       fileDescriptor.next = nullptr;
       assert(file_status::none == fileDescriptor.fileStatus);
       assert(false == fileDescriptor.closeOnCompletion);

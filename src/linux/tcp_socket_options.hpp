@@ -25,31 +25,28 @@
 
 #pragma once
 
-#include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
+#include "linux/socket_address_impl.hpp" ///< for io_threads::sockaddr_inet
 
-#include <cstdint> ///< for uint32_t, uint8_t
-#include <system_error> ///< for std::error_code
+#include <net/if.h> ///< for IF_NAMESIZE
+
+#include <array> ///< for std::array
 
 namespace io_threads
 {
 
-enum struct tcp_socket_status : uint8_t
+struct tcp_socket_options final
 {
-   none = 0,
-   connecting,
-   ready,
-   busy,
-   disconnecting,
-};
-
-struct tcp_socket_descriptor final
-{
-   uint32_t const registeredTcpSocketIndex;
-   tcp_socket_status tcpSocketStatus{tcp_socket_status::none,};
-   bool disconnectOnCompletion{false,};
-   tcp_client *tcpClient{nullptr,};
-   tcp_socket_descriptor *next{nullptr,};
-   std::error_code disconnectReason{};
+   std::array<char, IF_NAMESIZE> soBindToDevice{0,};
+   int soIncomingCpu{0,};
+   int soKeepAlive{0,};
+   int ipTos{0,};
+   int tcpKeepCnt{0,};
+   int tcpKeepIdle{0,};
+   int tcpKeepIntvl{0,};
+   int tcpNoDelay{0,};
+   int const tcpSynCnt{1,};
+   int tcpUserTimeout{0,};
+   sockaddr_inet address{};
 };
 
 }

@@ -43,8 +43,8 @@ public:
    [[nodiscard]] tcp_client_thread(tcp_client_thread const &rhs) noexcept;
    [[nodiscard]] tcp_client_thread(
       uint16_t coreCpuId,
-      size_t initialCapacityOfSocketDescriptorList,
-      size_t capacityOfInputOutputBuffers
+      size_t capacityOfSocketDescriptorList,
+      size_t capacityOfInputOutputBuffer
    );
    ~tcp_client_thread();
 

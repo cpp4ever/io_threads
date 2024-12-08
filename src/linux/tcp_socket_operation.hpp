@@ -25,33 +25,53 @@
 
 #pragma once
 
-#include "common/utility.hpp" ///< for io_threads::to_underlying
+#include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 
-#include <Windows.h> ///< for LPOVERLAPPED
-
-#include <bit> ///< for std::bit_cast
-#include <cstdint> ///< for intptr_t
+#include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for uint32_t, uint8_t
 
 namespace io_threads
 {
 
-enum struct tcp_client_command : intptr_t
+enum struct tcp_socket_operation_type : uint8_t
 {
-   unknown = 0,
-   execute,
-   ready_to_connect,
-   ready_to_disconnect,
-   ready_to_send,
+   none,
+   socket,
+   setopt_so_bindtodevice,
+   setopt_so_incoming_cpu,
+   setopt_so_keepalive,
+   setopt_ip_tos,
+   setopt_tcp_keepcnt,
+   setopt_tcp_keepidle,
+   setopt_tcp_keepintvl,
+   setopt_tcp_nodelay,
+   setopt_tcp_syncnt,
+   setopt_tcp_user_timeout,
+   connect,
+   recv,
+   send,
+   disconnect,
+   close,
 };
 
-[[nodiscard]] constexpr tcp_client_command from_completion_overlapped(LPOVERLAPPED const overlapped) noexcept
+struct tcp_socket_operation final
 {
-   return tcp_client_command{std::bit_cast<intptr_t>(overlapped)};
-}
+   tcp_socket_operation *next{nullptr,};
+   tcp_socket_descriptor *descriptor{nullptr,};
+   uint32_t const bufferIndex;
+   uint32_t bufferOffset{0,};
+   tcp_socket_operation_type type{tcp_socket_operation_type::none,};
+   std::byte bufferBytes[1]{std::byte{0,},};
 
-[[nodiscard]] constexpr LPOVERLAPPED to_completion_overlapped(tcp_client_command const value) noexcept
-{
-   return std::bit_cast<LPOVERLAPPED>(to_underlying(value));
-}
+   [[nodiscard]] static size_t buffer_bytes_capacity(size_t const totalSize) noexcept
+   {
+      return totalSize - offsetof(tcp_socket_operation, bufferBytes);
+   }
+
+   [[nodiscard]] static size_t total_size(size_t const bytesCapacity) noexcept
+   {
+      return bytesCapacity + offsetof(tcp_socket_operation, bufferBytes);
+   }
+};
 
 }

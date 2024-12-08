@@ -25,31 +25,21 @@
 
 #pragma once
 
-#include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
+#include <errno.h> ///< for errno
+#include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO, sched_setaffinity
 
-#include <cstdint> ///< for uint32_t, uint8_t
-#include <system_error> ///< for std::error_code
+#include <cstdint> ///< for uint16_t
+#include <memory> ///< for std::addressof
 
 namespace io_threads
 {
 
-enum struct tcp_socket_status : uint8_t
+[[nodiscard]] inline int set_thread_affinity(uint16_t const coreCpuId)
 {
-   none = 0,
-   connecting,
-   ready,
-   busy,
-   disconnecting,
-};
-
-struct tcp_socket_descriptor final
-{
-   uint32_t const registeredTcpSocketIndex;
-   tcp_socket_status tcpSocketStatus{tcp_socket_status::none,};
-   bool disconnectOnCompletion{false,};
-   tcp_client *tcpClient{nullptr,};
-   tcp_socket_descriptor *next{nullptr,};
-   std::error_code disconnectReason{};
-};
+   cpu_set_t affinityMask;
+   CPU_ZERO(std::addressof(affinityMask));
+   CPU_SET(coreCpuId, std::addressof(affinityMask));
+   return (0 == sched_setaffinity(0, sizeof(affinityMask), std::addressof(affinityMask))) ? 0 : errno;
+}
 
 }
