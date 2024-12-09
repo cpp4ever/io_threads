@@ -28,7 +28,6 @@
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
 
 #include <cstdint> ///< for uint32_t, uint8_t
-#include <system_error> ///< for std::error_code
 
 namespace io_threads
 {
@@ -49,7 +48,6 @@ struct tcp_socket_descriptor final
    bool disconnectOnCompletion{false,};
    tcp_client *tcpClient{nullptr,};
    tcp_socket_descriptor *next{nullptr,};
-   std::error_code disconnectReason{};
 };
 
 }

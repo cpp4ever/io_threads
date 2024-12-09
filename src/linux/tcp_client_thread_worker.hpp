@@ -45,12 +45,15 @@
 #include "linux/uring_stop_token.hpp" ///< for io_threads::uring_stop_token
 #include "linux/uring_worker.hpp" ///< for io_threads::uring_worker
 
+#include <netinet/tcp.h>
+
 #include <algorithm> ///< for std::max
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <chrono> ///< for std::chrono::milliseconds
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint16_t
+#include <cstring> ///< for std::memcpy
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -148,7 +151,7 @@ public:
                log_system_error(std::source_location::current(), "[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
-            tcp_client_thread_worker threadWorker{stopToken, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer,};
+            tcp_client_thread_worker threadWorker{coreCpuId, stopToken, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer,};
             assert(nullptr != threadWorker.m_uringWorker);
             workerPromise.set_value(threadWorker);
             while (
@@ -170,20 +173,24 @@ private:
    uring_command_queue m_uringCommandQueue;
    tcp_socket_operation *m_tcpSocketOperations{nullptr,};
    tcp_socket_descriptor *m_tcpSocketDescriptors{nullptr,};
+   int const m_soIncomingCpu{0,};
+   int const m_tcpSynCnt{1,};
 
    [[nodiscard]] tcp_client_thread_worker(
+      uint16_t const coreCpuId,
       std::stop_token const &stopToken,
       size_t const capacityOfSocketDescriptorList,
       size_t const capacityOfInputOutputBuffer
    ) :
-      m_uringWorker{std::make_unique<uring_worker>(capacityOfSocketDescriptorList * 2 + 1),},
+      m_uringWorker{std::make_unique<uring_worker>(coreCpuId, capacityOfSocketDescriptorList * 2 + 1),},
       m_uringStopToken{stopToken,},
-      m_uringCommandQueue{capacityOfSocketDescriptorList,}
+      m_uringCommandQueue{capacityOfSocketDescriptorList,},
+      m_soIncomingCpu{coreCpuId,}
    {
       assert(0 < capacityOfInputOutputBuffer);
       m_tcpSocketOperations = m_uringWorker->register_tcp_socket_operations(
          capacityOfSocketDescriptorList * 2,
-         tcp_socket_operation::total_size(std::max(sizeof(tcp_socket_options), capacityOfInputOutputBuffer))
+         std::max(sizeof(tcp_socket_operation) + sizeof(tcp_socket_options), tcp_socket_operation::total_size(capacityOfInputOutputBuffer))
       );
       m_tcpSocketDescriptors = m_uringWorker->register_tcp_socket_descriptors(capacityOfSocketDescriptorList);
       m_uringCommandQueue.prep_read(m_uringWorker->submission_entry(this));
@@ -194,24 +201,6 @@ private:
    {
       m_uringWorker->unregister_tcp_socket_descriptors(m_tcpSocketDescriptors);
       m_uringWorker->unregister_tcp_socket_operations(m_tcpSocketOperations);
-   }
-
-   void connect(tcp_client &tcpClient)
-   {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      assert(tcp_socket_status::connecting == tcpClient.m_socketDescriptor->tcpSocketStatus);
-      assert(std::addressof(tcpClient) == tcpClient.m_socketDescriptor->tcpClient);
-      /*auto &tcpSocketDescriptor = *tcpClient.m_socketDescriptor;
-      auto &submissionQueueEntry = m_uringWorker->submission_entry(std::addressof(tcpSocketDescriptor));
-      io_uring_prep_connect(
-         std::addressof(submissionQueueEntry),
-         tcpClient.m_socketDescriptor->registeredTcpSocketIndex,
-      );*/
-   }
-
-   void disconnect(tcp_client &tcpClient)
-   {
-      (void)tcpClient;
    }
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget)
@@ -278,99 +267,381 @@ private:
          m_uringStopToken.decrement_tasks_count();
          return;
       }
-/*
-      auto &fileDescriptor{*std::bit_cast<file_descriptor *>(userdata),};
-      assert(file_status::none != fileDescriptor.fileStatus);
-      assert(nullptr == fileDescriptor.next);
-      if (nullptr != fileDescriptor.fileWriter) [[likely]]
+      auto &tcpSocketOperation{*std::launder(std::bit_cast<tcp_socket_operation *>(userdata)),};
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
+      switch (tcpSocketOperation.type)
       {
-         if (file_status::busy == fileDescriptor.fileStatus) [[likely]]
-         {
-            auto &fileWriter = *fileDescriptor.fileWriter;
-            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
-            fileDescriptor.fileStatus = file_status::ready;
-            if (0 <= result) [[likely]]
-            {
-               write(fileWriter);
-            }
-            else
-            {
-               close_file(fileWriter);
-               std::error_code errorCode{-result, std::generic_category(),};
-               fileWriter.io_closed(errorCode);
-            }
-         }
-         else
-         {
-            assert(file_status::opening == fileDescriptor.fileStatus);
-            fileDescriptor.fileStatus = file_status::ready;
-            auto &fileWriter = *fileDescriptor.fileWriter;
-            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
-            if (0 == result) [[likely]]
-            {
-               fileWriter.io_opened();
-               write(fileWriter);
-            }
-            else
-            {
-               fileWriter.m_fileDescriptor = nullptr;
-               fileDescriptor.fileStatus = file_status::none;
-               fileDescriptor.closeOnCompletion = false;
-               fileDescriptor.fileWriter = nullptr;
-               fileDescriptor.next = m_freeFileDescriptors;
-               m_freeFileDescriptors = std::addressof(fileDescriptor);
-               std::error_code errorCode{-result, std::generic_category(),};
-               fileWriter.io_closed(errorCode);
-            }
-         }
+      case tcp_socket_operation_type::socket: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_so_bindtodevice: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_so_incoming_cpu: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_so_keepalive: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_ip_tos: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepcnt: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepidle: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepintvl: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_nodelay: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_syncnt: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_user_timeout: [[fallthrough]];
+      case tcp_socket_operation_type::connect:
+      {
+         handle_connect_completion(tcpSocketOperation, result, flags);
       }
-      else if (file_status::flushing == fileDescriptor.fileStatus)
+      break;
+
+      case tcp_socket_operation_type::recv:
       {
-         if (0 > result) [[unlikely]]
-         {
-            log_system_error(std::source_location::current(), "[file_writer] failed to flush file buffers: ({}) - {}", -result);
-         }
-         auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(fileDescriptor)),};
-         fileDescriptor.fileStatus = file_status::closing;
-         io_uring_prep_close_direct(std::addressof(submissionQueueEntry), fileDescriptor.registeredFileIndex);
-         m_uringStopToken.increment_tasks_count();
+         handle_recv_completion(tcpSocketOperation, result, flags);
       }
-      else if (file_status::closing == fileDescriptor.fileStatus)
+      break;
+
+      case tcp_socket_operation_type::send:
       {
-         if (0 > result) [[unlikely]]
-         {
-            log_system_error(std::source_location::current(), "[file_writer] failed to close file: ({}) - {}", -result);
-         }
-         fileDescriptor.fileStatus = file_status::none;
-         fileDescriptor.closeOnCompletion = false;
-         fileDescriptor.next = m_freeFileDescriptors;
-         m_freeFileDescriptors = std::addressof(fileDescriptor);
+         handle_send_completion(tcpSocketOperation, result, flags);
       }
-      else
+      break;
+
+      case tcp_socket_operation_type::disconnect: [[fallthrough]];
+      case tcp_socket_operation_type::close:
       {
-         log_error(std::source_location::current(), "[file_writer] unexpected file status {}: it must be a bug", to_underlying(fileDescriptor.fileStatus));
+         handle_disconnect_completion(tcpSocketOperation, result, flags);
+      }
+      break;
+
+      [[unlikely]] default:
+      {
+         log_error(std::source_location::current(), "[tcp_client] unexpected tcp_socket_operation_type {}: it must be a bug", to_underlying(tcpSocketOperation.type));
          unreachable();
       }
-*/
+      }
       m_uringStopToken.decrement_tasks_count();
    }
 
-   void handle_connect_completion(tcp_client &tcpClient)
+   void prep_sockopt_direct(tcp_socket_operation &tcpSocketOperation, int const level, int const optname, void *optval, int const optlen)
    {
-      (void)tcpClient;
+      auto &submissionQueueEntry = m_uringWorker->submission_entry(std::addressof(tcpSocketOperation));
+      io_uring_prep_cmd_sock(
+         std::addressof(submissionQueueEntry),
+         SOCKET_URING_OP_SETSOCKOPT,
+         tcpSocketOperation.descriptor->registeredTcpSocketIndex,
+         level,
+         optname,
+         optval,
+         optlen
+      );
+      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+      m_uringStopToken.increment_tasks_count();
    }
 
-   void handle_disconnect_completion(tcp_client &tcpClient)
+   void prep_sockopt_direct(tcp_socket_operation &tcpSocketOperation, int const level, int const optname, int const optval)
    {
-      handle_disconnected(tcpClient, std::error_code{});
+      prep_sockopt_direct(tcpSocketOperation, level, optname, std::bit_cast<void *>(std::addressof(optval)), sizeof(optval));
    }
 
-   void handle_disconnected(tcp_client &tcpClient, std::error_code errorCode)
+   void handle_connect_completion(tcp_socket_operation &tcpSocketOperation, int32_t result, [[maybe_unused]] uint32_t const flags)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      //auto *socketDescriptor{std::launder(tcpClient.m_socketDescriptor)};
-      //m_socketMemory->push_object(*socketDescriptor);
-      tcpClient.io_disconnected(errorCode);
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::connecting == tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(false == tcpSocketOperation.descriptor->disconnectOnCompletion);
+      assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
+      assert(0 == flags);
+      auto &tcpSocketDescriptor = *tcpSocketOperation.descriptor;
+      auto &tcpSocketOptions = *std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1);
+      if (true == tcpSocketDescriptor.disconnectOnCompletion) [[unlikely]]
+      {
+         std::destroy_at(std::addressof(tcpSocketOptions));
+         handle_disconnect(tcpSocketOperation, std::error_code{});
+         return;
+      }
+      switch (tcpSocketOperation.type)
+      {
+      case tcp_socket_operation_type::socket:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to create TCP socket: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (0 != tcpSocketOptions.soBindToDevice[0])
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_bindtodevice;
+            prep_sockopt_direct(
+               tcpSocketOperation,
+               SOL_SOCKET,
+               SO_BINDTODEVICE,
+               tcpSocketOptions.soBindToDevice.data(),
+               std::strlen(tcpSocketOptions.soBindToDevice.data())
+            );
+            break;
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_so_bindtodevice:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_BINDTODEVICE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_incoming_cpu;
+         prep_sockopt_direct(tcpSocketOperation, SOL_SOCKET, SO_INCOMING_CPU, m_soIncomingCpu);
+      }
+      break;
+
+      case tcp_socket_operation_type::setopt_so_incoming_cpu:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_INCOMING_CPU socket option: ({}) - {}", -result);
+            result = 0;
+         }
+         if (1 == tcpSocketOptions.soKeepAlive)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_keepalive;
+            prep_sockopt_direct(tcpSocketOperation, SOL_SOCKET, SO_KEEPALIVE, tcpSocketOptions.soKeepAlive);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.soKeepAlive);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_so_keepalive:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_KEEPALIVE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (0 != tcpSocketOptions.ipTos)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_ip_tos;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_IP, IP_TOS, tcpSocketOptions.ipTos);
+            break;
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_ip_tos:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set IP_TOS socket option: ({}) - {}", -result);
+            result = 0;
+         }
+         if (0 < tcpSocketOptions.tcpKeepCnt)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepcnt;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPCNT, tcpSocketOptions.tcpKeepCnt);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.tcpKeepCnt);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepcnt:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPCNT socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (0 < tcpSocketOptions.tcpKeepIdle)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepidle;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPIDLE, tcpSocketOptions.tcpKeepIdle);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.tcpKeepIdle);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepidle:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPIDLE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (0 < tcpSocketOptions.tcpKeepIdle)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepintvl;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPINTVL, tcpSocketOptions.tcpKeepIntvl);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.tcpKeepIntvl);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_keepintvl:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPINTVL socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (1 == tcpSocketOptions.tcpNoDelay)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_nodelay;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_NODELAY, tcpSocketOptions.tcpNoDelay);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.tcpNoDelay);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_nodelay:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_NODELAY socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (0 < tcpSocketOptions.tcpUserTimeout)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_syncnt;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_SYNCNT, m_tcpSynCnt);
+            break;
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_syncnt:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_SYNCNT socket option: ({}) - {}", -result);
+            result = 0;
+         }
+         if (1 == tcpSocketOptions.tcpUserTimeout)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_user_timeout;
+            prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_USER_TIMEOUT, tcpSocketOptions.tcpUserTimeout);
+            break;
+         }
+         else
+         {
+            assert(0 == tcpSocketOptions.tcpUserTimeout);
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_user_timeout:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_USER_TIMEOUT socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         tcpSocketOperation.type = tcp_socket_operation_type::connect;
+         auto &submissionQueueEntry = m_uringWorker->submission_entry(std::addressof(tcpSocketOperation));
+         io_uring_prep_connect(
+            std::addressof(submissionQueueEntry),
+            tcpSocketOperation.descriptor->registeredTcpSocketIndex,
+            std::addressof(tcpSocketOptions.address.ip),
+            (AF_INET == tcpSocketOptions.address.addressFamily) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6)
+         );
+         submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+         m_uringStopToken.increment_tasks_count();
+      }
+      break;
+
+      case tcp_socket_operation_type::connect:
+      {
+         if (0 > result) [[unlikely]]
+         {
+            std::error_code const errorCode{-result, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to connect TCP socket: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         std::destroy_at(std::addressof(tcpSocketOptions));
+         tcpSocketOperation.type = tcp_socket_operation_type::recv;
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
+         recv(tcpSocketOperation);
+         send(*tcpSocketOperation.descriptor);
+      }
+      break;
+
+      [[unlikely]] default:
+      {
+         log_error(std::source_location::current(), "[tcp_client] unexpected tcp_socket_operation_type {}: it must be a bug", to_underlying(tcpSocketOperation.type));
+         unreachable();
+      }
+      break;
+      }
+   }
+
+   void handle_disconnect_completion(tcp_socket_operation &tcpSocketOperation, int32_t const result, [[maybe_unused]] uint32_t const flags)
+   {
+      assert(0 == flags);
+      if (0 > result) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[tcp_thread] failed to disconnect TCP socket: ({}) - {}", -result);
+      }
+      handle_disconnect(tcpSocketOperation, std::error_code{});
+   }
+
+   void handle_disconnect(tcp_socket_operation &tcpSocketOperation, std::error_code const errorCode)
+   {
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
+      auto &tcpSocketDescriptor = *tcpSocketOperation.descriptor;
+      if (nullptr != tcpSocketDescriptor.tcpClient)
+      {
+         tcpSocketDescriptor.tcpClient->io_disconnected(errorCode);
+         tcpSocketDescriptor.tcpClient = nullptr;
+      }
+      if (tcp_socket_operation_type::socket != tcpSocketOperation.type)
+      {
+         if (tcp_socket_operation_type::close == tcpSocketOperation.type)
+         {
+            assert(tcp_socket_status::disconnecting == tcpSocketDescriptor.tcpSocketStatus);
+         }
+         else
+         {
+            assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
+            tcpSocketOperation.type = tcp_socket_operation_type::close;
+            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::disconnecting;
+            io_uring_prep_close_direct(
+               std::addressof(m_uringWorker->submission_entry(std::addressof(tcpSocketOperation))),
+               tcpSocketDescriptor.registeredTcpSocketIndex
+            );
+            return;
+         }
+      }
+      tcpSocketOperation.next = std::launder(m_tcpSocketOperations);
+      tcpSocketOperation.descriptor = nullptr;
+      tcpSocketOperation.bufferOffset = 0;
+      tcpSocketOperation.type = tcp_socket_operation_type::none;
+      m_tcpSocketOperations = std::launder(std::addressof(tcpSocketOperation));
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::none;
+      tcpSocketDescriptor.disconnectOnCompletion = false;
+      tcpSocketDescriptor.next = std::launder(m_tcpSocketDescriptors);
+      m_tcpSocketDescriptors = std::launder(std::addressof(tcpSocketDescriptor));
    }
 
    void handle_ready_to_connect(tcp_client &tcpClient)
@@ -381,23 +652,52 @@ private:
          log_error(std::source_location::current(), "[tcp_client] too few socket descriptors provided, please increase capacity of socket descriptor list");
          unreachable();
       }
+      if (nullptr == m_tcpSocketOperations) [[unlikely]]
+      {
+         log_error(std::source_location::current(), "[tcp_client] too few socket operations provided, it must be a bug");
+         unreachable();
+      }
       auto &tcpSocketDescriptor{*std::launder(m_tcpSocketDescriptors)};
       m_tcpSocketDescriptors = std::launder(tcpSocketDescriptor.next);
       tcpSocketDescriptor.next = nullptr;
       assert(tcp_socket_status::none == tcpSocketDescriptor.tcpSocketStatus);
       assert(false == tcpSocketDescriptor.disconnectOnCompletion);
       assert(nullptr == tcpSocketDescriptor.tcpClient);
-      assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
       tcpClient.m_socketDescriptor = std::addressof(tcpSocketDescriptor);
       tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::connecting;
       tcpSocketDescriptor.tcpClient = std::addressof(tcpClient);
-      auto &config = *std::launder(std::construct_at(
-         std::bit_cast<tcp_client_config *>(std::addressof(tcpSocketDescriptor)),
-         tcpClient.io_ready_to_connect()
-      ));
+      auto config{tcpClient.io_ready_to_connect(),};
+      auto &tcpSocketOperation{*std::launder(m_tcpSocketOperations)};
+      assert(nullptr == tcpSocketOperation.descriptor);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      assert(tcp_socket_operation_type::none == tcpSocketOperation.type);
+      tcpSocketOperation.next = nullptr;
+      tcpSocketOperation.descriptor = std::addressof(tcpSocketDescriptor);
+      tcpSocketOperation.type = tcp_socket_operation_type::socket;
+      auto &tcpSocketOptions = *std::construct_at(
+         std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1),
+         tcp_socket_options
+         {
+            .soBindToDevice = {0,},
+            .soKeepAlive = config.keep_alive().has_value() ? 1 : 0,
+            .ipTos = to_underlying(config.quality_of_service()),
+            .tcpKeepCnt = config.keep_alive().has_value() ? config.keep_alive().value().probesCount : 0,
+            .tcpKeepIdle = static_cast<int>(config.keep_alive().has_value() ? config.keep_alive().value().idleTimeout.count() : 0),
+            .tcpKeepIntvl = static_cast<int>(config.keep_alive().has_value() ? config.keep_alive().value().probeTimeout.count() : 0),
+            .tcpNoDelay = config.nodelay() ? 1 : 0,
+            .tcpUserTimeout = static_cast<int>(config.user_timeout().count()),
+            .address = config.peer_address().socket_address()->sockaddr(),
+         }
+      );
+      if (true == config.peer_address().network_interface().has_value())
+      {
+         auto const deviceName = config.peer_address().network_interface().value().system_name();
+         std::memcpy(tcpSocketOptions.soBindToDevice.data(), deviceName.data(), deviceName.size());
+         tcpSocketOptions.soBindToDevice[deviceName.size()] = 0;
+      }
       io_uring_prep_socket_direct(
-         std::addressof(m_uringWorker->submission_entry(tcpClient.m_socketDescriptor)),
-         config.peer_address().socket_address()->sockaddr().addressFamily,
+         std::addressof(m_uringWorker->submission_entry(std::addressof(tcpSocketOperation))),
+         tcpSocketOptions.address.addressFamily,
          SOCK_STREAM | SOCK_NONBLOCK,
          IPPROTO_TCP,
          tcpClient.m_socketDescriptor->registeredTcpSocketIndex,
@@ -419,11 +719,14 @@ private:
       (void)tcpClient;
    }
 
-   void handle_recv_completion(tcp_client &tcpClient)
+   void handle_recv_completion(tcp_socket_operation &tcpSocketOperation, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
+      (void)tcpSocketOperation;
+      assert(0 == flags);
+      if (0 > result) [[unlikely]]
+      {
+
+      }
    }
 
    void handle_received_data(tcp_client &tcpClient, size_t const bytesReceived)
@@ -434,11 +737,14 @@ private:
       (void)bytesReceived;
    }
 
-   void handle_send_completion(tcp_client &tcpClient)
+   void handle_send_completion(tcp_socket_operation &tcpSocketOperation, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
+      (void)tcpSocketOperation;
+      assert(0 == flags);
+      if (0 > result) [[unlikely]]
+      {
+
+      }
    }
 
    void handle_thread_task(thread_task &task)
@@ -448,18 +754,78 @@ private:
       task.completionPromise.set_value();
    }
 
-   void recv(tcp_client &tcpClient)
+   void recv(tcp_socket_operation &tcpSocketOperation)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(
+         false
+         || (tcp_socket_status::ready == tcpSocketOperation.descriptor->tcpSocketStatus)
+         || (tcp_socket_status::busy == tcpSocketOperation.descriptor->tcpSocketStatus)
+      );
+      assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
+      auto &socketDescriptor{*tcpSocketOperation.descriptor,};
+      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(tcpSocketOperation)),};
+      io_uring_prep_recv(
+         std::addressof(submissionQueueEntry),
+         socketDescriptor.registeredTcpSocketIndex,
+         std::addressof(tcpSocketOperation.bufferBytes[0]) + tcpSocketOperation.bufferOffset,
+         m_uringWorker->registered_buffer_capacity(tcpSocketOperation) - tcpSocketOperation.bufferOffset,
+         0
+      );
+      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+      submissionQueueEntry.ioprio |= IORING_RECVSEND_FIXED_BUF;
+      submissionQueueEntry.buf_index = tcpSocketOperation.bufferIndex;
+      m_uringStopToken.increment_tasks_count();
    }
 
-   void send(tcp_client &tcpClient)
+   void send(tcp_socket_descriptor &tcpSocketDescriptor)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
+      auto &tcpSocketOperation{*m_tcpSocketOperations};
+      assert(nullptr == tcpSocketOperation.descriptor);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      assert(tcp_socket_operation_type::none == tcpSocketOperation.type);
+      size_t bytesWritten{static_cast<size_t>(-1),};
+      if (
+         auto const errorCode
+         {
+            tcpSocketDescriptor.tcpClient->io_data_to_send(
+               data_chunk
+               {
+                  .bytes = std::addressof(tcpSocketOperation.bufferBytes[0]),
+                  .bytesLength = m_uringWorker->registered_buffer_capacity(tcpSocketOperation),
+               },
+               bytesWritten
+            ),
+         };
+         true == bool{errorCode,}
+      ) [[unlikely]]
+      {
+         handle_disconnect(tcpSocketOperation, errorCode);
+         return;
+      }
+      assert(static_cast<size_t>(-1) != bytesWritten);
+      if (0 == bytesWritten)
+      {
+         return;
+      }
+      m_tcpSocketOperations = std::launder(tcpSocketOperation.next);
+      tcpSocketOperation.next = nullptr;
+      tcpSocketOperation.descriptor = std::addressof(tcpSocketDescriptor);
+      tcpSocketOperation.type = tcp_socket_operation_type::send;
+      auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(tcpSocketOperation)),};
+      io_uring_prep_send_zc_fixed(
+         std::addressof(submissionQueueEntry),
+         tcpSocketDescriptor.registeredTcpSocketIndex,
+         std::addressof(tcpSocketOperation.bufferBytes[0]),
+         bytesWritten,
+         0,
+         0,
+         tcpSocketOperation.bufferIndex
+      );
+      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
    }
 };
 

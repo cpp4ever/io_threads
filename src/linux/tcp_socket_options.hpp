@@ -37,14 +37,12 @@ namespace io_threads
 struct tcp_socket_options final
 {
    std::array<char, IF_NAMESIZE> soBindToDevice{0,};
-   int soIncomingCpu{0,};
    int soKeepAlive{0,};
    int ipTos{0,};
    int tcpKeepCnt{0,};
    int tcpKeepIdle{0,};
    int tcpKeepIntvl{0,};
    int tcpNoDelay{0,};
-   int const tcpSynCnt{1,};
    int tcpUserTimeout{0,};
    sockaddr_inet address{};
 };

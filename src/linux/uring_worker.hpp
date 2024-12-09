@@ -51,6 +51,7 @@
 ///   io_uring_unregister_files,
 ///   IORING_SETUP_SINGLE_ISSUER
 #include <liburing.h>
+#include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
 #include <signal.h> ///< for sigfillset, sigset_t
 #include <sys/uio.h> ///< for iovec
 
@@ -73,7 +74,7 @@ public:
    uring_worker(uring_worker &&) = delete;
    uring_worker(uring_worker const &) = delete;
 
-   [[nodiscard]] explicit uring_worker(size_t const capacityOfRingQueue)
+   [[nodiscard]] uring_worker(uint16_t const coreCpuId, size_t const capacityOfRingQueue)
    {
       assert(0 < capacityOfRingQueue);
       assert(nullptr != m_ring);
@@ -84,6 +85,22 @@ public:
       {
          log_system_error(std::source_location::current(), "[io_uring] failed to initialize the ring: ({}) - {}", -returnCode);
          unreachable();
+      }
+      if (auto const returnCode{io_uring_register_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to register ring descriptor: ({}) - {}", -returnCode);
+      }
+      cpu_set_t iowqAffinityMask;
+      CPU_ZERO(std::addressof(iowqAffinityMask));
+      CPU_SET(coreCpuId, std::addressof(iowqAffinityMask));
+      if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
+      }
+      uint32_t iowqMaxWorkers[2] = {1, 1};
+      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), std::addressof(iowqMaxWorkers[0])),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to register IO workers limits: ({}) - {}", -returnCode);
       }
       if (auto const returnCode{io_uring_ring_dontfork(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
@@ -99,11 +116,25 @@ public:
    ~uring_worker()
    {
       assert(nullptr != m_ring);
+      if (auto const returnCode{io_uring_unregister_iowq_aff(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
+      }
+      if (auto const returnCode{io_uring_unregister_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         log_system_error(std::source_location::current(), "[io_uring] failed to unregister ring descriptor: ({}) - {}", -returnCode);
+      }
       io_uring_queue_exit(m_ring.get());
    }
 
    uring_worker &operator = (uring_worker &&) = delete;
    uring_worker &operator = (uring_worker const &) = delete;
+
+   [[nodiscard]] size_t registered_buffer_capacity(tcp_socket_operation const &) const noexcept
+   {
+      assert(nullptr != m_registeredBuffersMemoryPool);
+      return tcp_socket_operation::buffer_bytes_capacity(m_registeredBuffersMemoryPool->memory_size());
+   }
 
    [[nodiscard]] file_descriptor *register_file_descriptors(uint32_t const capacityOfFileDescriptorList)
    {
@@ -187,18 +218,18 @@ public:
 
    [[nodiscard]] tcp_socket_operation *register_tcp_socket_operations(
       uint32_t const capacityOfTcpSocketOperationList,
-      size_t const capacityOfRegisteredBuffer
+      size_t const sizeOfTcpSocketOperation
    )
    {
       assert(0 < capacityOfTcpSocketOperationList);
-      assert(0 < capacityOfRegisteredBuffer);
+      assert(sizeof(tcp_socket_operation) <= sizeOfTcpSocketOperation);
       assert(nullptr != m_ring);
       assert(nullptr == m_registeredBuffersMemoryPool);
       assert(true == m_registeredBuffers.empty());
       m_registeredBuffersMemoryPool = std::make_unique<memory_pool>(
          capacityOfTcpSocketOperationList,
          std::align_val_t{alignof(tcp_socket_operation)},
-         tcp_socket_operation::total_size(capacityOfRegisteredBuffer)
+         sizeOfTcpSocketOperation
       );
       m_registeredBuffers.reserve(capacityOfTcpSocketOperationList);
       tcp_socket_operation *tcpSocketOperations{nullptr,};
@@ -217,7 +248,7 @@ public:
             iovec
             {
                .iov_base = std::addressof(tcpSocketOperations->bufferBytes),
-               .iov_len = capacityOfRegisteredBuffer,
+               .iov_len = tcp_socket_operation::buffer_bytes_capacity(sizeOfTcpSocketOperation),
             }
          );
       }

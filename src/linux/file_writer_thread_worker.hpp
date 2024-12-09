@@ -159,7 +159,7 @@ public:
                log_system_error(std::source_location::current(), "[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
-            file_writer_thread_worker threadWorker{stopToken, capacityOfFileDescriptorList,};
+            file_writer_thread_worker threadWorker{coreCpuId, stopToken, capacityOfFileDescriptorList,};
             assert(nullptr != threadWorker.m_uringWorker);
             workerPromise.set_value(threadWorker);
             while (
@@ -181,8 +181,8 @@ private:
    uring_command_queue m_uringCommandQueue;
    file_descriptor *m_freeFileDescriptors{nullptr,};
 
-   [[nodiscard]] file_writer_thread_worker(std::stop_token const &stopToken, size_t const capacityOfFileDescriptorList) :
-      m_uringWorker{std::make_unique<uring_worker>(capacityOfFileDescriptorList + 1),},
+   [[nodiscard]] file_writer_thread_worker(uint16_t const coreCpuId, std::stop_token const &stopToken, size_t const capacityOfFileDescriptorList) :
+      m_uringWorker{std::make_unique<uring_worker>(coreCpuId, capacityOfFileDescriptorList + 1),},
       m_uringStopToken{stopToken,},
       m_uringCommandQueue{capacityOfFileDescriptorList,}
    {
@@ -278,7 +278,7 @@ private:
          m_uringStopToken.decrement_tasks_count();
          return;
       }
-      auto &fileDescriptor{*std::bit_cast<file_descriptor *>(userdata),};
+      auto &fileDescriptor{*std::launder(std::bit_cast<file_descriptor *>(userdata)),};
       assert(file_status::none != fileDescriptor.fileStatus);
       assert(nullptr == fileDescriptor.next);
       if (nullptr != fileDescriptor.fileWriter) [[likely]]
