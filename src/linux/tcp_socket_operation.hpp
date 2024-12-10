@@ -27,6 +27,8 @@
 
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 
+#include <liburing/io_uring_version.h> ///< for IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
+
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint32_t, uint8_t
 
@@ -37,6 +39,7 @@ enum struct tcp_socket_operation_type : uint8_t
 {
    none,
    socket,
+#if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
    setopt_so_bindtodevice,
    setopt_so_incoming_cpu,
    setopt_so_keepalive,
@@ -47,6 +50,7 @@ enum struct tcp_socket_operation_type : uint8_t
    setopt_tcp_nodelay,
    setopt_tcp_syncnt,
    setopt_tcp_user_timeout,
+#endif
    connect,
    recv,
    send,

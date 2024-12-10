@@ -276,6 +276,7 @@ private:
       switch (tcpSocketOperation.type)
       {
       case tcp_socket_operation_type::socket: [[fallthrough]];
+#if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
       case tcp_socket_operation_type::setopt_so_bindtodevice: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_incoming_cpu: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_keepalive: [[fallthrough]];
@@ -286,6 +287,7 @@ private:
       case tcp_socket_operation_type::setopt_tcp_nodelay: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_syncnt: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_user_timeout: [[fallthrough]];
+#endif
       case tcp_socket_operation_type::connect:
       {
          handle_connect_completion(tcpSocketOperation, result, flags);
@@ -320,6 +322,7 @@ private:
       m_uringStopToken.decrement_tasks_count();
    }
 
+#if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
    void prep_sockopt_direct(tcp_socket_operation &tcpSocketOperation, int const level, int const optname, void *optval, int const optlen)
    {
       auto &submissionQueueEntry = m_uringWorker->submission_entry(std::addressof(tcpSocketOperation));
@@ -340,6 +343,7 @@ private:
    {
       prep_sockopt_direct(tcpSocketOperation, level, optname, std::bit_cast<void *>(std::addressof(optval)), sizeof(optval));
    }
+#endif
 
    void handle_connect_completion(tcp_socket_operation &tcpSocketOperation, int32_t result, [[maybe_unused]] uint32_t const flags)
    {
@@ -371,6 +375,7 @@ private:
             handle_disconnect(tcpSocketOperation, errorCode);
             break;
          }
+#if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
          if (0 != tcpSocketOptions.soBindToDevice[0])
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_bindtodevice;
@@ -405,15 +410,13 @@ private:
             log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_INCOMING_CPU socket option: ({}) - {}", -result);
             result = 0;
          }
-         if (1 == tcpSocketOptions.soKeepAlive)
+         assert(0 <= tcpSocketOptions.soKeepAlive);
+         assert(1 >= tcpSocketOptions.soKeepAlive);
+         if (0 != tcpSocketOptions.soKeepAlive)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_keepalive;
             prep_sockopt_direct(tcpSocketOperation, SOL_SOCKET, SO_KEEPALIVE, tcpSocketOptions.soKeepAlive);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.soKeepAlive);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_keepalive:
@@ -439,15 +442,12 @@ private:
             log_system_error(std::source_location::current(), "[tcp_thread] failed to set IP_TOS socket option: ({}) - {}", -result);
             result = 0;
          }
+         assert(0 <= tcpSocketOptions.tcpKeepCnt);
          if (0 < tcpSocketOptions.tcpKeepCnt)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepcnt;
             prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPCNT, tcpSocketOptions.tcpKeepCnt);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.tcpKeepCnt);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepcnt:
@@ -459,15 +459,12 @@ private:
             handle_disconnect(tcpSocketOperation, errorCode);
             break;
          }
+         assert(0 <= tcpSocketOptions.tcpKeepIdle);
          if (0 < tcpSocketOptions.tcpKeepIdle)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepidle;
             prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPIDLE, tcpSocketOptions.tcpKeepIdle);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.tcpKeepIdle);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepidle:
@@ -479,15 +476,12 @@ private:
             handle_disconnect(tcpSocketOperation, errorCode);
             break;
          }
-         if (0 < tcpSocketOptions.tcpKeepIdle)
+         assert(0 <= tcpSocketOptions.tcpKeepIntvl);
+         if (0 < tcpSocketOptions.tcpKeepIntvl)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_keepintvl;
             prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_KEEPINTVL, tcpSocketOptions.tcpKeepIntvl);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.tcpKeepIntvl);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepintvl:
@@ -499,15 +493,13 @@ private:
             handle_disconnect(tcpSocketOperation, errorCode);
             break;
          }
+         assert(0 <= tcpSocketOptions.tcpNoDelay);
+         assert(1 >= tcpSocketOptions.tcpNoDelay);
          if (1 == tcpSocketOptions.tcpNoDelay)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_nodelay;
             prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_NODELAY, tcpSocketOptions.tcpNoDelay);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.tcpNoDelay);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_nodelay:
@@ -533,15 +525,12 @@ private:
             log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_SYNCNT socket option: ({}) - {}", -result);
             result = 0;
          }
-         if (1 == tcpSocketOptions.tcpUserTimeout)
+         assert(0 <= tcpSocketOptions.tcpUserTimeout);
+         if (0 < tcpSocketOptions.tcpUserTimeout)
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_user_timeout;
             prep_sockopt_direct(tcpSocketOperation, IPPROTO_TCP, TCP_USER_TIMEOUT, tcpSocketOptions.tcpUserTimeout);
             break;
-         }
-         else
-         {
-            assert(0 == tcpSocketOptions.tcpUserTimeout);
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_user_timeout:
@@ -553,6 +542,108 @@ private:
             handle_disconnect(tcpSocketOperation, errorCode);
             break;
          }
+#else
+         if (
+            true
+            && (0 != tcpSocketOptions.soBindToDevice[0])
+            && (-1 == setsockopt(result, SOL_SOCKET, SO_BINDTODEVICE, tcpSocketOptions.soBindToDevice.data(), std::strlen(tcpSocketOptions.soBindToDevice.data())))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_BINDTODEVICE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (-1 == setsockopt(result, SOL_SOCKET, SO_INCOMING_CPU, std::addressof(m_soIncomingCpu), sizeof(m_soIncomingCpu))) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_INCOMING_CPU socket option: ({}) - {}", errno);
+         }
+         assert(0 <= tcpSocketOptions.soKeepAlive);
+         assert(1 >= tcpSocketOptions.soKeepAlive);
+         if (
+            true
+            && (1 == tcpSocketOptions.soKeepAlive)
+            && (-1 == setsockopt(result, SOL_SOCKET, SO_KEEPALIVE, std::addressof(tcpSocketOptions.soKeepAlive), sizeof(tcpSocketOptions.soKeepAlive)))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set SO_KEEPALIVE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         if (
+            true
+            && (0 != tcpSocketOptions.ipTos)
+            && (-1 == setsockopt(result, IPPROTO_IP, IP_TOS, std::addressof(tcpSocketOptions.ipTos), sizeof(tcpSocketOptions.ipTos)))
+         ) [[unlikely]]
+         {
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set IP_TOS socket option: ({}) - {}", errno);
+         }
+         assert(0 <= tcpSocketOptions.tcpKeepCnt);
+         if (
+            true
+            && (0 < tcpSocketOptions.tcpKeepCnt)
+            && (-1 == setsockopt(result, IPPROTO_TCP, TCP_KEEPCNT, std::addressof(tcpSocketOptions.tcpKeepCnt), sizeof(tcpSocketOptions.tcpKeepCnt)))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPCNT socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         assert(0 <= tcpSocketOptions.tcpKeepIdle);
+         if (
+            true
+            && (0 < tcpSocketOptions.tcpKeepIdle)
+            && (-1 == setsockopt(result, IPPROTO_TCP, TCP_KEEPIDLE, std::addressof(tcpSocketOptions.tcpKeepIdle), sizeof(tcpSocketOptions.tcpKeepIdle)))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPIDLE socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         assert(0 <= tcpSocketOptions.tcpKeepIntvl);
+         if (
+            true
+            && (0 < tcpSocketOptions.tcpKeepIntvl)
+            && (-1 == setsockopt(result, IPPROTO_TCP, TCP_KEEPINTVL, std::addressof(tcpSocketOptions.tcpKeepIntvl), sizeof(tcpSocketOptions.tcpKeepIntvl)))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_KEEPINTVL socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         assert(0 <= tcpSocketOptions.tcpNoDelay);
+         assert(1 >= tcpSocketOptions.tcpNoDelay);
+         if (
+            true
+            && (1 == tcpSocketOptions.tcpNoDelay)
+            && (-1 == setsockopt(result, IPPROTO_TCP, TCP_NODELAY, std::addressof(tcpSocketOptions.tcpNoDelay), sizeof(tcpSocketOptions.tcpNoDelay)))
+         ) [[unlikely]]
+         {
+            std::error_code const errorCode{errno, std::generic_category(),};
+            log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_NODELAY socket option: ({}) - {}", errorCode);
+            handle_disconnect(tcpSocketOperation, errorCode);
+            break;
+         }
+         assert(0 <= tcpSocketOptions.tcpUserTimeout);
+         if (0 < tcpSocketOptions.tcpUserTimeout)
+         {
+            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_SYNCNT, std::addressof(m_tcpSynCnt), sizeof(m_tcpSynCnt))) [[unlikely]]
+            {
+               log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_SYNCNT socket option: ({}) - {}", errno);
+            }
+            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_USER_TIMEOUT, std::addressof(tcpSocketOptions.tcpUserTimeout), sizeof(tcpSocketOptions.tcpUserTimeout))) [[unlikely]]
+            {
+               std::error_code const errorCode{errno, std::generic_category(),};
+               log_system_error(std::source_location::current(), "[tcp_thread] failed to set TCP_USER_TIMEOUT socket option: ({}) - {}", errorCode);
+               handle_disconnect(tcpSocketOperation, errorCode);
+               break;
+            }
+         }
+#endif
          tcpSocketOperation.type = tcp_socket_operation_type::connect;
          auto &submissionQueueEntry = m_uringWorker->submission_entry(std::addressof(tcpSocketOperation));
          io_uring_prep_connect(
