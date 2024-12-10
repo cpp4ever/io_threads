@@ -684,7 +684,7 @@ private:
       }
       if (static_cast<size_t>(sendContext.buffer.len) < bytesWritten) [[unlikely]]
       {
-         log_error(std::source_location::current(), "[tcp_client] written more bytes then the buffer contains: it must be a bug");
+         log_error(std::source_location::current(), "[tcp_client] written more bytes than the buffer contains: it must be a bug");
          unreachable();
       }
       sendContext.buffer.len = static_cast<ULONG>(bytesWritten);
@@ -788,7 +788,7 @@ private:
       auto &recvBuffer{recvContext.buffer};
       if (bytesReceived > recvBuffer.len) [[unlikely]]
       {
-         log_error(std::source_location::current(), "[tcp_client] received more bytes then the buffer contains: it must be a bug");
+         log_error(std::source_location::current(), "[tcp_client] received more bytes than the buffer contains: it must be a bug");
          unreachable();
       }
       WSABUF const dataTransferBuffer
@@ -807,7 +807,7 @@ private:
             )
          };
          true == bool{errorCode}
-      )
+      ) [[unlikely]]
       {
          if (false == bool{socketDescriptor.disconnectReason,})
          {
@@ -836,7 +836,7 @@ private:
       }
       else if (totalBytesReceived > bytesProcessed)
       {
-         /// There are some extra bytes (were not processed by the client)
+         /// There are some extra bytes (not processed by the client)
          auto const extraBytes{totalBytesReceived - bytesProcessed};
          MoveMemory(dataTransferBuffer.buf, dataTransferBuffer.buf + bytesProcessed, extraBytes);
          recvBuffer = WSABUF
@@ -847,7 +847,7 @@ private:
       }
       else [[unlikely]]
       {
-         log_error(std::source_location::current(), "[tcp_client] processed more bytes then were received: it must be a bug");
+         log_error(std::source_location::current(), "[tcp_client] processed more bytes than received: it must be a bug");
          unreachable();
       }
    }
@@ -1015,7 +1015,7 @@ private:
       }
       if (static_cast<size_t>(sendContext.buffer.len) < bytesWritten) [[unlikely]]
       {
-         log_error(std::source_location::current(), "[tcp_client] written more bytes then the buffer contains: it must be a bug");
+         log_error(std::source_location::current(), "[tcp_client] written more bytes than the buffer contains: it must be a bug");
          unreachable();
       }
       sendContext.buffer.len = static_cast<ULONG>(bytesWritten);

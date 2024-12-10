@@ -53,7 +53,7 @@
 #include <chrono> ///< for std::chrono::milliseconds
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint16_t
-#include <cstring> ///< for std::memcpy
+#include <cstring> ///< for std::memcpy, std::memmove
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -255,9 +255,9 @@ private:
    void handle_completion(intptr_t const userdata, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
       assert(0 != userdata);
-      assert(0 == flags);
       if (std::bit_cast<intptr_t>(this) == userdata)
       {
+         assert(0 == flags);
          if (false == m_uringStopToken.stop_requested()) [[likely]]
          {
             m_uringCommandQueue.prep_read(m_uringWorker->submission_entry(this));
@@ -709,41 +709,188 @@ private:
    void handle_ready_to_disconnect(tcp_client &tcpClient)
    {
       assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
+      assert(tcp_socket_status::none != tcpClient.m_socketDescriptor->tcpSocketStatus);
+      assert(tcp_socket_status::disconnecting != tcpClient.m_socketDescriptor->tcpSocketStatus);
+      assert(false == tcpClient.m_socketDescriptor->disconnectOnCompletion);
+      assert(std::addressof(tcpClient) == tcpClient.m_socketDescriptor->tcpClient);
+      assert(nullptr == tcpClient.m_socketDescriptor->next);
+      auto &tcpSocketDescriptor{*tcpClient.m_socketDescriptor,};
+      if (tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus)
+      {
+         auto &tcpSocketOperation{*std::launder(m_tcpSocketOperations)};
+         assert(nullptr == tcpSocketOperation.descriptor);
+         assert(0 == tcpSocketOperation.bufferOffset);
+         assert(tcp_socket_operation_type::none == tcpSocketOperation.type);
+         m_tcpSocketOperations = std::launder(tcpSocketOperation.next);
+         tcpSocketOperation.next = nullptr;
+         tcpSocketOperation.descriptor = std::addressof(tcpSocketDescriptor);
+         tcpSocketOperation.type = tcp_socket_operation_type::send;
+         handle_disconnect(tcpSocketOperation, std::error_code{});
+      }
+      else
+      {
+         tcpSocketDescriptor.disconnectOnCompletion = true;
+      }
    }
 
    void handle_ready_to_send(tcp_client &tcpClient)
    {
       assert(nullptr != tcpClient.m_socketDescriptor);
-      (void)tcpClient;
+      assert(tcp_socket_status::none != tcpClient.m_socketDescriptor->tcpSocketStatus);
+      assert(tcp_socket_status::connecting != tcpClient.m_socketDescriptor->tcpSocketStatus);
+      assert(tcp_socket_status::disconnecting != tcpClient.m_socketDescriptor->tcpSocketStatus);
+      assert(false == tcpClient.m_socketDescriptor->disconnectOnCompletion);
+      assert(std::addressof(tcpClient) == tcpClient.m_socketDescriptor->tcpClient);
+      assert(nullptr == tcpClient.m_socketDescriptor->next);
+      auto &tcpSocketDescriptor{*tcpClient.m_socketDescriptor,};
+      if (tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus)
+      {
+         send(tcpSocketDescriptor);
+      }
    }
 
    void handle_recv_completion(tcp_socket_operation &tcpSocketOperation, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
-      (void)tcpSocketOperation;
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(tcp_socket_status::connecting != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
       assert(0 == flags);
-      if (0 > result) [[unlikely]]
+      if (0 < result) [[likely]]
       {
-
+         handle_received_data(tcpSocketOperation, static_cast<size_t>(result));
+      }
+      else if (0 == result)
+      {
+         handle_disconnect(
+            tcpSocketOperation,
+            (tcp_socket_status::disconnecting == tcpSocketOperation.descriptor->tcpSocketStatus)
+               ? std::error_code{}
+               : std::make_error_code(std::errc::connection_reset)
+         );
+      }
+      else
+      {
+         handle_disconnect(tcpSocketOperation, std::error_code{-result, std::generic_category(),});
       }
    }
 
-   void handle_received_data(tcp_client &tcpClient, size_t const bytesReceived)
+   void handle_received_data(tcp_socket_operation &tcpSocketOperation, size_t const bytesReceived)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
-      auto &socketDescriptor{*tcpClient.m_socketDescriptor};
-      (void)socketDescriptor;
-      (void)bytesReceived;
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(tcp_socket_status::connecting != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(nullptr == tcpSocketOperation.descriptor->tcpClient);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
+      assert(0 < bytesReceived);
+      auto const bufferCapacity{m_uringWorker->registered_buffer_capacity(tcpSocketOperation),};
+      size_t const bytesLength{tcpSocketOperation.bufferOffset + bytesReceived,};
+      if (bufferCapacity < bytesLength) [[unlikely]]
+      {
+         log_error(std::source_location::current(), "[tcp_client] received more bytes than the buffer contains: it must be a bug");
+         unreachable();
+      }
+      size_t bytesProcessed{static_cast<size_t>(-1),};
+      if (
+         auto const errorCode
+         {
+            tcpSocketOperation.descriptor->tcpClient->io_data_received(
+               data_chunk
+               {
+                  .bytes = std::addressof(tcpSocketOperation.bufferBytes[0]),
+                  .bytesLength = bytesLength,
+               },
+               bytesProcessed
+            ),
+         };
+         false == bool{errorCode}
+      ) [[likely]]
+      {
+         assert(static_cast<size_t>(-1) != bytesProcessed);
+         if (bytesProcessed < bytesLength)
+         {
+            tcpSocketOperation.bufferOffset = bytesLength - bytesProcessed;
+            if (bufferCapacity <= tcpSocketOperation.bufferOffset) [[unlikely]]
+            {
+               log_error(std::source_location::current(), "[tcp_client] no more bytes could be received: it must be a bug");
+               unreachable();
+            }
+            if (0 < bytesProcessed)
+            {
+               std::memmove(
+                  std::addressof(tcpSocketOperation.bufferBytes[0]),
+                  std::addressof(tcpSocketOperation.bufferBytes[0]) + bytesProcessed,
+                  tcpSocketOperation.bufferOffset
+               );
+            }
+         }
+         else if (bytesProcessed == bytesLength)
+         {
+            tcpSocketOperation.bufferOffset = 0;
+         }
+         else [[unlikely]]
+         {
+            log_error(std::source_location::current(), "[tcp_client] processed more bytes than received: it must be a bug");
+            unreachable();
+         }
+         recv(tcpSocketOperation);
+      }
+      else
+      {
+         handle_disconnect(tcpSocketOperation, errorCode);
+      }
    }
 
    void handle_send_completion(tcp_socket_operation &tcpSocketOperation, int32_t const result, [[maybe_unused]] uint32_t const flags)
    {
-      (void)tcpSocketOperation;
+      assert(nullptr == tcpSocketOperation.next);
+      assert(nullptr != tcpSocketOperation.descriptor);
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(tcp_socket_status::connecting != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(tcp_socket_status::ready != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(nullptr == tcpSocketOperation.descriptor->next);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
       assert(0 == flags);
-      if (0 > result) [[unlikely]]
+      auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
+      if (0 <= result) [[likely]]
       {
-
+         assert(0 < result);
+         if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) [[likely]]
+         {
+            assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
+            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
+            if (false == tcpSocketDescriptor.disconnectOnCompletion) [[likely]]
+            {
+               tcpSocketOperation.next = std::launder(m_tcpSocketOperations);
+               tcpSocketOperation.descriptor = nullptr;
+               tcpSocketOperation.type = tcp_socket_operation_type::none;
+               m_tcpSocketOperations = std::launder(std::addressof(tcpSocketOperation));
+               send(tcpSocketDescriptor);
+            }
+            else
+            {
+               handle_disconnect(tcpSocketOperation, std::error_code{});
+            }
+         }
+         else
+         {
+            assert(tcp_socket_status::disconnecting == tcpSocketDescriptor.tcpSocketStatus);
+            handle_disconnect(tcpSocketOperation, std::error_code{});
+         }
+      }
+      else [[unlikely]]
+      {
+         handle_disconnect(
+            tcpSocketOperation,
+            (tcp_socket_status::disconnecting == tcpSocketDescriptor.tcpSocketStatus)
+               ? std::error_code{}
+               : std::make_error_code(std::errc::connection_reset)
+         );
       }
    }
 
@@ -758,22 +905,18 @@ private:
    {
       assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
-      assert(
-         false
-         || (tcp_socket_status::ready == tcpSocketOperation.descriptor->tcpSocketStatus)
-         || (tcp_socket_status::busy == tcpSocketOperation.descriptor->tcpSocketStatus)
-      );
+      assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(tcp_socket_status::connecting != tcpSocketOperation.descriptor->tcpSocketStatus);
       assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
       assert(nullptr == tcpSocketOperation.descriptor->next);
       assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
-      auto &socketDescriptor{*tcpSocketOperation.descriptor,};
       auto &submissionQueueEntry{m_uringWorker->submission_entry(std::addressof(tcpSocketOperation)),};
       io_uring_prep_recv(
          std::addressof(submissionQueueEntry),
-         socketDescriptor.registeredTcpSocketIndex,
+         tcpSocketOperation.descriptor->registeredTcpSocketIndex,
          std::addressof(tcpSocketOperation.bufferBytes[0]) + tcpSocketOperation.bufferOffset,
          m_uringWorker->registered_buffer_capacity(tcpSocketOperation) - tcpSocketOperation.bufferOffset,
-         0
+         MSG_DONTWAIT
       );
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
       submissionQueueEntry.ioprio |= IORING_RECVSEND_FIXED_BUF;
@@ -783,6 +926,10 @@ private:
 
    void send(tcp_socket_descriptor &tcpSocketDescriptor)
    {
+      assert(tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus);
+      assert(false == tcpSocketDescriptor.disconnectOnCompletion);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(nullptr == tcpSocketDescriptor.next);
       auto &tcpSocketOperation{*m_tcpSocketOperations};
       assert(nullptr == tcpSocketOperation.descriptor);
       assert(0 == tcpSocketOperation.bufferOffset);
@@ -821,11 +968,12 @@ private:
          tcpSocketDescriptor.registeredTcpSocketIndex,
          std::addressof(tcpSocketOperation.bufferBytes[0]),
          bytesWritten,
-         0,
+         MSG_DONTWAIT | MSG_NOSIGNAL,
          0,
          tcpSocketOperation.bufferIndex
       );
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+      m_uringStopToken.increment_tasks_count();
    }
 };
 
