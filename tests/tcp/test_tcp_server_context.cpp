@@ -148,7 +148,7 @@ boost::beast::websocket::stream<test_tls_stream> test_tcp_server_context<boost::
 
 }
 
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -157,6 +157,6 @@ boost::beast::websocket::stream<test_tls_stream> test_tcp_server_context<boost::
 #  include <boost/asio/ssl/impl/src.hpp>
 #endif
 #include <boost/beast/src.hpp>
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif

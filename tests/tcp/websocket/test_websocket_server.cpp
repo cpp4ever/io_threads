@@ -27,7 +27,7 @@
 #include "tcp/test_tcp_server_context.hpp"
 #include "tcp/websocket/test_websocket_server.hpp"
 
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -36,7 +36,7 @@
 #  include <boost/asio/ssl/error.hpp>
 #  include <boost/beast/websocket/ssl.hpp>
 #endif
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif
 

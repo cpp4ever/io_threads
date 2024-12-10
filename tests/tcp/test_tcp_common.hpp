@@ -25,12 +25,12 @@
 
 #pragma once
 
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <boost/system/error_code.hpp>
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif
 #include <gtest/gtest.h>

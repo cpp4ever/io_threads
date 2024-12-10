@@ -28,12 +28,12 @@
 #if (defined(_WIN32) || defined(_WIN64))
 #  include <sdkddkver.h> ///< for _WIN32_WINNT
 #endif
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <boost/beast.hpp>
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif
 #include <gmock/gmock.h>

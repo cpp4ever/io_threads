@@ -27,12 +27,12 @@
 #include "tcp/test_tcp_common.hpp"
 #include "tcp/test_tcp_server_context.hpp"
 
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <boost/asio/strand.hpp>
-#if (defined(__GNUC__) && defined(NDEBUG))
+#if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif
 
