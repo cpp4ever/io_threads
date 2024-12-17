@@ -61,8 +61,6 @@ public:
 
    ~file_writer_thread_impl()
    {
-      assert(nullptr != m_worker);
-      assert(false == m_thread.get_stop_token().stop_requested());
       m_thread.request_stop();
       m_worker->stop();
       m_worker.reset();
@@ -74,26 +72,21 @@ public:
 
    void execute(std::function<void()> const &ioRoutine) const
    {
-      assert(true == (bool{ioRoutine,}));
-      assert(nullptr != m_worker);
       m_worker->execute(ioRoutine);
    }
 
    void ready_to_close(file_writer &writer) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_close(writer);
    }
 
    void ready_to_open(file_writer &writer) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_open(writer);
    }
 
    void ready_to_write(file_writer &writer) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_write(writer);
    }
 
@@ -102,73 +95,51 @@ private:
    std::jthread m_thread{};
 };
 
-file_writer_thread::file_writer_thread(file_writer_thread &&rhs) noexcept :
-   m_impl{std::move(rhs.m_impl),}
-{
-   assert(nullptr != m_impl);
-}
-
-file_writer_thread::file_writer_thread(file_writer_thread const &rhs) noexcept :
-   m_impl{rhs.m_impl,}
-{
-   assert(nullptr != m_impl);
-}
+file_writer_thread::file_writer_thread(file_writer_thread &&rhs) noexcept = default;
+file_writer_thread::file_writer_thread(file_writer_thread const &rhs) noexcept = default;
 
 file_writer_thread::file_writer_thread(uint16_t const coreCpuId, size_t const capacityOfFileDescriptorList) :
    m_impl{std::make_shared<file_writer_thread_impl>(coreCpuId, capacityOfFileDescriptorList),}
-{
-   assert(nullptr != m_impl);
-}
+{}
 
 file_writer_thread::~file_writer_thread() = default;
 
 file_writer_thread &file_writer_thread::operator = (file_writer_thread &&rhs) noexcept
 {
    m_impl.swap(rhs.m_impl);
-   assert(nullptr != m_impl);
    return *this;
 }
 
 file_writer_thread &file_writer_thread::operator = (file_writer_thread const &rhs)
 {
    m_impl = rhs.m_impl;
-   assert(nullptr != m_impl);
    return *this;
 }
 
 void file_writer_thread::execute(std::function<void()> const &ioRoutine) const
 {
    assert(true == (bool{ioRoutine,}));
-   assert(nullptr != m_impl);
    m_impl->execute(ioRoutine);
 }
 
 file_writer_thread::file_writer::file_writer(file_writer_thread const &fileWriterThread) noexcept :
    m_fileWriterThread{fileWriterThread.m_impl,}
-{
-   assert(nullptr != m_fileWriterThread);
-}
+{}
 
-file_writer_thread::file_writer::~file_writer()
-{
-   assert(nullptr != m_fileWriterThread);
-}
+file_writer_thread::file_writer::~file_writer() = default;
 
 void file_writer_thread::file_writer::ready_to_close()
 {
-   assert(nullptr != m_fileWriterThread);
    m_fileWriterThread->ready_to_close(*this);
 }
 
 void file_writer_thread::file_writer::ready_to_open()
 {
-   assert(nullptr != m_fileWriterThread);
    m_fileWriterThread->ready_to_open(*this);
 }
 
 void file_writer_thread::file_writer::ready_to_write()
 {
-   assert(nullptr != m_fileWriterThread);
    m_fileWriterThread->ready_to_write(*this);
 }
 

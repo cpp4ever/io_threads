@@ -34,6 +34,7 @@
 #include <netinet/in.h> ///< for sockaddr_in, sockaddr_in6
 #include <sys/socket.h> ///< for AF_INET, AF_INET6, AF_UNSPEC
 
+#include <array> ///< for std::array
 #include <cassert> ///< for assert
 #include <cstdint> ///< for uint16_t
 #include <cstring> ///< for std::memcpy
@@ -75,18 +76,18 @@ public:
    [[nodiscard]] explicit socket_address_impl(sockaddr_inet const &address) :
       m_sockaddr{address}
    {
-      char addressHost[NI_MAXHOST]{0,};
-      char addressPort[NI_MAXSERV]{0,};
+      std::array<char, NI_MAXHOST> addressHost{0,};
+      std::array<char, NI_MAXSERV> addressPort{0,};
       if (
          auto const returnCode
          {
             getnameinfo(
                std::addressof(m_sockaddr.ip),
                (AF_INET == m_sockaddr.addressFamily) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6),
-               addressHost,
-               sizeof(addressHost),
-               addressPort,
-               sizeof(addressPort),
+               addressHost.data(),
+               addressHost.size(),
+               addressPort.data(),
+               addressPort.size(),
                NI_NUMERICHOST | NI_NUMERICSERV
             ),
          };
@@ -96,23 +97,23 @@ public:
          log_system_error(std::source_location::current(), "[socket_address] failed to convert address to IP string: ({}) - {}", make_addrinfo_error_code(returnCode));
          unreachable();
       }
-      assert(false == (std::string_view{addressHost,}.empty()));
-      assert(false == (std::string_view{addressPort,}.empty()));
+      assert(false == (std::string_view{addressHost.data(),}.empty()));
+      assert(false == (std::string_view{addressPort.data(),}.empty()));
       if ((0 != addressPort[0]) && ('0' != addressPort[0]))
       {
          if (AF_INET6 == address.addressFamily)
          {
-            m_address.assign("[").append(addressHost).append("]");
+            m_address.assign("[").append(addressHost.data()).append("]");
          }
          else
          {
-            m_address.assign(addressHost);
+            m_address.assign(addressHost.data());
          }
-         m_address.append(":").append(addressPort);
+         m_address.append(":").append(addressPort.data());
       }
       else
       {
-         m_address.assign(addressHost);
+         m_address.assign(addressHost.data());
       }
       m_address.shrink_to_fit();
    }
@@ -153,8 +154,8 @@ public:
             return std::shared_ptr<socket_address_impl>{nullptr,};
          }
          auto const ipv6Length{ipv6LastSymbolIndex - ipv6FirstSymbolIndex,};
-         char ipv6[NI_MAXHOST]{0,};
-         std::memcpy(ipv6, address.data() + ipv6FirstSymbolIndex, ipv6Length);
+         std::array<char, NI_MAXHOST> ipv6{0,};
+         std::memcpy(ipv6.data(), address.data() + ipv6FirstSymbolIndex, ipv6Length);
          ipv6[ipv6Length] = 0;
          errorCode = {};
          if (ipv6LastSymbolIndex < address.size())
@@ -162,11 +163,11 @@ public:
             auto const serviceFirstSymbolIndex = ipv6LastSymbolIndex + 2;
             if ((serviceFirstSymbolIndex < address.size()) && (':' == address[ipv6LastSymbolIndex + 1]))
             {
-               char service[NI_MAXSERV]{0,};
+               std::array<char, NI_MAXSERV> service{0,};
                auto const serviceLength{address.size() - serviceFirstSymbolIndex,};
-               std::memcpy(service, address.data() + serviceFirstSymbolIndex, serviceLength);
+               std::memcpy(service.data(), address.data() + serviceFirstSymbolIndex, serviceLength);
                service[serviceLength] = 0;
-               socketAddress = parse(AF_INET6, ipv6, service, errorCode);
+               socketAddress = parse(AF_INET6, ipv6.data(), service.data(), errorCode);
             }
             else
             {
@@ -176,32 +177,32 @@ public:
          }
          else
          {
-            socketAddress = parse(AF_INET6, ipv6, nullptr, errorCode);
+            socketAddress = parse(AF_INET6, ipv6.data(), nullptr, errorCode);
          }
       }
       else
       {
-         char ip[NI_MAXHOST]{0,};
-         std::memcpy(ip, address.data(), address.size());
+         std::array<char, NI_MAXHOST> ip{0,};
+         std::memcpy(ip.data(), address.data(), address.size());
          ip[address.size()] = 0;
          errorCode = {};
-         socketAddress = parse(AF_INET6, ip, nullptr, errorCode);
+         socketAddress = parse(AF_INET6, ip.data(), nullptr, errorCode);
          if (AF_INET6 != socketAddress.addressFamily)
          {
             auto const ipv4LastSymbolIndex = address.find(':');
             errorCode = {};
             if (std::string_view::npos == ipv4LastSymbolIndex)
             {
-               socketAddress = parse(AF_INET, ip, nullptr, errorCode);
+               socketAddress = parse(AF_INET, ip.data(), nullptr, errorCode);
             }
             else
             {
                ip[ipv4LastSymbolIndex] = 0;
-               char service[NI_MAXSERV]{0,};
+               std::array<char, NI_MAXSERV> service{0,};
                auto const serviceLength{address.size() - ipv4LastSymbolIndex - 1,};
-               std::memcpy(service, address.data() + ipv4LastSymbolIndex + 1, serviceLength);
+               std::memcpy(service.data(), address.data() + ipv4LastSymbolIndex + 1, serviceLength);
                service[serviceLength] = 0;
-               socketAddress = parse(AF_INET, ip, service, errorCode);
+               socketAddress = parse(AF_INET, ip.data(), service.data(), errorCode);
             }
          }
       }

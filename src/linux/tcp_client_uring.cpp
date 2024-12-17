@@ -82,8 +82,8 @@ public:
       {
          log_system_error(std::source_location::current(), "[tcp_client] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
       }
-      uint32_t iowqMaxWorkers[2] = {1, 1};
-      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), std::addressof(iowqMaxWorkers[0])),}; 0 > returnCode) [[unlikely]]
+      std::array<uint32_t, 2> iowqMaxWorkers = {1, 1};
+      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[tcp_client] failed to register IO workers limits: ({}) - {}", -returnCode);
       }
@@ -285,11 +285,7 @@ public:
          sizeof(tcp_socket_descriptor)
       );
       tcp_socket_descriptor *tcpSocketDescriptors{nullptr,};
-      for (
-         uint32_t registeredTcpSocketIndex{static_cast<uint32_t>(capacityOfTcpSocketDescriptorList),};
-         0 < registeredTcpSocketIndex;
-         --registeredTcpSocketIndex
-      )
+      for (auto registeredTcpSocketIndex{capacityOfTcpSocketDescriptorList,}; 0 < registeredTcpSocketIndex; --registeredTcpSocketIndex)
       {
          tcpSocketDescriptors = std::addressof(
             m_tcpSocketDescriptorsMemoryPool->pop_object<tcp_socket_descriptor>(
@@ -321,7 +317,7 @@ public:
       );
       m_registeredBuffers.reserve(capacityOfTcpSocketOperationList + 1);
       tcp_socket_operation *tcpSocketOperations{nullptr,};
-      for (auto registeredBufferIndex{static_cast<uint32_t>(capacityOfTcpSocketOperationList),}; 0 < registeredBufferIndex; --registeredBufferIndex)
+      for (auto registeredBufferIndex{capacityOfTcpSocketOperationList,}; 0 < registeredBufferIndex; --registeredBufferIndex)
       {
          tcpSocketOperations = std::addressof(
             m_tcpSocketOperationsMemoryPool->pop_object<tcp_socket_operation>(

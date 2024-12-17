@@ -52,7 +52,7 @@
 #include <chrono> ///< for std::chrono::milliseconds
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint16_t
-#include <cstring> ///< for std::memcpy, std::memmove
+#include <cstring> ///< for std::memcpy, std::memmove, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
@@ -307,7 +307,7 @@ private:
                SOL_SOCKET,
                SO_BINDTODEVICE,
                tcpSocketOptions.soBindToDevice.data(),
-               std::strlen(tcpSocketOptions.soBindToDevice.data())
+               strnlen(tcpSocketOptions.soBindToDevice.data(), tcpSocketOptions.soBindToDevice.size())
             );
             break;
          }

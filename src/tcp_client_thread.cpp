@@ -69,8 +69,6 @@ public:
 
    ~tcp_client_thread_impl()
    {
-      assert(nullptr != m_worker);
-      assert(false == m_thread.get_stop_token().stop_requested());
       m_thread.request_stop();
       m_worker->stop();
       m_worker.reset();
@@ -82,26 +80,21 @@ public:
 
    void execute(std::function<void()> const &ioRoutine) const
    {
-      assert(true == (bool{ioRoutine,}));
-      assert(nullptr != m_worker);
       m_worker->execute(ioRoutine);
    }
 
    void ready_to_connect(tcp_client &client) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_connect(client);
    }
 
    void ready_to_disconnect(tcp_client &client) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_disconnect(client);
    }
 
    void ready_to_send(tcp_client &client) const
    {
-      assert(nullptr != m_worker);
       m_worker->ready_to_send(client);
    }
 
@@ -110,17 +103,8 @@ private:
    std::jthread m_thread{};
 };
 
-tcp_client_thread::tcp_client_thread(tcp_client_thread &&rhs) noexcept :
-   m_impl{std::move(rhs.m_impl),}
-{
-   assert(nullptr != m_impl);
-}
-
-tcp_client_thread::tcp_client_thread(tcp_client_thread const &rhs) noexcept :
-   m_impl{rhs.m_impl,}
-{
-   assert(nullptr != m_impl);
-}
+tcp_client_thread::tcp_client_thread(tcp_client_thread &&rhs) noexcept = default;
+tcp_client_thread::tcp_client_thread(tcp_client_thread const &rhs) noexcept = default;
 
 tcp_client_thread::tcp_client_thread(
    uint16_t const coreCpuId,
@@ -128,59 +112,46 @@ tcp_client_thread::tcp_client_thread(
    size_t const capacityOfInputOutputBuffer
 ) :
    m_impl{std::make_shared<tcp_client_thread_impl>(coreCpuId, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer),}
-{
-   assert(nullptr != m_impl);
-}
+{}
 
 tcp_client_thread::~tcp_client_thread() = default;
 
 tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread &&rhs) noexcept
 {
    m_impl.swap(rhs.m_impl);
-   assert(nullptr != m_impl);
    return *this;
 }
 
 tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread const &rhs)
 {
    m_impl = rhs.m_impl;
-   assert(nullptr != m_impl);
    return *this;
 }
 
 void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
 {
    assert(true == (bool{ioRoutine,}));
-   assert(nullptr != m_impl);
    m_impl->execute(ioRoutine);
 }
 
 tcp_client_thread::tcp_client::tcp_client(tcp_client_thread const &tcpClientThread) :
    m_tcpClientThread{tcpClientThread.m_impl,}
-{
-   assert(nullptr != m_tcpClientThread);
-}
+{}
 
-tcp_client_thread::tcp_client::~tcp_client()
-{
-   assert(nullptr != m_tcpClientThread);
-}
+tcp_client_thread::tcp_client::~tcp_client() = default;
 
 void tcp_client_thread::tcp_client::ready_to_connect()
 {
-   assert(nullptr != m_tcpClientThread);
    m_tcpClientThread->ready_to_connect(*this);
 }
 
 void tcp_client_thread::tcp_client::ready_to_disconnect()
 {
-   assert(nullptr != m_tcpClientThread);
    m_tcpClientThread->ready_to_disconnect(*this);
 }
 
 void tcp_client_thread::tcp_client::ready_to_send()
 {
-   assert(nullptr != m_tcpClientThread);
    m_tcpClientThread->ready_to_send(*this);
 }
 

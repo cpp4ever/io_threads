@@ -54,19 +54,16 @@ socket_address::socket_address(std::shared_ptr<socket_address_impl> const &impl)
 
 socket_address::operator std::string() const
 {
-   assert(nullptr != m_impl);
    return m_impl->operator std::string();
 }
 
 socket_address::operator std::string_view() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->operator std::string_view();
 }
 
 socket_address::socket_address_impl const *socket_address::operator -> () const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl.get();
 }
 

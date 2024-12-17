@@ -59,11 +59,6 @@ public:
       return bool{std::string_view{*this,} == std::string_view{rhs,},};
    }
 
-   [[maybe_unused, nodiscard]] bool operator != (socket_address const &rhs) const noexcept
-   {
-      return bool{false == (operator == (rhs)),};
-   }
-
 private:
    std::shared_ptr<socket_address_impl> m_impl;
 };

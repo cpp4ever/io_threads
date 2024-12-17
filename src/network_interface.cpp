@@ -51,31 +51,26 @@ network_interface &network_interface::operator = (network_interface const &rhs) 
 
 std::string_view network_interface::friendly_name() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->friendly_name();
 }
 
 std::optional<socket_address> const &network_interface::ip_v4() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->ip_v4();
 }
 
 std::optional<socket_address> const &network_interface::ip_v6() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->ip_v6();
 }
 
 bool network_interface::is_loopback() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->is_loopback();
 }
 
 std::string_view network_interface::system_name() const noexcept
 {
-   assert(nullptr != m_impl);
    return m_impl->system_name();
 }
 

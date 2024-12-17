@@ -65,11 +65,6 @@ public:
       };
    }
 
-   [[maybe_unused, nodiscard]] bool operator != (network_interface const &rhs) const noexcept
-   {
-      return bool{false == (operator == (rhs)),};
-   }
-
    [[nodiscard]] std::string_view friendly_name() const noexcept;
 
    [[nodiscard]] std::optional<socket_address> const &ip_v4() const noexcept;

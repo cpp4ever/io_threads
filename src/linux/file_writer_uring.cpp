@@ -79,8 +79,8 @@ public:
       {
          log_system_error(std::source_location::current(), "[file_writer] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
       }
-      uint32_t iowqMaxWorkers[2] = {1, 1};
-      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), std::addressof(iowqMaxWorkers[0])),}; 0 > returnCode) [[unlikely]]
+      std::array<uint32_t, 2> iowqMaxWorkers = {1, 1};
+      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error(std::source_location::current(), "[file_writer] failed to register IO workers limits: ({}) - {}", -returnCode);
       }
@@ -186,11 +186,7 @@ public:
          sizeof(file_descriptor)
       );
       file_descriptor *fileDescriptors{nullptr,};
-      for (
-         uint32_t registeredFileIndex{static_cast<uint32_t>(capacityOfFileDescriptorList),};
-         0 < registeredFileIndex;
-         --registeredFileIndex
-      )
+      for (auto registeredFileIndex{capacityOfFileDescriptorList,}; 0 < registeredFileIndex; --registeredFileIndex)
       {
          fileDescriptors = std::addressof(
             m_fileDescriptorsMemoryPool->pop_object<file_descriptor>(
