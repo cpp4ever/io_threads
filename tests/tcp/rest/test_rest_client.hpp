@@ -29,6 +29,7 @@
 
 #include <io_threads/system_network_interfaces.hpp>
 #include <io_threads/tcp_client_config.hpp>
+#include <io_threads/tcp_client_thread.hpp>
 
 #include <format>
 
@@ -36,7 +37,7 @@ namespace io_threads::tests
 {
 
 template<typename test_stream, typename test_client>
-void test_rest_client(test_client &testClient)
+void test_rest_client(tcp_client_thread const testThread, test_client &testClient)
 {
    auto const testConnectivityIssueErrorCodeMatcher
    {
@@ -200,6 +201,7 @@ void test_rest_client(test_client &testClient)
          auto const testInternalCleanupCheck
          {
             [
+               testThread,
                &testInternalCleanupCheckStepLock,
                &testServer,
                &testClient,
@@ -237,9 +239,9 @@ void test_rest_client(test_client &testClient)
                ;
                EXPECT_CALL(testServer, should_keep_alive())
                   .WillOnce(
-                     [&testDisconnect]
+                     [testThread, &testDisconnect]
                      {
-                        testDisconnect();
+                        testThread.execute(testDisconnect);
                         return true;
                      }
                   )
@@ -254,6 +256,7 @@ void test_rest_client(test_client &testClient)
          auto const testDeleteRequest
          {
             [
+               testThread,
                &testDeleteRequestStepLock,
                &testServer,
                &testClient,
@@ -305,9 +308,9 @@ void test_rest_client(test_client &testClient)
                ;
                EXPECT_CALL(testServer, should_keep_alive())
                   .WillOnce(
-                     [&testInternalCleanupCheck]
+                     [testThread, &testInternalCleanupCheck]
                      {
-                        testInternalCleanupCheck();
+                        testThread.execute(testInternalCleanupCheck);
                         return true;
                      }
                   )
@@ -334,6 +337,7 @@ void test_rest_client(test_client &testClient)
          auto const testUpdateRequest
          {
             [
+               testThread,
                &testUpdateRequestStepLock,
                &testServer,
                &testClient,
@@ -385,9 +389,9 @@ void test_rest_client(test_client &testClient)
                ;
                EXPECT_CALL(testServer, should_keep_alive())
                   .WillOnce(
-                     [&testDeleteRequest]
+                     [testThread, &testDeleteRequest]
                      {
-                        testDeleteRequest();
+                        testThread.execute(testDeleteRequest);
                         return true;
                      }
                   )
@@ -414,6 +418,7 @@ void test_rest_client(test_client &testClient)
          auto const testReadRequest
          {
             [
+               testThread,
                &testReadRequestStepLock,
                &testServer,
                &testClient,
@@ -460,9 +465,9 @@ void test_rest_client(test_client &testClient)
                ;
                EXPECT_CALL(testServer, should_keep_alive())
                   .WillOnce(
-                     [&testUpdateRequest]
+                     [testThread, &testUpdateRequest]
                      {
-                        testUpdateRequest();
+                        testThread.execute(testUpdateRequest);
                         return true;
                      }
                   )
@@ -485,7 +490,7 @@ void test_rest_client(test_client &testClient)
          };
          auto const testCreateRequest
          {
-            [&testServer, &testClient, &testReadRequest, testPeerHost, &testContentType]()
+            [testThread, &testServer, &testClient, &testReadRequest, testPeerHost, &testContentType]()
             {
                constexpr auto testTarget = std::string_view{"/test_method/post?test_operation=create"};
                constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"create"})raw"};
@@ -522,17 +527,17 @@ void test_rest_client(test_client &testClient)
                         testResponse.content_length(testResponse.body().size());
                         return true;
                      }
-                           )
-                  ;
+                  )
+               ;
                EXPECT_CALL(testServer, should_keep_alive())
                   .WillOnce(
-                     [&testReadRequest]
+                     [testThread, &testReadRequest]
                      {
-                        testReadRequest();
+                        testThread.execute(testReadRequest);
                         return true;
                      }
                   )
-                  ;
+               ;
                auto const testHttpRequest = std::format(
                   "POST {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:POST\r\nTest-Operation:CREATE\r\n\r\n{}",
                   testTarget,
@@ -551,7 +556,7 @@ void test_rest_client(test_client &testClient)
                testClient.expect_ready_to_send(testHttpRequest);
             },
          };
-         testCreateRequest();
+         testThread.execute(testCreateRequest);
          testClient.expect_ready_to_connect(testConfig);
          ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
          EXPECT_EQ(2, testDisconnectStepLock.load(std::memory_order_acquire));

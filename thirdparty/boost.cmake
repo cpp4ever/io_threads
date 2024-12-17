@@ -29,8 +29,8 @@ include(FetchContent)
 FetchContent_Declare(
    boost
    # Download Step Options
-   URL https://github.com/boostorg/boost/releases/download/boost-1.86.0/boost-1.86.0-cmake.tar.xz
-   URL_HASH SHA3_256=bc535064f8d7dd9310c61497e0d461553e1dfba6fb2fbe29f0b25e6b9452e97f
+   URL https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-cmake.tar.xz
+   URL_HASH SHA256=7da75f171837577a52bbf217e17f8ea576c7c246e4594d617bfde7fafd408be5
    DOWNLOAD_EXTRACT_TIMESTAMP ON
 )
 FetchContent_MakeAvailable(boost)

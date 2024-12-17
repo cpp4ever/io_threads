@@ -217,7 +217,7 @@ TEST_F(tls_client, https)
       testTlsSessionsCapacity,
    };
    auto testClient = test_tls_client{testTlsContext,};
-   test_rest_client<test_tls_stream>(testClient);
+   test_rest_client<test_tls_stream>(testThread, testClient);
 }
 
 namespace

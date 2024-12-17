@@ -194,7 +194,7 @@ TEST_F(tcp_client, http)
       testCapacityOfInputOutputBuffer,
    };
    test_tcp_client testClient{testThread,};
-   test_rest_client<boost::beast::tcp_stream>(testClient);
+   test_rest_client<boost::beast::tcp_stream>(testThread, testClient);
 }
 
 }
