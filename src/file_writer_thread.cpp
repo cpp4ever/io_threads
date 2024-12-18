@@ -104,17 +104,8 @@ file_writer_thread::file_writer_thread(uint16_t const coreCpuId, size_t const ca
 
 file_writer_thread::~file_writer_thread() = default;
 
-file_writer_thread &file_writer_thread::operator = (file_writer_thread &&rhs) noexcept
-{
-   m_impl.swap(rhs.m_impl);
-   return *this;
-}
-
-file_writer_thread &file_writer_thread::operator = (file_writer_thread const &rhs)
-{
-   m_impl = rhs.m_impl;
-   return *this;
-}
+file_writer_thread &file_writer_thread::operator = (file_writer_thread &&rhs) noexcept = default;
+file_writer_thread &file_writer_thread::operator = (file_writer_thread const &rhs) = default;
 
 void file_writer_thread::execute(std::function<void()> const &ioRoutine) const
 {

@@ -116,17 +116,8 @@ tcp_client_thread::tcp_client_thread(
 
 tcp_client_thread::~tcp_client_thread() = default;
 
-tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread &&rhs) noexcept
-{
-   m_impl.swap(rhs.m_impl);
-   return *this;
-}
-
-tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread const &rhs)
-{
-   m_impl = rhs.m_impl;
-   return *this;
-}
+tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread &&rhs) noexcept = default;
+tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread const &rhs) = default;
 
 void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
 {

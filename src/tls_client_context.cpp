@@ -82,14 +82,16 @@ tls_client_context::tls_client_context(
 
 tls_client_context::~tls_client_context()
 {
-   assert(nullptr != m_impl);
-   m_executor.execute(
-      [this] ()
-      {
-         m_impl.reset();
-      }
-   );
-   assert(nullptr == m_impl);
+   if (nullptr != m_impl) [[likely]]
+   {
+      m_executor.execute(
+         [this] ()
+         {
+            m_impl.reset();
+         }
+      );
+      assert(nullptr == m_impl);
+   }
 }
 
 tls_client_context &tls_client_context::operator = (tls_client_context &&rhs) noexcept = default;
@@ -98,32 +100,23 @@ tls_client_context &tls_client_context::operator = (tls_client_context const &rh
 tls_client_context::tls_client::tls_client(tls_client_context const &tlsClientContext) noexcept :
    super{tlsClientContext.m_executor,},
    m_tlsClientContext{tlsClientContext.m_impl,}
-{
-   assert(nullptr != m_tlsClientContext);
-}
+{}
 
-tls_client_context::tls_client::~tls_client()
-{
-   assert(nullptr != m_tlsClientContext);
-   assert(nullptr == m_tlsClientSession);
-}
+tls_client_context::tls_client::~tls_client() = default;
 
 std::string_view tls_client_context::tls_client::domain_name() const noexcept
 {
-   assert(nullptr != m_tlsClientContext);
    return m_tlsClientContext->domain_name();
 }
 
 void tls_client_context::tls_client::io_connected()
 {
-   assert(nullptr != m_tlsClientContext);
    assert(nullptr == m_tlsClientSession);
    m_tlsClientSession = std::addressof(m_tlsClientContext->acquire_session());
 }
 
 void tls_client_context::tls_client::io_disconnected(std::error_code const)
 {
-   assert(nullptr != m_tlsClientContext);
    if (nullptr != m_tlsClientSession)
    {
       m_tlsClientContext->release_session(*m_tlsClientSession);
@@ -135,7 +128,6 @@ std::error_code tls_client_context::tls_client::io_data_to_send(data_chunk const
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
-   assert(nullptr != m_tlsClientContext);
    assert(nullptr != m_tlsClientSession);
    if (
       auto const errorCode{m_tlsClientContext->check_session_status(*m_tlsClientSession, dataChunk, bytesWritten),};
@@ -168,7 +160,6 @@ std::error_code tls_client_context::tls_client::io_data_to_shutdown(data_chunk c
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
-   assert(nullptr != m_tlsClientContext);
    assert(nullptr != m_tlsClientSession);
    return m_tlsClientContext->shutdown(*m_tlsClientSession, dataChunk, bytesWritten);
 }
@@ -177,7 +168,6 @@ std::error_code tls_client_context::tls_client::io_data_received(data_chunk encr
 {
    assert(nullptr != encryptedDataChunk.bytes);
    assert(0 < encryptedDataChunk.bytesLength);
-   assert(nullptr != m_tlsClientContext);
    assert(nullptr != m_tlsClientSession);
    auto const isHandshake{tls_client_status::handshake == m_tlsClientSession->status,};
    bytesRead = 0;

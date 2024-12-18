@@ -26,8 +26,8 @@
 #include "common/sec_websocket_accept.hpp" ///< for io_threads::sec_websocket_accept
 #include "common/sec_websocket_key.hpp" ///< for io_threads::sec_websocket_key
 #if (defined(__linux__))
-#  include "linux/sha1.hpp" ///< for io_threads::sha1_context
 #  include "openssl/base64.hpp" ///< for io_threads::base64_encode
+#  include "openssl/sha1.hpp" ///< for io_threads::sha1_context
 #elif (defined(_WIN32) || defined(_WIN64))
 #  include "windows/base64.hpp" ///< for io_threads::base64_encode
 #  include "windows/sha1.hpp" ///< for io_threads::sha1_context

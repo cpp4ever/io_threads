@@ -25,7 +25,7 @@
 
 #include "testsuite.hpp"
 
-#include <io_threads/file_writer_thread.hpp>
+#include <io_threads/tls_client_context.hpp>
 
 #include <thread>
 
@@ -35,47 +35,48 @@ namespace io_threads::tests
 namespace
 {
 
-io_threads::file_writer_thread create_test_file_writer_thread()
+io_threads::tls_client_context create_test_tls_client_context(std::string_view const domainName)
 {
-   return io_threads::file_writer_thread{0, 1,};
+   io_threads::tcp_client_thread testThread{0, 1, 1,};
+   return io_threads::tls_client_context{testThread, domainName, 1,};
 }
 
-using file_writer_thread = testsuite;
+using tls_client_context = testsuite;
 
 }
 
-TEST_F(file_writer_thread, file_writer_thread)
+TEST_F(tls_client_context, tls_client_context)
 {
-   auto const testFileWriterThread1{create_test_file_writer_thread(),};
+   auto const testTlsClientContext1{create_test_tls_client_context("example.com"),};
    std::thread::id testThread1Id{};
    {
       bool testOk{false,};
-      testFileWriterThread1.execute([&testThread1Id, &testOk] () { testThread1Id = std::this_thread::get_id(); testOk = true; });
+      testTlsClientContext1.executor().execute([&testThread1Id, &testOk] () { testThread1Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   auto testFileWriterThread2{create_test_file_writer_thread(),};
+   auto testTlsClientContext2{create_test_tls_client_context("github.com"),};
    std::thread::id testThread2Id{};
    {
       bool testOk{false,};
-      testFileWriterThread2.execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
+      testTlsClientContext2.executor().execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   io_threads::file_writer_thread testFileWriterThread3{testFileWriterThread1,};
+   io_threads::tls_client_context testTlsClientContext3{testTlsClientContext1,};
    {
       bool testOk{false,};
-      testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
+      testTlsClientContext3.executor().execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testFileWriterThread3 = io_threads::file_writer_thread{std::move(testFileWriterThread2),};
+   testTlsClientContext3 = io_threads::tls_client_context{std::move(testTlsClientContext2),};
    {
       bool testOk{false,};
-      testFileWriterThread3.execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });
+      testTlsClientContext3.executor().execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testFileWriterThread3 = testFileWriterThread1;
+   testTlsClientContext3 = testTlsClientContext1;
    {
       bool testOk{false,};
-      testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
+      testTlsClientContext3.executor().execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
 }

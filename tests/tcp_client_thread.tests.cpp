@@ -37,7 +37,7 @@ namespace
 
 io_threads::tcp_client_thread create_test_tcp_client_thread()
 {
-   return io_threads::tcp_client_thread{0, 1, 1};
+   return io_threads::tcp_client_thread{0, 1, 1,};
 }
 
 using tcp_client_thread = testsuite;
@@ -46,21 +46,21 @@ using tcp_client_thread = testsuite;
 
 TEST_F(tcp_client_thread, tcp_client_thread)
 {
-   auto const testTcpClientThread1 = create_test_tcp_client_thread();
+   auto const testTcpClientThread1{create_test_tcp_client_thread(),};
    std::thread::id testThread1Id{};
    {
       bool testOk{false,};
       testTcpClientThread1.execute([&testThread1Id, &testOk] () { testThread1Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   auto testTcpClientThread2 = create_test_tcp_client_thread();
+   auto testTcpClientThread2{create_test_tcp_client_thread(),};
    std::thread::id testThread2Id{};
    {
       bool testOk{false,};
       testTcpClientThread2.execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   io_threads::tcp_client_thread testTcpClientThread3{testTcpClientThread1};
+   io_threads::tcp_client_thread testTcpClientThread3{testTcpClientThread1,};
    {
       bool testOk{false,};
       testTcpClientThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
