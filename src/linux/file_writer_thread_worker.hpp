@@ -165,7 +165,7 @@ public:
          {
             if (auto const returnCode{set_thread_affinity(coreCpuId),}; 0 != returnCode)
             {
-               log_system_error(std::source_location::current(), "[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
+               log_system_error("[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
             auto const threadWorker
@@ -395,7 +395,7 @@ private:
       {
          if (0 > result) [[unlikely]]
          {
-            log_system_error(std::source_location::current(), "[file_writer] failed to flush file buffers: ({}) - {}", -result);
+            log_system_error("[file_writer] failed to flush file buffers: ({}) - {}", -result);
          }
          fileDescriptor.fileStatus = file_status::closing;
          m_fileWriterUring->prep_close(fileDescriptor);
@@ -404,7 +404,7 @@ private:
       {
          if (0 > result) [[unlikely]]
          {
-            log_system_error(std::source_location::current(), "[file_writer] failed to close file: ({}) - {}", -result);
+            log_system_error("[file_writer] failed to close file: ({}) - {}", -result);
          }
          fileDescriptor.fileStatus = file_status::none;
          fileDescriptor.closeOnCompletion = false;

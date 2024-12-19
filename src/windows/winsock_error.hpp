@@ -49,7 +49,7 @@ std::error_code check_winsock_error(
    assert(ERROR_SUCCESS != winsockLastError);
    std::error_code const errorCode{winsockLastError, std::system_category()};
    assert(winsockLastError == errorCode.value());
-   log_system_error(sourceLocation, fmt, errorCode);
+   log_system_error(fmt, errorCode, sourceLocation);
    return errorCode;
 }
 
@@ -65,7 +65,7 @@ std::error_code check_winsock_error_if_not(
    {
       std::error_code const errorCode{winsockLastError, std::system_category()};
       assert(winsockLastError == errorCode.value());
-      log_system_error(sourceLocation, fmt, errorCode);
+      log_system_error(fmt, errorCode, sourceLocation);
       return errorCode;
    }
    return {};

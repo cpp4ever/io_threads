@@ -50,14 +50,14 @@ tls_client_context::tls_client_context(tls_client_context const &rhs) noexcept =
 tls_client_context::tls_client_context(
    tcp_client_thread const &executor,
    std::string_view const domainName,
-   size_t const initialTlsClientSessionListCapacity
+   size_t const capacityOfTlsClientSessionList
 ) :
    m_executor{executor,}
 {
    m_executor.execute(
-      [this, domainName, initialTlsClientSessionListCapacity] ()
+      [this, domainName, capacityOfTlsClientSessionList] ()
       {
-         m_impl = std::make_shared<tls_client_context_impl>(domainName, initialTlsClientSessionListCapacity);
+         m_impl = std::make_shared<tls_client_context_impl>(domainName, capacityOfTlsClientSessionList);
       }
    );
    assert(nullptr != m_impl);
@@ -67,14 +67,14 @@ tls_client_context::tls_client_context(
    tcp_client_thread const &executor,
    std::string_view const domainName,
    ssl_certificate const &sslCertificate,
-   size_t const initialTlsClientSessionListCapacity
+   size_t const capacityOfTlsClientSessionList
 ) :
    m_executor{executor,}
 {
    m_executor.execute(
-      [this, domainName, &sslCertificate, initialTlsClientSessionListCapacity] ()
+      [this, domainName, &sslCertificate, capacityOfTlsClientSessionList] ()
       {
-         m_impl = std::make_shared<tls_client_context_impl>(domainName, sslCertificate, initialTlsClientSessionListCapacity);
+         m_impl = std::make_shared<tls_client_context_impl>(domainName, sslCertificate, capacityOfTlsClientSessionList);
       }
    );
    assert(nullptr != m_impl);

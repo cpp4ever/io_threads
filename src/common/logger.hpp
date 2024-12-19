@@ -50,8 +50,8 @@ using format_string = std::string_view;
 
 template<typename ...types>
 constexpr void log_error(
-   std::source_location const sourceLocation,
-   format_string<types...> const fmt,
+   std::source_location const &sourceLocation,
+   format_string<types...> const &fmt,
    types &&...values
 )
 {
@@ -67,42 +67,30 @@ constexpr void log_error(
 }
 
 inline void log_system_error(
-   std::source_location const sourceLocation,
-#if (defined(_WIN32) || defined(_WIN64))
-   format_string<uint32_t, std::string> const fmt,
-#else
-   format_string<int, std::string> const fmt,
-#endif
-   std::error_code const errorCode
+   format_string<uint32_t, std::string> const &fmt,
+   std::error_code const &errorCode,
+   std::source_location const &sourceLocation = std::source_location::current()
 )
 {
-#if (defined(_WIN32) || defined(_WIN64))
    log_error(sourceLocation, fmt, static_cast<uint32_t>(errorCode.value()), errorCode.message());
-#else
-   log_error(sourceLocation, fmt, errorCode.value(), errorCode.message());
-#endif
 }
 
 inline void log_system_error(
-   std::source_location const sourceLocation,
-#if (defined(_WIN32) || defined(_WIN64))
-   format_string<uint32_t, std::string> const fmt,
-   long const errorCode
-#else
-   format_string<int, std::string> const fmt,
-   int const errorCode
-#endif
+   format_string<uint32_t, std::string> const &fmt,
+   int const value,
+   std::source_location const &sourceLocation = std::source_location::current()
 )
 {
-   log_system_error(
-      sourceLocation,
-      fmt,
+   std::error_code const errorCode
+   {
+      value,
 #if (defined(_WIN32) || defined(_WIN64))
-      std::error_code{errorCode, std::system_category(),}
+      std::system_category(),
 #else
-      std::error_code{errorCode, std::generic_category(),}
+      std::generic_category(),
 #endif
-   );
+   };
+   log_system_error(fmt, errorCode, sourceLocation);
 }
 
 }

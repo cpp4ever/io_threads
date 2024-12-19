@@ -118,6 +118,7 @@ target_include_directories(
 )
 target_link_libraries(io_threads PRIVATE zlibstatic PUBLIC llhttp_static)
 if(OPENSSL_FOUND)
+   target_compile_definitions(io_threads PRIVATE OPENSSL_NO_DEPRECATED=1)
    target_include_directories(io_threads PRIVATE "${OPENSSL_INCLUDE_DIR}")
    target_link_libraries(io_threads PRIVATE ${OPENSSL_LIBRARIES})
 endif()

@@ -32,7 +32,12 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/ssl_certificate.hpp" ///< for io_threads::ssl_certificate
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
+#include "openssl/error.hpp" ///< for io_threads::log_openssl_errors
 #include "openssl/tls_client_session.hpp" ///< for io_threads::tls_client_session
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
 #include <algorithm> ///< for std::max
 #include <array> ///< for std::array, std::to_array
@@ -57,25 +62,82 @@ public:
    tls_client_context_impl(tls_client_context_impl &&) = delete;
    tls_client_context_impl(tls_client_context_impl const &) = delete;
 
-   [[nodiscard]] tls_client_context_impl(std::string_view const domainName, size_t const initialTlsClientSessionListCapacity)
+   [[nodiscard]] tls_client_context_impl(std::string_view const domainName, size_t const capacityOfTlsClientSessionList) :
+      m_domainName{domainName,},
+      m_tlsClientSessionsMemoryPool
+      {
+         capacityOfTlsClientSessionList,
+         std::align_val_t{alignof(tls_client_session),},
+         sizeof(tls_client_session),
+      }
    {
-      (void)domainName;
-      (void)initialTlsClientSessionListCapacity;
+      SSL_CTX_enable_ct(std::addressof(m_sslContext), SSL_CT_VALIDATION_STRICT);
+      X509_VERIFY_PARAM *x509VerifyParam{X509_VERIFY_PARAM_new(),};
+      X509_VERIFY_PARAM_set1_host(x509VerifyParam, domainName.data(), domainName.size());
+      X509_VERIFY_PARAM_set_auth_level(x509VerifyParam, 4); ///< TLS 1.2 or above
+      X509_VERIFY_PARAM_set_flags(x509VerifyParam, X509_V_FLAG_CRL_CHECK);
+      X509_VERIFY_PARAM_set_hostflags(x509VerifyParam, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
+      X509_VERIFY_PARAM_set_purpose(x509VerifyParam, X509_PURPOSE_SSL_CLIENT);
+      SSL_CTX_set1_param(std::addressof(m_sslContext), x509VerifyParam);
+      X509_VERIFY_PARAM_free(x509VerifyParam);
+      SSL_CTX_set_min_proto_version(std::addressof(m_sslContext), TLS1_2_VERSION);
+      SSL_CTX_set_security_level(std::addressof(m_sslContext), 4); ///< TLS 1.2 or above
+      for (size_t tlsClientSessionIndex{0,}; capacityOfTlsClientSessionList > tlsClientSessionIndex; ++tlsClientSessionIndex)
+      {
+         auto *ssl{SSL_new(std::addressof(m_sslContext)),};
+         if (nullptr == ssl) [[unlikely]]
+         {
+            log_openssl_errors("[tls_client] failed to create SSL structure:");
+            unreachable();
+         }
+         auto &rbio{create_memory_bio(),};
+         auto &wbio{create_memory_bio(),};
+         SSL_set_bio(ssl, std::addressof(rbio), std::addressof(wbio));
+         assert(std::addressof(rbio) == SSL_get_rbio(ssl));
+         assert(std::addressof(wbio) == SSL_get_wbio(ssl));
+         auto &tlsClientSession
+         {
+            m_tlsClientSessionsMemoryPool.pop_object<tls_client_session>(
+               tls_client_session
+               {
+                  .ssl = *ssl,
+                  .rbio = rbio,
+                  .wbio = wbio,
+                  .next = std::launder(m_tlsClientSessions),
+               }
+            ),
+         };
+         m_tlsClientSessions = std::addressof(tlsClientSession);
+      }
    }
 
    [[nodiscard]] tls_client_context_impl(
       std::string_view const domainName,
       ssl_certificate const &sslCertificate,
-      size_t const initialTlsClientSessionListCapacity
-   )
+      size_t const capacityOfTlsClientSessionList
+   ) :
+      m_domainName{domainName,},
+      m_tlsClientSessionsMemoryPool
+      {
+         capacityOfTlsClientSessionList,
+         std::align_val_t{alignof(tls_client_session),},
+         sizeof(tls_client_session),
+      }
    {
-      (void)domainName;
       (void)sslCertificate;
-      (void)initialTlsClientSessionListCapacity;
+      (void)capacityOfTlsClientSessionList;
    }
 
    ~tls_client_context_impl()
    {
+      while (nullptr != m_tlsClientSessions)
+      {
+         auto *tlsClientSession = std::launder(m_tlsClientSessions);
+         m_tlsClientSessions = tlsClientSession->next;
+         SSL_free(std::addressof(tlsClientSession->ssl));
+         m_tlsClientSessionsMemoryPool.push_object(*tlsClientSession);
+      }
+      SSL_CTX_free(std::addressof(m_sslContext));
    }
 
    tls_client_context_impl &operator = (tls_client_context_impl &&) = delete;
@@ -83,16 +145,22 @@ public:
 
    [[nodiscard]] tls_client_session &acquire_session()
    {
-      return *new tls_client_session;
+      if (nullptr == m_tlsClientSessions) [[unlikely]]
+      {
+         unreachable();
+      }
+      auto *tlsClientSession = std::launder(m_tlsClientSessions);
+      m_tlsClientSessions = tlsClientSession->next;
+      return *tlsClientSession;
    }
 
    [[nodiscard]] std::error_code check_session_status(
-      tls_client_session &session,
+      tls_client_session &tlsClientSession,
       data_chunk const dataChunk,
       size_t &bytesWritten
    )
    {
-      (void)session;
+      (void)tlsClientSession;
       (void)dataChunk;
       (void)bytesWritten;
       return {};
@@ -114,7 +182,7 @@ public:
 
    [[nodiscard]] std::string_view domain_name() const noexcept
    {
-      return "todo";
+      return m_domainName;
    }
 
    [[nodiscard]] std::error_code encrypt_message(
@@ -129,9 +197,15 @@ public:
       return {};
    }
 
-   void release_session(tls_client_session &session)
+   void release_session(tls_client_session &tlsClientSession)
    {
-      (void)session;
+      if (0 == SSL_clear(std::addressof(tlsClientSession.ssl))) [[unlikely]]
+      {
+         log_openssl_errors("[tls_client] failed to clear SSL structure:");
+         unreachable();
+      }
+      tlsClientSession.next = std::launder(m_tlsClientSessions);
+      m_tlsClientSessions = std::launder(std::addressof(tlsClientSession));
    }
 
    [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const dataChunk, size_t &bytesWritten)
@@ -153,6 +227,34 @@ public:
    {
       (void)session;
       return 0;
+   }
+
+private:
+   SSL_CTX &m_sslContext{create_ssl_context(),};
+   tls_client_session *m_tlsClientSessions{nullptr,};
+   std::string const m_domainName;
+   memory_pool m_tlsClientSessionsMemoryPool;
+
+   [[nodiscard]] static BIO &create_memory_bio()
+   {
+      auto *memoryBio{BIO_new(BIO_s_mem()),};
+      if (nullptr == memoryBio) [[unlikely]]
+      {
+         log_openssl_errors("[tls_client] failed to create memory BIO:");
+         unreachable();
+      }
+      return *memoryBio;
+   }
+
+   [[nodiscard]] static SSL_CTX &create_ssl_context()
+   {
+      auto *sslContext{SSL_CTX_new(TLS_client_method()),};
+      if (nullptr == sslContext) [[unlikely]]
+      {
+         log_openssl_errors("[tls_client] failed to create SSL context:");
+         unreachable();
+      }
+      return *sslContext;
    }
 };
 

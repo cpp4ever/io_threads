@@ -58,7 +58,6 @@
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
 #include <new> ///< for operator delete, operator new, std::align_val_t, std::launder
 #include <optional> ///< for std::nullopt, std::optional
-#include <source_location> ///< for std::source_location
 #include <string> ///< for std::string, std::wstring
 #include <string_view> ///< for std::string_view
 #include <utility> ///< for std::move
@@ -167,11 +166,7 @@ public:
       }
       else
       {
-         log_system_error(
-            std::source_location::current(),
-            "[network_interface] failed to get adapters addresses: ({}) - {}",
-            returnCode
-         );
+         log_system_error("[network_interface] failed to get adapters addresses: ({}) - {}", returnCode);
       }
       std::destroy_at(ipAdapterAddreses);
       ::operator delete(ipAdapterAddreses, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)});
@@ -197,11 +192,7 @@ private:
          true == bool{errorCode}
       ) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[network_interface] failed to convert friendly name to UTF-8: ({}) - {}",
-            errorCode
-         );
+         log_system_error("[network_interface] failed to convert friendly name to UTF-8: ({}) - {}", errorCode);
       }
       friendlyName.shrink_to_fit();
       auto ipv4

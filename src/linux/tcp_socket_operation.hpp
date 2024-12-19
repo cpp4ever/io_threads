@@ -88,7 +88,7 @@ inline void log_socket_error(
    std::source_location const &sourceLocation = std::source_location::current()
 )
 {
-   log_system_error(sourceLocation, tcp_socket_error_message(tcpSocketOperationType), errorCode);
+   log_system_error(tcp_socket_error_message(tcpSocketOperationType), errorCode, sourceLocation);
 }
 
 struct tcp_socket_operation final

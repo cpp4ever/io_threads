@@ -32,7 +32,6 @@
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
-#include <source_location> ///< for std::source_location
 
 namespace io_threads
 {
@@ -53,7 +52,7 @@ public:
       assert(0 < bytesLength);
       if (-1 == getrandom(bytes, bytesLength, 0)) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[random] failed to generate random sequence: ({}) - {}", errno);
+         log_system_error("[random] failed to generate random sequence: ({}) - {}", errno);
          unreachable();
       }
    }

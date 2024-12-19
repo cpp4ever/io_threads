@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "common/logger.hpp" ///< for io_threads::log_error
+#include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
@@ -176,7 +176,7 @@ public:
          {
             if (auto const returnCode{set_thread_affinity(coreCpuId),}; 0 != returnCode)
             {
-               log_system_error(std::source_location::current(), "[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
+               log_system_error("[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
             auto const threadWorker

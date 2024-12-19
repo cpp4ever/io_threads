@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <common/logger.hpp> ///< for io_threads::log_system_error
 #include <common/shared_memory_pool.hpp> ///< for io_threads::shared_memory_pool
 #include <common/utility.hpp> ///< for io_threads::unreachable
 #include <linux/uring_listener.hpp> ///< for io_threads::uring_listener
@@ -40,7 +39,6 @@
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <memory> ///< for std::addressof
 #include <new> ///< for std::align_val_t, std::launder
-#include <source_location> ///< for std::source_location
 
 namespace io_threads
 {

@@ -27,6 +27,8 @@
 
 #include "common/tls_client_status.hpp" ///< for io_threads::tls_client_status
 
+#include <openssl/ssl.h>
+
 #include <cstddef> ///< for std::byte
 #include <string_view> ///< for std::string_view
 
@@ -35,9 +37,13 @@ namespace io_threads
 
 struct tls_client_session final
 {
+   SSL &ssl;
+   BIO &rbio;
+   BIO &wbio;
    tls_client_status status{tls_client_status::none};
    std::byte *securityBuffer{nullptr};
    std::string_view securityToken{};
+   tls_client_session *next{nullptr,};
 };
 
 }

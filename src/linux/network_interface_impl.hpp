@@ -108,11 +108,7 @@ public:
       ifaddrs *ifaces{nullptr,};
       if (-1 == getifaddrs(std::addressof(ifaces))) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[network_interface] failed to get network interfaces: ({}) - {}",
-            errno
-         );
+         log_system_error("[network_interface] failed to get network interfaces: ({}) - {}", errno);
          unreachable();
       }
       std::map<std::string_view, network_interface_addresses> mapIfaceNameToAddress{};

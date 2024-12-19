@@ -224,17 +224,17 @@ public:
    tls_client_context_impl(tls_client_context_impl &&) = delete;
    tls_client_context_impl(tls_client_context_impl const &) = delete;
 
-   [[nodiscard]] tls_client_context_impl(std::string_view const domainName, size_t const initialTlsClientSessionListCapacity) :
+   [[nodiscard]] tls_client_context_impl(std::string_view const domainName, size_t const capacityOfTlsClientSessionList) :
       m_sessionMemory
       {
          std::make_unique<memory_pool>(
-            initialTlsClientSessionListCapacity,
+            capacityOfTlsClientSessionList,
             std::align_val_t{alignof(tls_client_session),},
             sizeof(tls_client_session)
          ),
       }
    {
-      validate_environment(initialTlsClientSessionListCapacity);
+      validate_environment(capacityOfTlsClientSessionList);
       set_domain_name(domainName);
       acquire_credentials_handle();
    }
@@ -242,18 +242,18 @@ public:
    [[nodiscard]] tls_client_context_impl(
       std::string_view const domainName,
       ssl_certificate const &sslCertificate,
-      size_t const initialTlsClientSessionListCapacity
+      size_t const capacityOfTlsClientSessionList
    ) :
       m_sessionMemory
       {
          std::make_unique<memory_pool>(
-            initialTlsClientSessionListCapacity,
+            capacityOfTlsClientSessionList,
             std::align_val_t{alignof(tls_client_session),},
             sizeof(tls_client_session)
          ),
       }
    {
-      validate_environment(initialTlsClientSessionListCapacity);
+      validate_environment(capacityOfTlsClientSessionList);
       set_domain_name(domainName);
       CRYPT_DATA_BLOB sslCertificateBlob
       {
@@ -265,11 +265,7 @@ public:
       {
          if (auto const errorCode{utf8_to_wide_char(wcharPassword, sslCertificate.password()),}; true == bool{errorCode,}) [[unlikely]]
          {
-            log_system_error(
-               std::source_location::current(),
-               "[tls_client] failed to convert password to wchar_t: ({}) - {}",
-               errorCode
-            );
+            log_system_error("[tls_client] failed to convert password to wchar_t: ({}) - {}", errorCode);
             unreachable();
          }
       }
@@ -405,11 +401,7 @@ public:
    {
       if (auto const returnCode{FreeCredentialsHandle(std::addressof(m_handle)),}; SEC_E_OK != returnCode) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to free credentials handle: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to free credentials handle: ({:#X}) - {}", returnCode);
          m_handle = {};
       }
       if (nullptr != m_certificateContext)
@@ -498,11 +490,7 @@ public:
             }
          );
       }
-      log_system_error(
-         std::source_location::current(),
-         "[tls_client] failed to create security context: ({:#X}) - {}",
-         returnCode
-      );
+      log_system_error("[tls_client] failed to create security context: ({:#X}) - {}", returnCode);
       unreachable();
    }
 
@@ -685,11 +673,7 @@ public:
          [[unlikely]] default:
          {
             errorCode = std::error_code{returnCode, std::system_category(),};
-            log_system_error(
-               std::source_location::current(),
-               "[tls_client] handshake failed: ({:#X}) - {}",
-               errorCode
-            );
+            log_system_error("[tls_client] handshake failed: ({:#X}) - {}", errorCode);
          }
          break;
          }
@@ -809,11 +793,7 @@ public:
       else
       {
          errorCode = std::error_code{returnCode, std::system_category(),};
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to encrypt message: ({:#X}) - {}",
-            errorCode
-         );
+         log_system_error("[tls_client] failed to encrypt message: ({:#X}) - {}", errorCode);
       }
       return errorCode;
    }
@@ -825,11 +805,7 @@ public:
          SEC_E_OK != returnCode
       ) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to delete security context: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to delete security context: ({:#X}) - {}", returnCode);
       }
       if (nullptr != session.securityBuffer)
       {
@@ -870,11 +846,7 @@ public:
          SEC_E_OK != returnCode
       )
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to apply control token: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to apply control token: ({:#X}) - {}", returnCode);
          unreachable();
       }
       auto outboundSecurityBuffers
@@ -926,22 +898,14 @@ public:
             bytesWritten += outboundSecurityBuffer.cbBuffer;
             if (auto const returnCode{FreeContextBuffer(outboundSecurityBuffer.pvBuffer),}; SEC_E_OK != returnCode) [[unlikely]]
             {
-               log_system_error(
-                  std::source_location::current(),
-                  "[tls_client] failed to free memory buffers allocated by security context: ({:#X}) - {}",
-                  returnCode
-               );
+               log_system_error("[tls_client] failed to free memory buffers allocated by security context: ({:#X}) - {}", returnCode);
             }
          }
       }
       else
       {
          errorCode = std::error_code{shutdownReturnCode, std::system_category(),};
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to shutdown: ({:#X}) - {}",
-            errorCode
-         );
+         log_system_error("[tls_client] failed to shutdown: ({:#X}) - {}", errorCode);
       }
       session.status = tls_client_status::none;
       return errorCode;
@@ -1048,11 +1012,7 @@ private:
          SEC_E_OK != returnCode
       ) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to acquire credentials handle: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to acquire credentials handle: ({:#X}) - {}", returnCode);
          unreachable();
       }
    }
@@ -1162,11 +1122,7 @@ private:
       default:
       {
          errorCode = std::error_code{returnCode, std::system_category(),};
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] handshake failed: ({:#X}) - {}",
-            errorCode
-         );
+         log_system_error("[tls_client] handshake failed: ({:#X}) - {}", errorCode);
       }
       break;
       }
@@ -1196,11 +1152,7 @@ private:
          SEC_E_OK != returnCode
       ) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to query stream sizes: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to query stream sizes: ({:#X}) - {}", returnCode);
          unreachable();
       }
       auto const tlsPacketSizeLimit{session.streamSizes.cbHeader + session.streamSizes.cbMaximumMessage + session.streamSizes.cbTrailer,};
@@ -1347,11 +1299,7 @@ private:
    {
       if (auto const errorCode{utf8_to_wide_char(m_domainName.first, value),}; true == bool{errorCode}) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to convert domain name to wchar_t: ({}) - {}",
-            errorCode
-         );
+         log_system_error("[tls_client] failed to convert domain name to wchar_t: ({}) - {}", errorCode);
          unreachable();
       }
       m_domainName.first.shrink_to_fit();
@@ -1367,11 +1315,7 @@ private:
          (SEC_E_OK != returnCode) || (nullptr == securityPackageInfo)
       ) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to query security package info: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to query security package info: ({:#X}) - {}", returnCode);
          unreachable();
       }
       assert((std::wstring_view{UNISP_NAME_W,}) == securityPackageInfo->Name);
@@ -1400,11 +1344,7 @@ private:
       );
       if (auto const returnCode{FreeContextBuffer(securityPackageInfo),}; SEC_E_OK != returnCode) [[unlikely]]
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tls_client] failed to free security package info: ({:#X}) - {}",
-            returnCode
-         );
+         log_system_error("[tls_client] failed to free security package info: ({:#X}) - {}", returnCode);
       }
    }
 };

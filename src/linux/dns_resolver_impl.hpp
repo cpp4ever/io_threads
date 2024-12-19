@@ -38,7 +38,6 @@
 #include <bit> ///< for std::bit_cast
 #include <cstdint> ///< for uint16_t
 #include <memory> ///< for std::addressof, std::make_shared
-#include <source_location> ///< for std::source_location
 #include <string> ///< for std::string, std::to_string
 #include <string_view> ///< for std::string_view
 #include <vector> ///< for std::vector
@@ -74,7 +73,7 @@ namespace
       0 != errorCode
    )
    {
-      log_system_error(std::source_location::current(), "[dns_resolver] failed to resolve domain name: ({}) - {}", make_addrinfo_error_code(errorCode));
+      log_system_error("[dns_resolver] failed to resolve domain name: ({}) - {}", make_addrinfo_error_code(errorCode));
       unreachable();
    }
    std::vector<socket_address> addresses{};

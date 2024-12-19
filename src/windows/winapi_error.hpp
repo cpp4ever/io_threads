@@ -49,7 +49,7 @@ inline std::error_code check_winapi_error(
    assert(ERROR_SUCCESS != winapiLastError);
    std::error_code const errorCode{static_cast<int>(winapiLastError), std::system_category()};
    assert(winapiLastError == static_cast<DWORD>(errorCode.value()));
-   log_system_error(sourceLocation, fmt, errorCode);
+   log_system_error(fmt, errorCode, sourceLocation);
    return errorCode;
 }
 
@@ -65,7 +65,7 @@ inline std::error_code check_winapi_error_if_not(
    {
       std::error_code const errorCode{static_cast<int>(winapiLastError), std::system_category()};
       assert(winapiLastError == static_cast<DWORD>(errorCode.value()));
-      log_system_error(sourceLocation, fmt, errorCode);
+      log_system_error(fmt, errorCode, sourceLocation);
       return errorCode;
    }
    return {};

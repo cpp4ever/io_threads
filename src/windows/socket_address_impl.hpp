@@ -121,7 +121,7 @@ public:
             STATUS_SUCCESS != ntstatus
          )
          {
-            log_system_error(std::source_location::current(), "[socket_address] failed to convert address to IPv4 string: ({}) - {}", ntstatus);
+            log_system_error("[socket_address] failed to convert address to IPv4 string: ({}) - {}", ntstatus);
             unreachable();
          }
          wcharAddress.resize(std::max<size_t>(1, wcharAddressSize) - 1);
@@ -144,7 +144,7 @@ public:
             STATUS_SUCCESS != ntstatus
          )
          {
-            log_system_error(std::source_location::current(), "[socket_address] failed to convert address to IPv6 string: ({}) - {}", ntstatus);
+            log_system_error("[socket_address] failed to convert address to IPv6 string: ({}) - {}", ntstatus);
             unreachable();
          }
          wcharAddress.resize(std::max<size_t>(1, wcharAddressSize) - 1);
@@ -156,7 +156,7 @@ public:
       }
       if (auto const errorCode{wide_char_to_utf8(m_address, wcharAddress),}; true == bool{errorCode}) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[socket_address] failed to convert address to UTF-8 string: ({}) - {}", errorCode);
+         log_system_error("[socket_address] failed to convert address to UTF-8 string: ({}) - {}", errorCode);
          unreachable();
       }
       m_address.shrink_to_fit();
@@ -185,7 +185,7 @@ public:
       std::wstring wcharAddress;
       if (true == bool{(errorCode = utf8_to_wide_char(wcharAddress, utf8Address)),}) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[socket_address] failed to convert address to wchar_t string: ({}) - {}", errorCode);
+         log_system_error("[socket_address] failed to convert address to wchar_t string: ({}) - {}", errorCode);
          return std::shared_ptr<socket_address_impl>{nullptr,};
       }
       constexpr auto addressTypes

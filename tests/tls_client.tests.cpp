@@ -178,11 +178,10 @@ using tls_client = testsuite;
 
 }
 
-#if (defined(_WIN32) || defined(_WIN64))
 TEST_F(tls_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
-   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{1,};
    tcp_client_thread const testThread
    {
@@ -190,13 +189,14 @@ TEST_F(tls_client, connect_timeout)
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffer,
    };
-   constexpr size_t testTlsSessionsCapacity{0,};
+   constexpr size_t testTlsSessionsCapacity{1,};
    auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
    constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
 }
 
+#if (defined(_WIN32) || defined(_WIN64))
 TEST_F(tls_client, https)
 {
    constexpr uint16_t testCpuId{0,};

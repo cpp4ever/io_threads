@@ -65,37 +65,37 @@ public:
          0 > returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to initialize the ring: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to initialize the ring: ({}) - {}", -returnCode);
          unreachable();
       }
       if (auto const returnCode{io_uring_register_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register ring descriptor: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register ring descriptor: ({}) - {}", -returnCode);
       }
       cpu_set_t iowqAffinityMask;
       CPU_ZERO(std::addressof(iowqAffinityMask));
       CPU_SET(coreCpuId, std::addressof(iowqAffinityMask));
       if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
       }
       std::array<uint32_t, 2> iowqMaxWorkers = {1, 1};
       if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register IO workers limits: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register IO workers limits: ({}) - {}", -returnCode);
       }
       if (auto const returnCode{io_uring_ring_dontfork(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
       }
       if (-1 == sigfillset(m_sigmask.get())) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to initialize sigmask: ({}) - {}", errno);
+         log_system_error("[file_writer] failed to initialize sigmask: ({}) - {}", errno);
          unreachable();
       }
       if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to create eventfd: ({}) - {}", errno);
+         log_system_error("[file_writer] failed to create eventfd: ({}) - {}", errno);
          unreachable();
       }
    }
@@ -107,15 +107,15 @@ public:
       assert(-1 != m_eventfd);
       if (-1 == close(m_eventfd)) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to destroy eventfd: ({}) - {}", errno);
+         log_system_error("[file_writer] failed to destroy eventfd: ({}) - {}", errno);
       }
       if (auto const returnCode{io_uring_unregister_iowq_aff(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
       }
       if (auto const returnCode{io_uring_unregister_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to unregister ring descriptor: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to unregister ring descriptor: ({}) - {}", -returnCode);
       }
       io_uring_queue_exit(m_ring.get());
    }
@@ -177,7 +177,7 @@ public:
          0 > returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register files: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register files: ({}) - {}", -returnCode);
          unreachable();
       }
       m_fileDescriptorsMemoryPool = std::make_unique<memory_pool>(
@@ -211,7 +211,7 @@ public:
       assert(false == m_registeredFiles.empty());
       if (auto const returnCode{io_uring_unregister_files(m_ring.get()),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to unregister files: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to unregister files: ({}) - {}", -returnCode);
       }
       while (nullptr != fileDescriptors)
       {
@@ -248,7 +248,7 @@ public:
       assert(-1 != m_eventfd);
       if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to raise eventfd: ({}) - {}", errno);
+         log_system_error("[file_writer] failed to raise eventfd: ({}) - {}", errno);
          unreachable();
       }
    }
@@ -271,7 +271,7 @@ private:
          0 > returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
          unreachable();
       }
       uint32_t completionQueueHead;
@@ -290,7 +290,7 @@ private:
             assert(0 == completionQueueEntry->flags);
             if (0 > completionQueueEntry->res) [[unlikely]]
             {
-               log_system_error(std::source_location::current(), "[file_writer] failed to handle eventfd: ({}) - {}", -completionQueueEntry->res);
+               log_system_error("[file_writer] failed to handle eventfd: ({}) - {}", -completionQueueEntry->res);
                unreachable();
             }
             uringListener.handle_event_completion();
@@ -338,7 +338,7 @@ private:
          0 > returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[file_writer] failed to register eventfd: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register eventfd: ({}) - {}", -returnCode);
          unreachable();
       }
    }

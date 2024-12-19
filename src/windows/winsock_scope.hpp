@@ -58,11 +58,7 @@ public:
          ERROR_SUCCESS != returnCode
       )
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tcp_client] failed to initialize WinSock 2.2: ({}) - {}",
-            returnCode
-         );
+         log_system_error("[tcp_client] failed to initialize WinSock 2.2: ({}) - {}", returnCode);
          unreachable();
       }
       if ((2 != LOBYTE(wsaData.wVersion)) || (2 != HIBYTE(wsaData.wVersion)))
@@ -84,11 +80,7 @@ public:
    {
       if (auto const returnCode{WSACleanup(),}; ERROR_SUCCESS != returnCode)
       {
-         log_system_error(
-            std::source_location::current(),
-            "[tcp_client] failed to terminate use of WinSock 2.2: ({}) - {}",
-            returnCode
-         );
+         log_system_error("[tcp_client] failed to terminate use of WinSock 2.2: ({}) - {}", returnCode);
       }
    }
 

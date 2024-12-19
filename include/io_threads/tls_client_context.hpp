@@ -46,13 +46,13 @@ public:
    [[nodiscard]] tls_client_context(
       tcp_client_thread const &executor,
       std::string_view domainName,
-      size_t initialTlsClientSessionListCapacity
+      size_t capacityOfTlsClientSessionList
    );
    [[nodiscard]] tls_client_context(
       tcp_client_thread const &executor,
       std::string_view domainName,
       ssl_certificate const &sslCertificate,
-      size_t initialTlsClientSessionListCapacity
+      size_t capacityOfTlsClientSessionList
    );
    ~tls_client_context();
 

@@ -71,7 +71,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to open algorithm provider: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to open algorithm provider: ({}) - {}", returnCode);
          unreachable();
       }
       ULONG bytesWritten{0,};
@@ -90,7 +90,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to get size of hash object: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to get size of hash object: ({}) - {}", returnCode);
          unreachable();
       }
       assert(sizeof(m_objectSize) == bytesWritten);
@@ -110,7 +110,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to get digest size: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to get digest size: ({}) - {}", returnCode);
          unreachable();
       }
       assert(sizeof(digestSize) == bytesWritten);
@@ -128,7 +128,7 @@ public:
    {
       if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to close algorithm provider: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to close algorithm provider: ({}) - {}", returnCode);
       }
    }
 
@@ -156,7 +156,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to create hash object: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to create hash object: ({}) - {}", returnCode);
          unreachable();
       }
       return *hashHandle;
@@ -166,7 +166,7 @@ public:
    {
       if (auto const returnCode{BCryptDestroyHash(hashHandle),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to destroy hash object: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to destroy hash object: ({}) - {}", returnCode);
       }
       ::operator delete(std::addressof(hashHandle), std::align_val_t{alignof(BCRYPT_HASH_HANDLE),});
    }
@@ -199,7 +199,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to finish the hash: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to finish the hash: ({}) - {}", returnCode);
          unreachable();
       }
       return digest;
@@ -212,7 +212,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[sha1] failed to update the hash: ({}) - {}", returnCode);
+         log_system_error("[sha1] failed to update the hash: ({}) - {}", returnCode);
          unreachable();
       }
    }

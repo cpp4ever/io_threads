@@ -94,7 +94,7 @@ public:
          0 != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[socket_address] failed to convert address to IP string: ({}) - {}", make_addrinfo_error_code(returnCode));
+         log_system_error("[socket_address] failed to convert address to IP string: ({}) - {}", make_addrinfo_error_code(returnCode));
          unreachable();
       }
       assert(false == (std::string_view{addressHost.data(),}.empty()));

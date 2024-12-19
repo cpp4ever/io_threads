@@ -42,7 +42,6 @@
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
 #include <memory> ///< for std::addressof
-#include <source_location> ///< for std::source_location
 
 #pragma comment(lib, "bcrypt")
 
@@ -59,7 +58,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[random] failed to open algorithm provider: ({}) - {}", returnCode);
+         log_system_error("[random] failed to open algorithm provider: ({}) - {}", returnCode);
          unreachable();
       }
    }
@@ -71,7 +70,7 @@ public:
    {
       if (auto const returnCode{BCryptCloseAlgorithmProvider(m_algorithmHandle, 0),}; STATUS_SUCCESS != returnCode) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[random] failed to close algorithm provider: ({}) - {}", returnCode);
+         log_system_error("[random] failed to close algorithm provider: ({}) - {}", returnCode);
       }
    }
 
@@ -106,7 +105,7 @@ public:
          STATUS_SUCCESS != returnCode
       ) [[unlikely]]
       {
-         log_system_error(std::source_location::current(), "[random] failed to generate random sequence: ({}) - {}", returnCode);
+         log_system_error("[random] failed to generate random sequence: ({}) - {}", returnCode);
          unreachable();
       }
    }
