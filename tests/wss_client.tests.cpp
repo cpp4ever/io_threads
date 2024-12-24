@@ -188,7 +188,7 @@ using wss_client = testsuite;
 
 }
 
-#if (defined(_WIN32) || defined(_WIN64))
+#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(wss_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};

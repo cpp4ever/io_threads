@@ -23,24 +23,6 @@
    SOFTWARE.
 ]]
 
-if(IO_THREADS_TLS_AND_CRYPTO_LIBRARY STREQUAL "schannel")
-   include(CMakeThirdpartyTargets)
-   include(FetchContent)
-
-   FetchContent_Declare(
-      wintls
-      # Download Step Options
-      GIT_PROGRESS ON
-      GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-      GIT_REPOSITORY https://github.com/laudrup/boost-wintls.git
-      GIT_SHALLOW ON
-      GIT_SUBMODULES_RECURSE ON
-      GIT_TAG v0.9.9
-   )
-   FetchContent_Populate(wintls)
-   file(GLOB BOOST_WINTLS_HEADERS "${wintls_SOURCE_DIR}/include/*.hpp")
-   add_library(boost_wintls INTERFACE ${BOOST_WINTLS_HEADERS})
-   add_library(Boost::wintls ALIAS boost_wintls)
-   target_include_directories(boost_wintls INTERFACE "${wintls_SOURCE_DIR}/include/")
-   organize_thirdparty_target(boost_wintls thirdparty)
-endif()
+function(setup_tls_and_crypto_library IN_TARGET)
+   target_compile_definitions(${IN_TARGET} PRIVATE IO_THREADS_SCHANNEL=1)
+endfunction()

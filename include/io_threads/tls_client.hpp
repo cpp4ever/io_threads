@@ -84,4 +84,7 @@ private:
 
 using tls_client [[maybe_unused]] = tls_client_context::tls_client;
 
+[[nodiscard]] std::error_code make_tls_error_code(int value);
+[[nodiscard]] std::error_code make_x509_error_code(int value);
+
 }

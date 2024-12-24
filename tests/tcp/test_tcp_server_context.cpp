@@ -35,7 +35,45 @@ boost::beast::tcp_stream test_tcp_server_context<boost::beast::tcp_stream>::acce
    return boost::beast::tcp_stream{std::move(socket)};
 }
 
-#if (defined(_WIN32) || defined(_WIN64))
+#if(defined(IO_THREADS_OPENSSL))
+class [[nodiscard]] test_tls_context final
+{
+public:
+   test_tls_context() :
+      m_context(boost::asio::ssl::context::tls_server)
+   {
+      boost::system::error_code errorCode;
+      m_context.set_options(boost::asio::ssl::context::default_workarounds, errorCode);
+      EXPECT_ERROR_CODE(errorCode);
+      m_context.use_certificate(
+         boost::asio::buffer(test_certificate_pem()),
+         boost::asio::ssl::context::pem,
+         errorCode
+      );
+      EXPECT_ERROR_CODE(errorCode);
+      m_context.use_private_key(
+         boost::asio::buffer(test_private_key_rsa()),
+         boost::asio::ssl::context::pem,
+         errorCode
+      );
+      EXPECT_ERROR_CODE(errorCode);
+   }
+
+   test_tls_context(test_tls_context &&) = delete;
+   test_tls_context(test_tls_context const &) = delete;
+
+   test_tls_context &operator = (test_tls_context &&) = delete;
+   test_tls_context &operator = (test_tls_context const &) = delete;
+
+   boost::asio::ssl::context &ssl_context() noexcept
+   {
+      return m_context;
+   }
+
+private:
+   boost::asio::ssl::context m_context;
+};
+#elif(defined(IO_THREADS_SCHANNEL))
 class [[nodiscard]] test_tls_context final
 {
 public:
@@ -87,44 +125,6 @@ private:
    wintls::context m_context;
    std::string m_privateKeyName;
 };
-#else
-class [[nodiscard]] test_tls_context final
-{
-public:
-   test_tls_context() :
-      m_context(boost::asio::ssl::context::tls_server)
-   {
-      boost::system::error_code errorCode;
-      m_context.set_options(boost::asio::ssl::context::default_workarounds, errorCode);
-      EXPECT_ERROR_CODE(errorCode);
-      m_context.use_certificate(
-         boost::asio::buffer(test_certificate_pem()),
-         boost::asio::ssl::context::pem,
-         errorCode
-      );
-      EXPECT_ERROR_CODE(errorCode);
-      m_context.use_private_key(
-         boost::asio::buffer(test_private_key_rsa()),
-         boost::asio::ssl::context::pem,
-         errorCode
-      );
-      EXPECT_ERROR_CODE(errorCode);
-   }
-
-   test_tls_context(test_tls_context &&) = delete;
-   test_tls_context(test_tls_context const &) = delete;
-
-   test_tls_context &operator = (test_tls_context &&) = delete;
-   test_tls_context &operator = (test_tls_context const &) = delete;
-
-   boost::asio::ssl::context &ssl_context() noexcept
-   {
-      return m_context;
-   }
-
-private:
-   boost::asio::ssl::context m_context;
-};
 #endif
 
 test_tls_stream test_tcp_server_context<test_tls_stream>::accept(boost::asio::ip::tcp::socket &&socket)
@@ -153,7 +153,7 @@ boost::beast::websocket::stream<test_tls_stream> test_tcp_server_context<boost::
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <boost/asio/impl/src.hpp>
-#if (not defined(_WIN32) && not defined(_WIN64))
+#if(defined(IO_THREADS_OPENSSL))
 #  include <boost/asio/ssl/impl/src.hpp>
 #endif
 #include <boost/beast/src.hpp>

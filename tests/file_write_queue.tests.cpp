@@ -83,10 +83,10 @@ private:
    std::string m_buffer;
 };
 
-class file_write_queue_mock : public io_threads::file_write_queue<std::string_view, test_string_view_serializer>
+class file_write_queue_mock : public file_write_queue<std::string_view, test_string_view_serializer>
 {
 private:
-   using super = io_threads::file_write_queue<std::string_view, test_string_view_serializer>;
+   using super = file_write_queue<std::string_view, test_string_view_serializer>;
 
    struct internal_state final
    {
@@ -153,11 +153,11 @@ struct file_writer_test_data
    std::deque<std::string> data;
 };
 
-using file_write_queue = testsuite;
+using file_writer = testsuite;
 
 }
 
-TEST_F(file_write_queue, queuing)
+TEST_F(file_writer, file_write_queue)
 {
    auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
    std::filesystem::remove_all(testDirectory);
@@ -165,7 +165,7 @@ TEST_F(file_write_queue, queuing)
    {
       constexpr uint16_t testCpuId = 0;
       constexpr size_t testFileWritersCount = 1000;
-      auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
+      auto const testFileWriterThread = file_writer_thread{testCpuId, testFileWritersCount};
       std::vector<file_writer_test_data> testFileWriters;
       testFileWriters.reserve(testFileWritersCount);
       constexpr size_t testMinStringLength = 1024;

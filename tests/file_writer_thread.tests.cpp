@@ -35,16 +35,16 @@ namespace io_threads::tests
 namespace
 {
 
-io_threads::file_writer_thread create_test_file_writer_thread()
+file_writer_thread create_test_file_writer_thread()
 {
-   return io_threads::file_writer_thread{0, 1,};
+   return file_writer_thread{0, 1,};
 }
 
-using file_writer_thread = testsuite;
+using file_writer = testsuite;
 
 }
 
-TEST_F(file_writer_thread, file_writer_thread)
+TEST_F(file_writer, file_writer_thread)
 {
    auto const testFileWriterThread1{create_test_file_writer_thread(),};
    std::thread::id testThread1Id{};
@@ -60,13 +60,13 @@ TEST_F(file_writer_thread, file_writer_thread)
       testFileWriterThread2.execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   io_threads::file_writer_thread testFileWriterThread3{testFileWriterThread1,};
+   file_writer_thread testFileWriterThread3{testFileWriterThread1,};
    {
       bool testOk{false,};
       testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testFileWriterThread3 = io_threads::file_writer_thread{std::move(testFileWriterThread2),};
+   testFileWriterThread3 = file_writer_thread{std::move(testFileWriterThread2),};
    {
       bool testOk{false,};
       testFileWriterThread3.execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });

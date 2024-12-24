@@ -125,7 +125,7 @@ TEST_F(file_writer, not_found)
    {
       constexpr uint16_t testCpuId = 0;
       constexpr size_t testFileWritersCount = 1;
-      auto const testFileWriterThread = io_threads::file_writer_thread{testCpuId, testFileWritersCount};
+      auto const testFileWriterThread = file_writer_thread{testCpuId, testFileWritersCount};
       test_file_writer testFileWriter{testFileWriterThread};
       testFileWriter.expect_error(testNotFoundErrorCode);
       auto const testFilePath = testDirectory / random_string(10).append(".test");

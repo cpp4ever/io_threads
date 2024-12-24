@@ -178,6 +178,7 @@ using tls_client = testsuite;
 
 }
 
+#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(tls_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
@@ -196,7 +197,6 @@ TEST_F(tls_client, connect_timeout)
    test_tcp_connect_timeout(testClient, testPort);
 }
 
-#if (defined(_WIN32) || defined(_WIN64))
 TEST_F(tls_client, https)
 {
    constexpr uint16_t testCpuId{0,};
@@ -234,28 +234,81 @@ struct test_host_port_error_code final
 
 TEST_F(tls_client, badssl)
 {
-#if (defined(__linux__))
-   std::vector<std::error_code> const testCertificateExpiredErrorCodes{};
-   std::vector<std::error_code> const testWrongHostErrorCodes{};
-   std::vector<std::error_code> const testUntrustedRootErrorCodes{};
-   std::vector<std::error_code> const testIllegalMessageErrorCodes{};
-   std::vector<std::error_code> const testAlgorithmMismatchErrorCodes{};
-   std::vector<std::error_code> const testCertificateRevokedErrorCodes{};
-#elif (defined(_WIN32) || defined(_WIN64))
-   std::vector<std::error_code> const testCertificateExpiredErrorCodes{std::error_code{SEC_E_CERT_EXPIRED, std::system_category(),},};
-   std::vector<std::error_code> const testWrongHostErrorCodes{std::error_code{SEC_E_WRONG_PRINCIPAL, std::system_category(),},};
-   std::vector<std::error_code> const testUntrustedRootErrorCodes{std::error_code{SEC_E_UNTRUSTED_ROOT, std::system_category(),},};
-   std::vector<std::error_code> const testIllegalMessageErrorCodes
+#if (defined(IO_THREADS_OPENSSL))
+   std::vector<std::error_code> const testExpiredErrorCodes{make_x509_error_code(X509_V_ERR_CERT_HAS_EXPIRED),};
+   std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(X509_V_ERR_HOSTNAME_MISMATCH),};
+   std::vector<std::error_code> const testSelfSignedErrorCodes{make_x509_error_code(X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT),};
+   std::vector<std::error_code> const testUntrustedRootErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN),};
+   std::vector<std::error_code> const testSuperfishErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testEDellRootErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testDSDTestProviderErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testPreactCLIErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testWebpackDevServerErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_BAD_DH_VALUE)),};
+   std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testDH480ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testDH512ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testTLSv1_0ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
+   std::vector<std::error_code> const testTLSv1_1ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
+   std::vector<std::error_code> const test3DESErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_CERT_REVOKED),};
+   std::vector<std::error_code> const testCurveBallErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testFREAKErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+#elif (defined(IO_THREADS_SCHANNEL))
+   std::vector<std::error_code> const testExpiredErrorCodes{make_x509_error_code(SEC_E_CERT_EXPIRED),};
+   std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(SEC_E_WRONG_PRINCIPAL),};
+   std::vector<std::error_code> const testSelfSignedErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testUntrustedRootErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testSuperfishErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testEDellRootErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testDSDTestProviderErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testPreactCLIErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testWebpackDevServerErrorCodes
    {
-      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category(),},
-      std::error_code{SEC_E_INVALID_PARAMETER, std::system_category(),},
+      make_x509_error_code(TRUST_E_CERT_SIGNATURE),
+      make_x509_error_code(SEC_E_UNTRUSTED_ROOT),
    };
-   std::vector<std::error_code> const testAlgorithmMismatchErrorCodes
+   std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testDH480ErrorCodes
    {
-      std::error_code{SEC_E_ILLEGAL_MESSAGE, std::system_category(),},
-      std::error_code{SEC_E_ALGORITHM_MISMATCH, std::system_category(),},
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_tls_error_code(SEC_E_INVALID_PARAMETER),
    };
-   std::vector<std::error_code> const testCertificateRevokedErrorCodes{std::error_code{CRYPT_E_REVOKED, std::system_category(),},};
+   std::vector<std::error_code> const testDH512ErrorCodes
+   {
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_tls_error_code(SEC_E_INVALID_PARAMETER),
+   };
+   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testTLSv1_0ErrorCodes
+   {
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_x509_error_code(SEC_E_ALGORITHM_MISMATCH),
+   };
+   std::vector<std::error_code> const testTLSv1_1ErrorCodes
+   {
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_x509_error_code(SEC_E_ALGORITHM_MISMATCH),
+   };
+   std::vector<std::error_code> const test3DESErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testDH2048ErrorCodes{make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),};
+   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(CRYPT_E_REVOKED),};
+   std::vector<std::error_code> const testCurveBallErrorCodes{make_x509_error_code(SEC_E_UNTRUSTED_ROOT),};
+   std::vector<std::error_code> const testLogjamErrorCodes
+   {
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_tls_error_code(SEC_E_INVALID_PARAMETER),
+   };
+   std::vector<std::error_code> const testFREAKErrorCodes
+   {
+      make_tls_error_code(SEC_E_ILLEGAL_MESSAGE),
+      make_x509_error_code(SEC_E_ALGORITHM_MISMATCH),
+   };
 #endif
    auto const testBadAddresses
    {
@@ -263,47 +316,47 @@ TEST_F(tls_client, badssl)
          {
             /// https://badssl.com/dashboard/
             ///   Certificate Validation (High Risk)
-                  test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testCertificateExpiredErrorCodes,},
+                  test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testExpiredErrorCodes,},
                   test_host_port_error_code{.host = "wrong.host.badssl.com", .errorCodes = testWrongHostErrorCodes,},
-                  test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testSelfSignedErrorCodes,},
                   test_host_port_error_code{.host = "untrusted-root.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
             ///   Interception Certificates (High Risk)
-                  test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
-                  test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
-                  test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
-                  test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
-                  test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testSuperfishErrorCodes,},
+                  test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testEDellRootErrorCodes,},
+                  test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testDSDTestProviderErrorCodes,},
+                  test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testPreactCLIErrorCodes,},
+                  test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testWebpackDevServerErrorCodes,},
             ///   Broken Cryptography (Medium Risk)
-                  test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
-                  test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
-                  test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
-                  test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testRC4ErrorCodes,},
+                  test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testRC4MD5ErrorCodes,},
+                  test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testDH480ErrorCodes,},
+                  test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testDH512ErrorCodes,},
 #if (not defined(IO_THREADS_DH1024_ALLOWED)) ///< Skip test of DH-1024 deprecation
-                  test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testDH1024ErrorCodes,},
 #endif
-                  test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testNullErrorCodes,},
             ///   Legacy Cryptography (Moderate Risk)
-                  test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testAlgorithmMismatchErrorCodes,},
-                  test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testAlgorithmMismatchErrorCodes,},
+                  test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testTLSv1_0ErrorCodes,},
+                  test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testTLSv1_1ErrorCodes,},
 #if (not defined(IO_THREADS_CBC_ALLOWED)) ///< Skip test of CBC ciphers deprecation
-                  test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testAlgorithmMismatchErrorCodes,},
+                  test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testCBCErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_3DES_ALLOWED)) ///< Skip test of 3DES cipher deprecation
-                  test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = test3DESErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_DH2048_ALLOWED)) ///< Skip test of DH-2048 deprecation
-                  test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testDH2048ErrorCodes,},
 #endif
             ///   Domain Security Policies
-                  test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testCertificateRevokedErrorCodes,},
+                  test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testRevokedErrorCodes,},
 
             /// https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html
             ///   CVE-2020-0601 (CurveBall) Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testUntrustedRootErrorCodes,},
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testCurveBallErrorCodes,},
             ///   Logjam Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testIllegalMessageErrorCodes,},
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testLogjamErrorCodes,},
             ///   FREAK Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testAlgorithmMismatchErrorCodes,},
+                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testFREAKErrorCodes,},
          }
       ),
    };
@@ -316,7 +369,7 @@ TEST_F(tls_client, badssl)
       testCapacityOfSocketDescriptorList,
       testCapacityOfInputOutputBuffer,
    };
-   constexpr size_t testTlsSessionsCapacity{0,};
+   constexpr size_t testTlsSessionsCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};
    constexpr tcp_keep_alive testTcpKeepAlive
    {

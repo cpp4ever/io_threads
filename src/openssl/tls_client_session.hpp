@@ -29,21 +29,45 @@
 
 #include <openssl/ssl.h>
 
+#include <array> ///< for std::array
 #include <cstddef> ///< for std::byte
 #include <string_view> ///< for std::string_view
+
+template<>
+struct std::default_delete<SSL>
+{
+   constexpr default_delete() noexcept = default;
+   constexpr default_delete(default_delete &&) noexcept = default;
+   constexpr default_delete(default_delete const &) noexcept = default;
+
+   constexpr default_delete &operator = (default_delete &&) noexcept = default;
+   constexpr default_delete &operator = (default_delete const &) noexcept = default;
+
+   void operator () (SSL *ssl) const
+   {
+      SSL_free(ssl);
+   }
+};
 
 namespace io_threads
 {
 
 struct tls_client_session final
 {
-   SSL &ssl;
-   BIO &rbio;
-   BIO &wbio;
+   std::unique_ptr<SSL> ssl;
+   BIO *rbio;
+   BUF_MEM *rbioBufMem{nullptr,};
+   BIO *wbio;
+   BUF_MEM *wbioBufMem{nullptr,};
    tls_client_status status{tls_client_status::none};
    std::byte *securityBuffer{nullptr};
    std::string_view securityToken{};
    tls_client_session *next{nullptr,};
+   std::array<BUF_MEM, 2> bufMems
+   {
+      BUF_MEM{.length = 0, .data = nullptr, .max = 0, .flags = 0,},
+      BUF_MEM{.length = 0, .data = nullptr, .max = 0, .flags = 0,},
+   };
 };
 
 }

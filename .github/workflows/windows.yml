@@ -30,14 +30,15 @@ permissions:
 
 jobs:
   build:
-    name: "${{matrix.os}} ${{matrix.platform}} ${{matrix.toolset}} ${{matrix.build_type}}"
+    name: "${{matrix.os}} ${{matrix.platform}} ${{matrix.toolset}} ${{matrix.tls-and-crypto-library}} ${{matrix.build-type}}"
     runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Debug, Release]
+        build-type: [Debug, Release]
         os: [windows-2019, windows-2022]
         platform: [Win32, x64]
+        tls-and-crypto-library: [openssl, schannel]
         toolset: [v142, v143, ClangCL]
         exclude:
           - os: windows-2019
@@ -46,31 +47,37 @@ jobs:
             toolset: ClangCL
           - os: windows-2022
             toolset: v142
+          - platform: Win32
+            tls-and-crypto-library: openssl
 
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: 'recursive'
 
-    - name: Install
+    - name: Install CMake
       run: |
-        choco install cmake
+        cmake --version
         cmake -E make_directory ${{runner.workspace}}/build
+
+    - name: Install openssl
+      if: ${{matrix.tls-and-crypto-library == 'openssl'}}
+      run: |
+        choco install openssl
 
     - name: Configure
       working-directory: ${{runner.workspace}}/build
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
-        cmake --version
-        cmake -A ${{matrix.platform}} -T ${{matrix.toolset}} -S ${{github.workspace}}
+        cmake -A ${{matrix.platform}} -DIO_THREADS_TLS_AND_CRYPTO_LIBRARY=${{matrix.tls-and-crypto-library}} -DIO_THREADS_SANITIZER=ASan -T ${{matrix.toolset}} -S ${{github.workspace}}
 
     - name: Build
       working-directory: ${{runner.workspace}}/build
       run: |
-        cmake --build . --config ${{matrix.build_type}} --target io_threads_tests
+        cmake --build . --config ${{matrix.build-type}} --target io_threads_tests
 
     - name: Test
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config ${{matrix.build_type}} --output-on-failure
+        ctest --build-config ${{matrix.build-type}} --output-on-failure

@@ -31,6 +31,7 @@
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/ssl_certificate.hpp" ///< for io_threads::ssl_certificate
+#include "io_threads/tls_client.hpp" ///< for io_threads::make_x509_error_code
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
 #include "windows/tls_client_session.hpp" ///< for io_threads::tls_client_session
 #include "windows/wide_char.hpp" ///< for io_threads::utf8_to_wide_char
@@ -430,7 +431,7 @@ public:
    {
       CtxtHandle securityContextHandle{.dwLower = 0, .dwUpper = 0,};
       auto const securityContextRequirements{security_context_requirements(),};
-      auto &securityBuffer{pop_security_buffer(),};
+      auto *securityBuffer{m_securityMemory->pop(),};
       auto outboundSecurityBuffer
       {
          std::to_array(
@@ -439,7 +440,7 @@ public:
                {
                   .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_size()),
                   .BufferType = SECBUFFER_TOKEN,
-                  .pvBuffer = std::addressof(securityBuffer),
+                  .pvBuffer = securityBuffer,
                },
             }
          ),
@@ -472,16 +473,16 @@ public:
       {
          assert(0 < outboundSecurityBuffer[0].cbBuffer);
          assert(SECBUFFER_TOKEN == outboundSecurityBuffer[0].BufferType);
-         assert(std::addressof(securityBuffer) <= outboundSecurityBuffer[0].pvBuffer);
+         assert(securityBuffer <= outboundSecurityBuffer[0].pvBuffer);
          assert(
-            (std::addressof(securityBuffer) + m_securityMemory->memory_size()) >= (std::bit_cast<std::byte const *>(outboundSecurityBuffer[0].pvBuffer) + outboundSecurityBuffer[0].cbBuffer)
+            (securityBuffer + m_securityMemory->memory_size()) >= (std::bit_cast<std::byte const *>(outboundSecurityBuffer[0].pvBuffer) + outboundSecurityBuffer[0].cbBuffer)
          );
          return m_sessionMemory->pop_object<tls_client_session>(
             tls_client_session
             {
                .securityContextHandle = securityContextHandle,
                .status = tls_client_status::handshake,
-               .securityBuffer = std::addressof(securityBuffer),
+               .securityBuffer = securityBuffer,
                .securityToken = std::string_view
                {
                   static_cast<char const *>(outboundSecurityBuffer[0].pvBuffer),
@@ -490,6 +491,7 @@ public:
             }
          );
       }
+      m_securityMemory->push(securityBuffer);
       log_system_error("[tls_client] failed to create security context: ({:#X}) - {}", returnCode);
       unreachable();
    }
@@ -509,7 +511,7 @@ public:
             {
                session.status = tls_client_status::ready;
             }
-            push_security_buffer(*session.securityBuffer);
+            m_securityMemory->push(session.securityBuffer);
             session.securityBuffer = nullptr;
             return {};
          }
@@ -673,7 +675,21 @@ public:
          [[unlikely]] default:
          {
             errorCode = std::error_code{returnCode, std::system_category(),};
-            log_system_error("[tls_client] handshake failed: ({:#X}) - {}", errorCode);
+            log_system_error("[tls_client] decrypt failed: ({:#X}) - {}", errorCode);
+            for (auto const &securityBuffer : securityBuffers)
+            {
+               if ((SECBUFFER_ALERT == securityBuffer.BufferType) && (0 < securityBuffer.cbBuffer))
+               {
+                  session.securityBuffer = m_securityMemory->pop();
+                  CopyMemory(session.securityBuffer, securityBuffer.pvBuffer, securityBuffer.cbBuffer);
+                  session.securityToken = std::string_view
+                  {
+                     std::bit_cast<char const *>(session.securityBuffer),
+                     static_cast<size_t>(securityBuffer.cbBuffer),
+                  };
+                  break;
+               }
+            }
          }
          break;
          }
@@ -809,7 +825,7 @@ public:
       }
       if (nullptr != session.securityBuffer)
       {
-         push_security_buffer(*session.securityBuffer);
+         m_securityMemory->push(session.securityBuffer);
          session.securityBuffer = nullptr;
       }
       m_sessionMemory->push_object(session);
@@ -819,6 +835,14 @@ public:
    {
       assert(tls_client_status::none != session.status);
       assert(nullptr != dataChunk.bytes);
+      if (false == session.securityToken.empty())
+      {
+         assert(nullptr != session.securityBuffer);
+         std::string_view const securityToken{session.securityToken, };
+         CopyMemory(dataChunk.bytes, securityToken.data(), securityToken.size());
+         bytesWritten = securityToken.size();
+         return std::error_code{};
+      }
       auto securityContextHandle{session.securityContextHandle,};
       auto const securityContextRequirements{security_context_requirements(),};
       DWORD schannelShutdown{SCHANNEL_SHUTDOWN,};
@@ -1024,7 +1048,6 @@ private:
    )
    {
       assert(tls_client_status::handshake == session.status);
-      assert(nullptr == session.securityBuffer);
       assert(true == session.securityToken.empty());
       auto securityContextHandle{session.securityContextHandle,};
       auto const securityContextRequirements{security_context_requirements(),};
@@ -1048,8 +1071,8 @@ private:
          .cBuffers = static_cast<ULONG>(inboundSecurityBuffers.size()),
          .pBuffers = inboundSecurityBuffers.data(),
       };
-      auto &tokenSecurityBuffer{pop_security_buffer(),};
-      auto &alertSecurityBuffer{pop_security_buffer(),};
+      auto *tokenSecurityBuffer{(nullptr == session.securityBuffer) ? m_securityMemory->pop() : session.securityBuffer,};
+      auto *alertSecurityBuffer{m_securityMemory->pop(),};
       auto outboundSecurityBuffers
       {
          std::to_array(
@@ -1058,13 +1081,13 @@ private:
                {
                   .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_size()),
                   .BufferType = SECBUFFER_TOKEN,
-                  .pvBuffer = std::addressof(tokenSecurityBuffer),
+                  .pvBuffer = tokenSecurityBuffer,
                },
                SecBuffer
                {
                   .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_size()),
                   .BufferType = SECBUFFER_ALERT,
-                  .pvBuffer = std::addressof(alertSecurityBuffer),
+                  .pvBuffer = alertSecurityBuffer,
                },
                SecBuffer{.cbBuffer = 0, .BufferType = SECBUFFER_EMPTY, .pvBuffer = nullptr,},
             }
@@ -1103,19 +1126,43 @@ private:
       {
          bytesProcessed = handle_handshake_step(session, inboundDataChunk, inboundSecurityBuffers, outboundSecurityBuffers);
          handle_handshake_completion(session);
-         session.status = (true == session.securityToken.empty()) ? tls_client_status::ready : tls_client_status::handshake_complete;
+         if (true == session.securityToken.empty())
+         {
+            session.status = tls_client_status::ready;
+            m_securityMemory->push(tokenSecurityBuffer);
+         }
+         else
+         {
+            session.status = tls_client_status::handshake_complete;
+            session.securityBuffer = tokenSecurityBuffer;
+         }
+         m_securityMemory->push(alertSecurityBuffer);
+         tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
 
       case SEC_I_CONTINUE_NEEDED:
       {
          bytesProcessed = handle_handshake_step(session, inboundDataChunk, inboundSecurityBuffers, outboundSecurityBuffers);
+         if (true == session.securityToken.empty())
+         {
+            m_securityMemory->push(tokenSecurityBuffer);
+         }
+         else
+         {
+            session.securityBuffer = tokenSecurityBuffer;
+         }
+         m_securityMemory->push(alertSecurityBuffer);
+         tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
 
       case SEC_E_INCOMPLETE_MESSAGE:
       {
          bytesProcessed = 0;
+         m_securityMemory->push(tokenSecurityBuffer);
+         m_securityMemory->push(alertSecurityBuffer);
+         tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
 
@@ -1123,18 +1170,35 @@ private:
       {
          errorCode = std::error_code{returnCode, std::system_category(),};
          log_system_error("[tls_client] handshake failed: ({:#X}) - {}", errorCode);
+         for (auto const &outboundSecurityBuffer : outboundSecurityBuffers)
+         {
+            if ((SECBUFFER_ALERT == outboundSecurityBuffer.BufferType) && (0 < outboundSecurityBuffer.cbBuffer))
+            {
+               session.securityBuffer = alertSecurityBuffer;
+               CopyMemory(session.securityBuffer, outboundSecurityBuffer.pvBuffer, outboundSecurityBuffer.cbBuffer);
+               session.securityToken = std::string_view
+               {
+                  std::bit_cast<char const *>(session.securityBuffer),
+                  static_cast<size_t>(outboundSecurityBuffer.cbBuffer),
+               };
+               break;
+            }
+            else
+            {
+               assert(0 == outboundSecurityBuffer.cbBuffer);
+            }
+         }
+         m_securityMemory->push(tokenSecurityBuffer);
+         if (true == session.securityToken.empty())
+         {
+            m_securityMemory->push(alertSecurityBuffer);
+         }
+         tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
       }
-      if (true == session.securityToken.empty())
-      {
-         push_security_buffer(tokenSecurityBuffer);
-      }
-      else
-      {
-         session.securityBuffer = std::addressof(tokenSecurityBuffer);
-      }
-      push_security_buffer(alertSecurityBuffer);
+      assert(nullptr == tokenSecurityBuffer);
+      assert(nullptr == alertSecurityBuffer);
       return errorCode;
    }
 
@@ -1263,18 +1327,6 @@ private:
       return bytesProcessed;
    }
 
-   [[nodiscard]] std::byte &pop_security_buffer()
-   {
-      assert(nullptr != m_securityMemory);
-      return *m_securityMemory->pop();
-   }
-
-   void push_security_buffer(std::byte &value)
-   {
-      assert(nullptr != m_securityMemory);
-      m_securityMemory->push(std::addressof(value));
-   }
-
    [[nodiscard]] DWORD security_context_requirements() const noexcept
    {
       constexpr auto commonSecurityContextRequirements
@@ -1348,5 +1400,15 @@ private:
       }
    }
 };
+
+std::error_code make_tls_error_code(int const value)
+{
+   return std::error_code{value, std::system_category(),};
+}
+
+std::error_code make_x509_error_code(int const value)
+{
+   return std::error_code{value, std::system_category(),};
+}
 
 }

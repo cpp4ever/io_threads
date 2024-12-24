@@ -40,11 +40,11 @@ jobs:
           - os: ubuntu-24.04
             cc: clang-18
             cxx: clang++-18
-            gcov: llvm-cov-18
+            gcov: llvm-cov-18 gcov
           - os: windows-latest
             cc: clang
             cxx: clang++
-            gcov: llvm-cov
+            gcov: llvm-cov gcov
 
     steps:
     - uses: actions/checkout@v4
@@ -59,7 +59,14 @@ jobs:
         echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
         sudo apt-get update
         sudo apt-get install clang-18 cmake libc++-18-dev libc++abi-18-dev libssl-dev liburing-dev ninja-build
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        ${{matrix.gcov}} --version
+        cmake --version
+        ninja --version
+        pipx --version
         pipx install git+https://github.com/gcovr/gcovr.git@8.2#egg=gcovr
+        gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
     - name: Install
@@ -68,20 +75,21 @@ jobs:
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
         echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $env:GITHUB_ENV
-        choco install cmake llvm ninja
+        choco install llvm ninja openssl
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        ${{matrix.gcov}} --version
+        cmake --version
+        ninja --version
+        pipx --version
         pipx install git+https://github.com/gcovr/gcovr.git@8.2#egg=gcovr
+        gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
     - name: Configure
       working-directory: ${{runner.workspace}}/build
       run: |
-        ${{matrix.cc}} --version
-        ${{matrix.cxx}} --version
-        ${{matrix.gcov}} --version
-        cmake --version
-        gcovr --version
-        ninja --version
-        cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=${{matrix.cc}} -DCMAKE_CXX_COMPILER=${{matrix.cxx}} -DENABLE_COVERAGE=ON -G "Ninja" -S ${{github.workspace}}
+        cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=${{matrix.cc}} -DCMAKE_CXX_COMPILER=${{matrix.cxx}} -DIO_THREADS_ENABLE_COVERAGE=ON -G "Ninja" -S ${{github.workspace}}
 
     - name: Build
       working-directory: ${{runner.workspace}}/build
@@ -96,7 +104,7 @@ jobs:
     - name: Collect
       working-directory: ${{github.workspace}}
       run: |
-        gcovr --cobertura ${{runner.workspace}}/build/coverage.xml --filter include/ --filter src/ --gcov-executable '${{matrix.gcov}} gcov' --gcov-object-directory ${{runner.workspace}}/build/ --print-summary --timestamp ${{env.SOURCE_DATE_EPOCH}}
+        gcovr --cobertura ${{runner.workspace}}/build/coverage.xml --filter include/ --filter src/ --gcov-executable '${{matrix.gcov}}' --gcov-object-directory ${{runner.workspace}}/build/ --print-summary --timestamp ${{env.SOURCE_DATE_EPOCH}}
 
     - name: Upload
       uses: codecov/codecov-action@v4

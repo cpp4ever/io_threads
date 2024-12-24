@@ -32,14 +32,14 @@
 #  pragma GCC diagnostic push
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-#if (not defined(_WIN32) && not defined(_WIN64))
+#if (defined(IO_THREADS_OPENSSL))
 #  include <boost/asio/ssl/stream.hpp>
 #endif
 #include <boost/beast.hpp>
 #if (not defined(__clang__) && defined(__GNUC__) && defined(NDEBUG))
 #  pragma GCC diagnostic pop
 #endif
-#if (defined(_WIN32) || defined(_WIN64))
+#if (defined(IO_THREADS_SCHANNEL))
 #  include <wintls.hpp>
 #endif
 
@@ -55,10 +55,10 @@ struct [[nodiscard]] test_tcp_server_context<boost::beast::tcp_stream>
    [[nodiscard]] static boost::beast::tcp_stream accept(boost::asio::ip::tcp::socket &&socket);
 };
 
-#if (defined(WIN32))
-using test_tls_stream = wintls::stream<boost::beast::tcp_stream>;
-#else
+#if(defined(IO_THREADS_OPENSSL))
 using test_tls_stream = boost::asio::ssl::stream<boost::beast::tcp_stream>;
+#elif(defined(IO_THREADS_SCHANNEL))
+using test_tls_stream = wintls::stream<boost::beast::tcp_stream>;
 #endif
 
 template<>

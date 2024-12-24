@@ -29,9 +29,9 @@
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
 #include "io_threads/tls_client.hpp" ///< for io_threads::tls_client_context::tls_client
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
-#if (defined(__linux__))
+#if (defined(IO_THREADS_OPENSSL))
 #  include "openssl/tls_client_context_impl.hpp" ///< for io_threads::tls_client_context::tls_client_context_impl
-#elif (defined(_WIN32) || defined(_WIN64))
+#elif (defined(IO_THREADS_SCHANNEL))
 #  include "windows/tls_client_context_impl.hpp" ///< for io_threads::tls_client_context::tls_client_context_impl
 #endif
 

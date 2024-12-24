@@ -70,6 +70,10 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install ${{matrix.packages}} cmake libssl-dev liburing-dev ninja-build
+        ${{matrix.cc}} --version
+        ${{matrix.cxx}} --version
+        cmake --version
+        ninja --version
         cmake -E make_directory ${{runner.workspace}}/build
 
     - name: Configure
@@ -78,15 +82,12 @@ jobs:
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
         echo "UBSAN_OPTIONS=silence_unsigned_overflow=1" >> $GITHUB_ENV
-        ${{matrix.cc}} --version
-        ${{matrix.cxx}} --version
-        cmake --version
-        ninja --version
         cmake \
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
           -DCMAKE_C_COMPILER=${{matrix.cc}} \
           -DCMAKE_CXX_COMPILER=${{matrix.cxx}} \
-          -DSANITIZER=${{matrix.sanitizer}} \
+          -DIO_THREADS_TLS_AND_CRYPTO_LIBRARY=openssl \
+          -DIO_THREADS_SANITIZER=${{matrix.sanitizer}} \
           -G "Ninja" \
           -S ${{github.workspace}}
 

@@ -31,9 +31,12 @@
 #include "io_threads/websocket_client_config.hpp" ///< for io_threads::websocket_client_config
 #if (defined(__linux__))
 #  include "linux/random_generator.hpp" ///< for io_threads::random_generator
-#  include "openssl/sha1.hpp" ///< for io_threads::sha1_context
 #elif (defined(_WIN32) || defined(_WIN64))
 #  include "windows/random_generator.hpp" ///< for io_threads::random_generator
+#endif
+#if (defined(IO_THREADS_OPENSSL))
+#  include "openssl/sha1.hpp" ///< for io_threads::sha1_context
+#elif (defined(IO_THREADS_SCHANNEL))
 #  include "windows/sha1.hpp" ///< for io_threads::sha1_context
 #endif
 

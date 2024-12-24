@@ -24,11 +24,14 @@
 */
 
 #include "common/sec_websocket_key.hpp" ///< for io_threads::sec_websocket_key
+#if (defined(IO_THREADS_OPENSSL))
+#  include "openssl/base64.hpp" ///< for io_threads::base64_encode
+#elif (defined(IO_THREADS_SCHANNEL))
+#  include "windows/base64.hpp" ///< for io_threads::base64_encode
+#endif
 #if (defined(__linux__))
 #  include "linux/random_generator.hpp" ///< for io_threads::random_generator
-#  include "openssl/base64.hpp" ///< for io_threads::base64_encode
 #elif (defined(_WIN32) || defined(_WIN64))
-#  include "windows/base64.hpp" ///< for io_threads::base64_encode
 #  include "windows/random_generator.hpp" ///< for io_threads::random_generator
 #endif
 

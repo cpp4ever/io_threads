@@ -32,7 +32,7 @@
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 #include <boost/asio/strand.hpp>
-#if (not defined(_WIN32) && not defined(_WIN64))
+#if(defined(IO_THREADS_OPENSSL))
 #  include <boost/asio/ssl/error.hpp>
 #  include <boost/beast/websocket/ssl.hpp>
 #endif
@@ -91,7 +91,7 @@ void test_websocket_server<test_websocket_stream>::async_read(test_websocket_str
       {
          if (
             false
-#if (not defined(_WIN32) && not defined(_WIN64))
+#if(defined(IO_THREADS_OPENSSL))
             || (boost::asio::ssl::error::make_error_code(boost::asio::ssl::error::stream_errors::stream_truncated) == testErrorCode)
 #endif
             || (boost::beast::websocket::make_error_code(boost::beast::websocket::error::closed) == testErrorCode)
@@ -141,10 +141,10 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
                constexpr auto handshakeTimeout = std::chrono::milliseconds{100};
                boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
                stream.next_layer().async_handshake(
-#if (defined(_WIN32) || defined(_WIN64))
-                  wintls::handshake_type::server,
-#else
+#if(defined(IO_THREADS_OPENSSL))
                   boost::asio::ssl::stream_base::server,
+#elif(defined(IO_THREADS_SCHANNEL))
+                  wintls::handshake_type::server,
 #endif
                   [&] (auto testErrorCode)
                   {
