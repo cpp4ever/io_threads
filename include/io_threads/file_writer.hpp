@@ -52,7 +52,7 @@ public:
    file_writer &operator = (file_writer const &) = delete;
 
 protected:
-   virtual void io_closed(std::error_code errorCode) = 0;
+   virtual void io_closed(std::error_code const &errorCode) = 0;
    virtual void io_opened() = 0;
 
    void ready_to_close();

@@ -38,7 +38,7 @@ public:
    [[maybe_unused, nodiscard]] websocket_client_config(websocket_client_config &&) noexcept = default;
    [[maybe_unused, nodiscard]] websocket_client_config(websocket_client_config const &) noexcept = default;
 
-   [[maybe_unused, nodiscard]] explicit websocket_client_config(std::string_view const target) noexcept :
+   [[maybe_unused, nodiscard]] explicit websocket_client_config(std::string_view const &target) noexcept :
       m_target{target}
    {
       assert(false == m_target.empty());
@@ -47,7 +47,7 @@ public:
    [[maybe_unused]] websocket_client_config &operator = (websocket_client_config &&) noexcept = default;
    [[maybe_unused]] websocket_client_config &operator = (websocket_client_config const &) noexcept = default;
 
-   [[maybe_unused, nodiscard]] std::string_view target() const noexcept
+   [[maybe_unused, nodiscard]] std::string_view const &target() const noexcept
    {
       return m_target;
    }

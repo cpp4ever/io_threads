@@ -45,7 +45,7 @@
 namespace io_threads
 {
 
-std::error_code websocket_client_handshake_response_parser::handle_body(std::string_view const, size_t const)
+std::error_code websocket_client_handshake_response_parser::handle_body(std::string_view const &, size_t const)
 {
    assert(false && "Unexpected body");
    return {};
@@ -58,7 +58,7 @@ constexpr std::byte has_connection_header{0x1,};
 constexpr std::byte has_sec_websocket_accept_header{0x2,};
 constexpr std::byte has_upgrade_header{0x3,};
 
-[[nodiscard]] bool equal_case_insensitive(std::string_view const lhs, std::string_view const rhs) noexcept
+[[nodiscard]] bool equal_case_insensitive(std::string_view const &lhs, std::string_view const &rhs) noexcept
 {
    return (
       true
@@ -74,8 +74,8 @@ constexpr std::byte has_upgrade_header{0x3,};
 }
 
 std::error_code websocket_client_handshake_response_parser::handle_header(
-   std::string_view const headerField,
-   std::string_view const headerValue
+   std::string_view const &headerField,
+   std::string_view const &headerValue
 )
 {
    assert(false == headerField.empty());
@@ -146,7 +146,7 @@ std::error_code websocket_client_handshake_response_parser::handle_message_compl
    return {};
 }
 
-std::error_code websocket_client_handshake_response_parser::handle_status(int const statusCode, std::string_view const status)
+std::error_code websocket_client_handshake_response_parser::handle_status(int const statusCode, std::string_view const &status)
 {
    if (101 == statusCode) [[likely]]
    {

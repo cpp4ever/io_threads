@@ -31,7 +31,7 @@
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
-#include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
+#include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_option
 /// for
 ///   io_threads::completion_port,
 ///   io_threads::from_completion_key,
@@ -508,7 +508,7 @@ private:
 
    [[nodiscard]] static DWORD file_writer_option_to_creation_disposition(
       file_writer_option const value,
-      std::source_location const sourceLocation = std::source_location::current()
+      std::source_location const &sourceLocation = std::source_location::current()
    )
    {
       switch (value)

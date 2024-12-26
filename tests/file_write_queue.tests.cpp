@@ -140,7 +140,7 @@ public:
 private:
    std::unique_ptr<internal_state> m_internalState = {};
 
-   MOCK_METHOD(void, io_closed, (std::error_code), (override));
+   MOCK_METHOD(void, io_closed, (std::error_code const &), (override));
    MOCK_METHOD(file_writer_config, io_ready_to_open, (), (override));
 };
 

@@ -137,7 +137,7 @@ websocket_client_session &wss_client_context::wss_client_context_impl::acquire_s
 
 size_t wss_client_context::wss_client_context_impl::format_frame(
    websocket_client_session &session,
-   data_chunk const dataChunk,
+   data_chunk const &dataChunk,
    websocket_frame_data const &outboundFrame
 )
 {
@@ -196,9 +196,9 @@ size_t wss_client_context::wss_client_context_impl::format_frame(
 
 size_t wss_client_context::wss_client_context_impl::format_handshake_request(
    websocket_client_session &session,
-   data_chunk const dataChunk,
+   data_chunk const &dataChunk,
    websocket_client_config const &config,
-   std::string_view const host
+   std::string_view const &host
 )
 {
    assert(nullptr != session.handshakeKey);
@@ -211,7 +211,7 @@ size_t wss_client_context::wss_client_context_impl::format_handshake_request(
 
 std::error_code wss_client_context::wss_client_context_impl::handle_handshake_completion(
    websocket_client_session &session,
-   data_chunk const dataChunk
+   data_chunk const &dataChunk
 )
 {
    assert(nullptr != session.handshakeKey);

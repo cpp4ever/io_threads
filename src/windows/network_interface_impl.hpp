@@ -80,7 +80,7 @@ public:
       std::string &&friendlyName,
       std::optional<socket_address> &&ipv4,
       std::optional<socket_address> &&ipv6,
-      bool loopback
+      bool const loopback
    ) :
       m_systemName{std::move(systemName)},
       m_friendlyName{std::move(friendlyName)},
@@ -92,7 +92,7 @@ public:
    network_interface_impl &operator = (network_interface_impl &&) = delete;
    network_interface_impl &operator = (network_interface_impl const &) = delete;
 
-   [[nodiscard]] std::string_view friendly_name() const noexcept
+   [[nodiscard]] std::string const &friendly_name() const noexcept
    {
       return m_friendlyName;
    }
@@ -112,7 +112,7 @@ public:
       return m_loopback;
    }
 
-   [[nodiscard]] std::string_view system_name() const noexcept
+   [[nodiscard]] std::string const &system_name() const noexcept
    {
       return m_systemName;
    }

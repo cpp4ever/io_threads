@@ -38,7 +38,7 @@ if(NOT OPENSSL_FOUND)
    endif()
 endif()
 
-function(setup_tls_and_crypto_library IN_TARGET)
+function(setup_ssl_library IN_TARGET)
    target_compile_definitions(${IN_TARGET} PRIVATE IO_THREADS_OPENSSL=1 OPENSSL_NO_DEPRECATED=1)
    if(TARGET io_threads_openssl)
       target_link_libraries(${IN_TARGET} PRIVATE io_threads::openssl)

@@ -23,7 +23,7 @@
    SOFTWARE.
 ]]
 
-if(IO_THREADS_TLS_AND_CRYPTO_LIBRARY STREQUAL "schannel")
+if(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
    include(CMakeThirdpartyTargets)
    include(FetchContent)
 

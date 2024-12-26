@@ -54,7 +54,7 @@ public:
 
 protected:
    virtual void io_connected() = 0;
-   virtual void io_disconnected(std::error_code errorCode) = 0;
+   virtual void io_disconnected(std::error_code const &errorCode) = 0;
 
    void ready_to_connect();
    void ready_to_disconnect();
@@ -64,9 +64,9 @@ private:
    tcp_socket_descriptor *m_socketDescriptor{nullptr};
    std::shared_ptr<tcp_client_thread::tcp_client_thread_impl> const m_tcpClientThread;
 
-   [[nodiscard]] virtual std::error_code io_data_to_send(data_chunk dataChunk, size_t &bytesWritten) = 0;
-   [[nodiscard]] virtual std::error_code io_data_to_shutdown(data_chunk dataChunk, size_t &bytesWritten) = 0;
-   [[nodiscard]] virtual std::error_code io_data_received(data_chunk dataChunk, size_t &bytesRead) = 0;
+   [[nodiscard]] virtual std::error_code io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
+   [[nodiscard]] virtual std::error_code io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
+   [[nodiscard]] virtual std::error_code io_data_received(data_chunk const &dataChunk, size_t &bytesRead) = 0;
    [[nodiscard]] virtual tcp_client_config io_ready_to_connect() = 0;
 };
 

@@ -41,8 +41,8 @@ namespace io_threads
 {
 
 std::error_code check_winsock_error(
-   format_string<uint32_t, std::string> const fmt,
-   std::source_location const sourceLocation = std::source_location::current()
+   format_string<uint32_t, std::string> const &fmt,
+   std::source_location const &sourceLocation = std::source_location::current()
 )
 {
    auto const winsockLastError{WSAGetLastError()};
@@ -54,9 +54,9 @@ std::error_code check_winsock_error(
 }
 
 std::error_code check_winsock_error_if_not(
-   format_string<uint32_t, std::string> const fmt,
+   format_string<uint32_t, std::string> const &fmt,
    int const expectedErrorCode,
-   std::source_location const sourceLocation = std::source_location::current()
+   std::source_location const &sourceLocation = std::source_location::current()
 )
 {
    auto const winsockLastError{WSAGetLastError()};

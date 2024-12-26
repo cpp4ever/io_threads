@@ -30,7 +30,7 @@ permissions:
 
 jobs:
   build:
-    name: "${{matrix.os}} ${{matrix.platform}} ${{matrix.toolset}} ${{matrix.tls-and-crypto-library}} ${{matrix.build-type}}"
+    name: "${{matrix.os}} ${{matrix.platform}} ${{matrix.toolset}} ${{matrix.ssl-library}} ${{matrix.build-type}}"
     runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
@@ -38,17 +38,17 @@ jobs:
         build-type: [Debug, Release]
         os: [windows-2019, windows-2022]
         platform: [Win32, x64]
-        tls-and-crypto-library: [openssl, schannel]
+        ssl-library: [openssl, schannel]
         toolset: [v142, v143, ClangCL]
         exclude:
-          - os: windows-2019
-            toolset: v143
-          - os: windows-2019
-            toolset: ClangCL
-          - os: windows-2022
-            toolset: v142
-          - platform: Win32
-            tls-and-crypto-library: openssl
+          - toolset: v142
+            os: windows-2022
+          - toolset: v143
+            os: windows-2019
+          - toolset: ClangCL
+            os: windows-2019
+          - ssl-library: openssl
+            platform: Win32
 
     steps:
     - uses: actions/checkout@v4
@@ -61,16 +61,17 @@ jobs:
         cmake -E make_directory ${{runner.workspace}}/build
 
     - name: Install openssl
-      if: ${{matrix.tls-and-crypto-library == 'openssl'}}
+      if: ${{matrix.ssl-library == 'openssl'}}
       run: |
         choco install openssl
+        xcopy /d /e /f /h /i /k /o /q /r /s /v /x /y "C:\Program Files\Git\usr\ssl\*" "C:\Program Files\Common Files\SSL\"
 
     - name: Configure
       working-directory: ${{runner.workspace}}/build
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
-        cmake -A ${{matrix.platform}} -DIO_THREADS_TLS_AND_CRYPTO_LIBRARY=${{matrix.tls-and-crypto-library}} -DIO_THREADS_SANITIZER=ASan -T ${{matrix.toolset}} -S ${{github.workspace}}
+        cmake -A ${{matrix.platform}} -DIO_THREADS_SSL_LIBRARY=${{matrix.ssl-library}} -DIO_THREADS_SANITIZER=ASan -T ${{matrix.toolset}} -S ${{github.workspace}}
 
     - name: Build
       working-directory: ${{runner.workspace}}/build

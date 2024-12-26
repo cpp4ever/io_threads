@@ -44,7 +44,7 @@ public:
    websocket_client_handshake_response_parser &operator = (websocket_client_handshake_response_parser &&) = delete;
    websocket_client_handshake_response_parser &operator = (websocket_client_handshake_response_parser const &) = delete;
 
-   [[nodiscard]] std::string_view sec_websocket_accept() const noexcept
+   [[nodiscard]] std::string_view const &sec_websocket_accept() const noexcept
    {
       return m_secWebsocketAccept;
    }
@@ -53,12 +53,12 @@ private:
    std::string_view m_secWebsocketAccept{};
    std::byte m_validityMask{0};
 
-   [[nodiscard]] std::error_code handle_body(std::string_view const content, size_t contentLength) override;
-   [[nodiscard]] std::error_code handle_header(std::string_view const headerField, std::string_view const headerValue) override;
+   [[nodiscard]] std::error_code handle_body(std::string_view const &content, size_t contentLength) override;
+   [[nodiscard]] std::error_code handle_header(std::string_view const &headerField, std::string_view const &headerValue) override;
    [[nodiscard]] std::error_code handle_headers_complete() override;
    [[nodiscard]] std::error_code handle_message_begin() override;
    [[nodiscard]] std::error_code handle_message_complete() override;
-   [[nodiscard]] std::error_code handle_status(int const statusCode, std::string_view const status) override;
+   [[nodiscard]] std::error_code handle_status(int const statusCode, std::string_view const &status) override;
 };
 
 }

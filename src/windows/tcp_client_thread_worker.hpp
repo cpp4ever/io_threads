@@ -33,8 +33,7 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config
-#include "io_threads/tcp_keep_alive.hpp" ///< for io_threads::tcp_keep_alive
+#include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config, io_threads::tcp_keep_alive
 /// for
 ///   io_threads::completion_port,
 ///   io_threads::from_completion_key,

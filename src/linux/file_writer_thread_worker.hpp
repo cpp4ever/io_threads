@@ -31,7 +31,7 @@
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
-#include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
+#include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_option
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
 #include "linux/thread_affinity.hpp" ///< for io_threads::set_thread_affinity

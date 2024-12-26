@@ -30,7 +30,7 @@
 #include "common/wss_client_context_impl.hpp" ///< for io_threads::wss_client_context::wss_client_context_impl
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
-#include "io_threads/wss_client.hpp" ///< for io_threads::wss_client_context::wss_client
+#include "io_threads/wss_client.hpp" ///< for io_threads::wss_client
 
 #if (defined(__linux__))
 #  include <endian.h> ///< for be16toh, be64toh
@@ -52,20 +52,20 @@
 namespace io_threads
 {
 
-wss_client_context::wss_client::wss_client(wss_client_context const &wssClientContext) noexcept :
+wss_client::wss_client(wss_client_context const &wssClientContext) noexcept :
    super{wssClientContext.m_tlsClientContext,},
    m_wssClientContext{wssClientContext.m_impl,}
 {
    assert(nullptr != m_wssClientContext);
 }
 
-wss_client_context::wss_client::~wss_client()
+wss_client::~wss_client()
 {
    assert(nullptr != m_wssClientContext);
    assert(nullptr == m_websocketClientSession);
 }
 
-void wss_client_context::wss_client::io_connected()
+void wss_client::io_connected()
 {
    assert(nullptr != m_wssClientContext);
    assert(nullptr == m_websocketClientSession);
@@ -73,7 +73,7 @@ void wss_client_context::wss_client::io_connected()
    super::io_connected();
 }
 
-void wss_client_context::wss_client::io_disconnected(std::error_code const errorCode)
+void wss_client::io_disconnected(std::error_code const &errorCode)
 {
    super::io_disconnected(errorCode);
    assert(nullptr != m_wssClientContext);
@@ -84,7 +84,7 @@ void wss_client_context::wss_client::io_disconnected(std::error_code const error
    }
 }
 
-void wss_client_context::wss_client::ready_to_close()
+void wss_client::ready_to_close()
 {
    assert(nullptr != m_wssClientContext);
    assert(nullptr != m_websocketClientSession);
@@ -95,7 +95,7 @@ void wss_client_context::wss_client::ready_to_close()
    }
 }
 
-std::error_code wss_client_context::wss_client::io_data_decrypted(data_chunk const dataChunk)
+std::error_code wss_client::io_data_decrypted(data_chunk const &dataChunk)
 {
    assert(nullptr != m_wssClientContext);
    assert(nullptr != m_websocketClientSession);
@@ -115,7 +115,7 @@ std::error_code wss_client_context::wss_client::io_data_decrypted(data_chunk con
    return {};
 }
 
-std::error_code wss_client_context::wss_client::io_data_to_encrypt(data_chunk const dataChunk, size_t &bytesWritten)
+std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != m_wssClientContext);
    assert(nullptr != m_websocketClientSession);
@@ -159,7 +159,7 @@ std::error_code wss_client_context::wss_client::io_data_to_encrypt(data_chunk co
    return {};
 }
 
-std::error_code wss_client_context::wss_client::io_handle_frame(data_chunk const dataChunk)
+std::error_code wss_client::io_handle_frame(data_chunk const &dataChunk)
 {
    auto *inboundBytes = dataChunk.bytes;
    auto inboundBytesLength = dataChunk.bytesLength;

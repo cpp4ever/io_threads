@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "io_threads/ssl_certificate.hpp" ///< for io_threads::ssl_certificate
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
+#include "io_threads/x509_store.hpp" ///< for io_threads::x509_store
 
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::shared_ptr
@@ -35,7 +35,7 @@
 namespace io_threads
 {
 
-class tls_client_context final
+class x509_store::tls_client_context final
 {
 public:
    class tls_client;
@@ -45,24 +45,14 @@ public:
    [[nodiscard]] tls_client_context(tls_client_context const &rhs) noexcept;
    [[nodiscard]] tls_client_context(
       tcp_client_thread const &executor,
-      std::string_view domainName,
-      size_t capacityOfTlsClientSessionList
-   );
-   [[nodiscard]] tls_client_context(
-      tcp_client_thread const &executor,
-      std::string_view domainName,
-      ssl_certificate const &sslCertificate,
+      x509_store const &x509Store,
+      std::string_view const &domainName,
       size_t capacityOfTlsClientSessionList
    );
    ~tls_client_context();
 
    tls_client_context &operator = (tls_client_context &&rhs) noexcept;
    tls_client_context &operator = (tls_client_context const &rhs);
-
-   [[maybe_unused, nodiscard]] tcp_client_thread &executor() noexcept
-   {
-      return m_executor;
-   }
 
    [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
    {
@@ -75,5 +65,7 @@ private:
    tcp_client_thread m_executor;
    std::shared_ptr<tls_client_context_impl> m_impl{nullptr};
 };
+
+using tls_client_context [[maybe_unused]] = x509_store::tls_client_context;
 
 }

@@ -25,12 +25,18 @@
 
 #pragma once
 
-#include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
-
+#include <cstdint> ///< for uint8_t
 #include <filesystem> ///< for std::filesystem::path
 
 namespace io_threads
 {
+
+enum class file_writer_option : uint8_t
+{
+   create_new [[maybe_unused]],
+   create_or_open_and_truncate [[maybe_unused]],
+   create_or_open_for_append [[maybe_unused]],
+};
 
 class file_writer_config final
 {

@@ -69,17 +69,17 @@ public:
 
 protected:
    void io_connected() override;
-   void io_disconnected(std::error_code errorCode) override;
+   void io_disconnected(std::error_code const &errorCode) override;
 
 private:
    std::shared_ptr<tls_client_context::tls_client_context_impl> const m_tlsClientContext;
    tls_client_session *m_tlsClientSession{nullptr};
 
-   [[nodiscard]] virtual std::error_code io_data_decrypted(data_chunk dataChunk) = 0;
-   [[nodiscard]] virtual std::error_code io_data_to_encrypt(data_chunk dataChunk, size_t &bytesWritten) = 0;
-   [[nodiscard]] std::error_code io_data_to_send(data_chunk dataChunk, size_t &bytesWritten) final;
-   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk dataChunk, size_t &bytesWritten) final;
-   [[nodiscard]] std::error_code io_data_received(data_chunk dataChunk, size_t &bytesRead) final;
+   [[nodiscard]] virtual std::error_code io_data_decrypted(data_chunk const &dataChunk) = 0;
+   [[nodiscard]] virtual std::error_code io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
+   [[nodiscard]] std::error_code io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten) final;
+   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten) final;
+   [[nodiscard]] std::error_code io_data_received(data_chunk const &dataChunk, size_t &bytesRead) final;
 };
 
 using tls_client [[maybe_unused]] = tls_client_context::tls_client;

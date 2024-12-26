@@ -51,11 +51,6 @@ public:
    wss_client_context &operator = (wss_client_context &&rhs) noexcept;
    wss_client_context &operator = (wss_client_context const &rhs);
 
-   [[maybe_unused, nodiscard]] tcp_client_thread &executor() noexcept
-   {
-      return m_tlsClientContext.executor();
-   }
-
    [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
    {
       return m_tlsClientContext.executor();

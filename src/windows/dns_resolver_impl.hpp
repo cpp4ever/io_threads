@@ -60,8 +60,8 @@ namespace
 {
 
 [[nodiscard]] std::vector<socket_address> resolve_domain_name(
-   ADDRESS_FAMILY addressFamily,
-   std::string_view const host,
+   ADDRESS_FAMILY const addressFamily,
+   std::string_view const &host,
    uint16_t const port
 )
 {

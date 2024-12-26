@@ -63,13 +63,11 @@ public:
 
    [[nodiscard]] network_interface_impl(
       std::string &&systemName,
-      std::string &&friendlyName,
       std::optional<socket_address> &&ipv4,
       std::optional<socket_address> &&ipv6,
       bool loopback
    ) :
       m_systemName{std::move(systemName)},
-      m_friendlyName{std::move(friendlyName)},
       m_ipv4{std::move(ipv4)},
       m_ipv6{std::move(ipv6)},
       m_loopback{loopback}
@@ -78,9 +76,9 @@ public:
    network_interface_impl &operator = (network_interface_impl &&) = delete;
    network_interface_impl &operator = (network_interface_impl const &) = delete;
 
-   [[nodiscard]] std::string_view friendly_name() const noexcept
+   [[nodiscard]] std::string const &friendly_name() const noexcept
    {
-      return m_friendlyName;
+      return m_systemName;
    }
 
    [[nodiscard]] std::optional<socket_address> const &ip_v4() const noexcept
@@ -98,7 +96,7 @@ public:
       return m_loopback;
    }
 
-   [[nodiscard]] std::string_view system_name() const noexcept
+   [[nodiscard]] std::string const &system_name() const noexcept
    {
       return m_systemName;
    }
@@ -166,7 +164,6 @@ public:
          networkInterfaces.emplace_back(
             std::make_shared<network_interface_impl>(
                std::string{ifaceName,},
-               std::string{ifaceName,},
                std::move(ifaceAddress.ipv4),
                std::move(ifaceAddress.ipv6),
                ifaceAddress.loopback
@@ -179,7 +176,6 @@ public:
 
 private:
    std::string const m_systemName;
-   std::string const m_friendlyName;
    std::optional<socket_address> const m_ipv4;
    std::optional<socket_address> const m_ipv6;
    bool const m_loopback;

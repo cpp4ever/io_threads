@@ -25,10 +25,10 @@
 
 #include "common/tls_client_status.hpp" ///< for io_threads::tls_client_status
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
-#include "io_threads/ssl_certificate.hpp" ///< for io_threads::ssl_certificate
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
-#include "io_threads/tls_client.hpp" ///< for io_threads::tls_client_context::tls_client
+#include "io_threads/tls_client.hpp" ///< for io_threads::tls_client
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
+#include "io_threads/x509_store.hpp" ///< for io_threads::x509_store
 #if (defined(IO_THREADS_OPENSSL))
 #  include "openssl/tls_client_context_impl.hpp" ///< for io_threads::tls_client_context::tls_client_context_impl
 #elif (defined(IO_THREADS_SCHANNEL))
@@ -49,32 +49,16 @@ tls_client_context::tls_client_context(tls_client_context const &rhs) noexcept =
 
 tls_client_context::tls_client_context(
    tcp_client_thread const &executor,
-   std::string_view const domainName,
+   x509_store const &x509Store,
+   std::string_view const &domainName,
    size_t const capacityOfTlsClientSessionList
 ) :
    m_executor{executor,}
 {
    m_executor.execute(
-      [this, domainName, capacityOfTlsClientSessionList] ()
+      [this, &x509Store, domainName, capacityOfTlsClientSessionList] ()
       {
-         m_impl = std::make_shared<tls_client_context_impl>(domainName, capacityOfTlsClientSessionList);
-      }
-   );
-   assert(nullptr != m_impl);
-}
-
-tls_client_context::tls_client_context(
-   tcp_client_thread const &executor,
-   std::string_view const domainName,
-   ssl_certificate const &sslCertificate,
-   size_t const capacityOfTlsClientSessionList
-) :
-   m_executor{executor,}
-{
-   m_executor.execute(
-      [this, domainName, &sslCertificate, capacityOfTlsClientSessionList] ()
-      {
-         m_impl = std::make_shared<tls_client_context_impl>(domainName, sslCertificate, capacityOfTlsClientSessionList);
+         m_impl = std::make_shared<tls_client_context_impl>(x509Store.m_impl, domainName, capacityOfTlsClientSessionList);
       }
    );
    assert(nullptr != m_impl);
@@ -97,25 +81,25 @@ tls_client_context::~tls_client_context()
 tls_client_context &tls_client_context::operator = (tls_client_context &&rhs) noexcept = default;
 tls_client_context &tls_client_context::operator = (tls_client_context const &rhs) = default;
 
-tls_client_context::tls_client::tls_client(tls_client_context const &tlsClientContext) noexcept :
+tls_client::tls_client(tls_client_context const &tlsClientContext) noexcept :
    super{tlsClientContext.m_executor,},
    m_tlsClientContext{tlsClientContext.m_impl,}
 {}
 
-tls_client_context::tls_client::~tls_client() = default;
+tls_client::~tls_client() = default;
 
-std::string_view tls_client_context::tls_client::domain_name() const noexcept
+std::string_view tls_client::domain_name() const noexcept
 {
    return m_tlsClientContext->domain_name();
 }
 
-void tls_client_context::tls_client::io_connected()
+void tls_client::io_connected()
 {
    assert(nullptr == m_tlsClientSession);
    m_tlsClientSession = std::addressof(m_tlsClientContext->acquire_session());
 }
 
-void tls_client_context::tls_client::io_disconnected(std::error_code const)
+void tls_client::io_disconnected(std::error_code const &)
 {
    if (nullptr != m_tlsClientSession)
    {
@@ -124,7 +108,7 @@ void tls_client_context::tls_client::io_disconnected(std::error_code const)
    }
 }
 
-std::error_code tls_client_context::tls_client::io_data_to_send(data_chunk const dataChunk, size_t &bytesWritten)
+std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
@@ -156,7 +140,7 @@ std::error_code tls_client_context::tls_client::io_data_to_send(data_chunk const
    return m_tlsClientContext->encrypt_message(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
-std::error_code tls_client_context::tls_client::io_data_to_shutdown(data_chunk const dataChunk, size_t &bytesWritten)
+std::error_code tls_client::io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
@@ -164,14 +148,16 @@ std::error_code tls_client_context::tls_client::io_data_to_shutdown(data_chunk c
    return m_tlsClientContext->shutdown(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
-std::error_code tls_client_context::tls_client::io_data_received(data_chunk encryptedDataChunk, size_t &bytesRead)
+std::error_code tls_client::io_data_received(data_chunk const &encryptedDataChunk, size_t &bytesRead)
 {
-   assert(nullptr != encryptedDataChunk.bytes);
-   assert(0 < encryptedDataChunk.bytesLength);
+   auto *encryptedBytes = encryptedDataChunk.bytes;
+   auto encryptedBytesLength = encryptedDataChunk.bytesLength;
+   assert(nullptr != encryptedBytes);
+   assert(0 < encryptedBytesLength);
    assert(nullptr != m_tlsClientSession);
-   auto const isHandshake{tls_client_status::handshake == m_tlsClientSession->status,};
    bytesRead = 0;
-   while (0 < encryptedDataChunk.bytesLength)
+   auto const isHandshake{tls_client_status::handshake == m_tlsClientSession->status,};
+   while (0 < encryptedBytesLength)
    {
       data_chunk decrypredDataChunk{};
       size_t bytesProcessed{0,};
@@ -180,7 +166,7 @@ std::error_code tls_client_context::tls_client::io_data_received(data_chunk encr
          {
             m_tlsClientContext->decrypt_message(
                *m_tlsClientSession,
-               encryptedDataChunk,
+               data_chunk{.bytes = encryptedBytes, .bytesLength = encryptedBytesLength,},
                decrypredDataChunk,
                bytesProcessed
             ),
@@ -195,8 +181,8 @@ std::error_code tls_client_context::tls_client::io_data_received(data_chunk encr
          break;
       }
       bytesRead += bytesProcessed;
-      encryptedDataChunk.bytes += bytesProcessed;
-      encryptedDataChunk.bytesLength -= bytesProcessed;
+      encryptedBytes += bytesProcessed;
+      encryptedBytesLength -= bytesProcessed;
       if (0 < decrypredDataChunk.bytesLength) [[likely]]
       {
          assert(nullptr != decrypredDataChunk.bytes);

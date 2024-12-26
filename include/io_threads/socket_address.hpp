@@ -46,7 +46,6 @@ public:
    [[nodiscard]] socket_address(socket_address const &rhs) noexcept;
    [[nodiscard]] explicit socket_address(std::shared_ptr<socket_address_impl> const &impl) noexcept;
 
-   [[nodiscard]] explicit operator std::string() const;
    [[nodiscard]] explicit operator std::string_view() const noexcept;
 
    [[nodiscard]] socket_address_impl const *operator -> () const noexcept;
@@ -65,8 +64,8 @@ private:
 
 std::ostream &operator << (std::ostream &sink, socket_address const &socketAddress);
 
-[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view address, std::error_code &errorCode);
-[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view ip, uint16_t port, std::error_code &errorCode);
+[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view const &ipport, std::error_code &errorCode);
+[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view const &ip, uint16_t port, std::error_code &errorCode);
 
 }
 

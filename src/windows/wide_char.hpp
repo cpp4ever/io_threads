@@ -40,12 +40,14 @@
 #include <string_view> ///< for std::string_view, std::wstring_view
 #include <system_error> ///< for std::error_code, std::system_category
 
+#pragma comment(lib, "kernel32")
+
 namespace io_threads
 {
 
 [[nodiscard]] inline std::error_code utf8_to_wide_char(
    std::wstring &wideCharString,
-   std::string_view const utf8String
+   std::string_view const &utf8String
 )
 {
    wideCharString.clear();
@@ -73,7 +75,7 @@ namespace io_threads
 
 [[nodiscard]] inline std::error_code wide_char_to_utf8(
    std::string &utf8String,
-   std::wstring_view const wideCharString
+   std::wstring_view const &wideCharString
 )
 {
    utf8String.clear();

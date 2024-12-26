@@ -49,8 +49,8 @@ namespace
 {
 
 [[nodiscard]] std::vector<socket_address> resolve_domain_name(
-   sa_family_t addressFamily,
-   std::string_view const host,
+   sa_family_t const addressFamily,
+   std::string_view const &host,
    uint16_t const port
 )
 {

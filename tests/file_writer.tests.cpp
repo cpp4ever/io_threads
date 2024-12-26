@@ -96,7 +96,7 @@ public:
 private:
    std::unique_ptr<internal_state> m_internalState = {};
 
-   MOCK_METHOD(void, io_closed, (std::error_code), (override));
+   MOCK_METHOD(void, io_closed, (std::error_code const &), (override));
 
    void io_opened() override
    {

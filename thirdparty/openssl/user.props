@@ -26,6 +26,7 @@
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
    <PropertyGroup>
       <_NuGetTargetFallbackMoniker>$(_NuGetTargetFallbackMoniker);native,Version=v0.0</_NuGetTargetFallbackMoniker>
+      <Linkage-OpenSSL>static</Linkage-OpenSSL>
    </PropertyGroup>
    <ImportGroup Label="ExtensionSettings">
       <Import Project="$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props" Condition="Exists('$(SolutionDir)\packages\openssl-native.@OPENSSL_VERSION@\build\native\openssl-native.props')" />

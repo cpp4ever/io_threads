@@ -36,9 +36,9 @@ namespace io_threads
 
 struct dns_resolver final
 {
-   [[nodiscard]] static std::vector<socket_address> resolve_all(std::string_view host, uint16_t port);
-   [[nodiscard]] static std::vector<socket_address> resolve_ipv4(std::string_view host, uint16_t port);
-   [[nodiscard]] static std::vector<socket_address> resolve_ipv6(std::string_view host, uint16_t port);
+   [[nodiscard]] static std::vector<socket_address> resolve_all(std::string_view const &host, uint16_t port);
+   [[nodiscard]] static std::vector<socket_address> resolve_ipv4(std::string_view const &host, uint16_t port);
+   [[nodiscard]] static std::vector<socket_address> resolve_ipv6(std::string_view const &host, uint16_t port);
 };
 
 }

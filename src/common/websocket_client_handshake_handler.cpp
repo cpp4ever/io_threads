@@ -47,9 +47,9 @@ namespace io_threads
 
 size_t websocket_client_handshake_handler::build_request(
    websocket_client_session &session,
-   data_chunk const dataChunk,
+   data_chunk const &dataChunk,
    websocket_client_config const &config,
-   std::string_view const host
+   std::string_view const &host
 )
 {
    assert(nullptr != session.handshakeKey);
@@ -90,7 +90,7 @@ size_t websocket_client_handshake_handler::build_request(
 
 std::error_code websocket_client_handshake_handler::handle_response(
    websocket_client_session &session,
-   std::string_view const handshakeResponse
+   std::string_view const &handshakeResponse
 )
 {
    if (auto const errorCode{m_responseParser->parse(handshakeResponse),}; true == bool{errorCode,})

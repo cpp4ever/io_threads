@@ -33,8 +33,7 @@
 #include "common/websocket_error.hpp" ///< for io_threads::make_error_code, io_threads::websocket_error
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/websocket_client_config.hpp" ///< for io_threads::websocket_client_config
-#include "io_threads/websocket_frame.hpp" ///< for io_threads::websocket_frame
-#include "io_threads/websocket_frame_type.hpp" ///< for io_threads::websocket_frame_type
+#include "io_threads/websocket_frame.hpp" ///< for io_threads::websocket_frame, io_threads::websocket_frame_type
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
 
 /// for
@@ -80,15 +79,15 @@ public:
 
    [[nodiscard]] size_t format_frame(
       websocket_client_session &session,
-      data_chunk const dataChunk,
+      data_chunk const &dataChunk,
       websocket_frame_data const &outboundFrame
    );
 
    [[nodiscard]] size_t format_handshake_request(
       websocket_client_session &session,
-      data_chunk const dataChunk,
+      data_chunk const &dataChunk,
       websocket_client_config const &config,
-      std::string_view const host
+      std::string_view const &host
    );
 
    template<typename frame_handler>
@@ -149,7 +148,7 @@ public:
 
    [[nodiscard]] std::error_code handle_handshake_completion(
       websocket_client_session &session,
-      data_chunk const dataChunk
+      data_chunk const &dataChunk
    );
 
    void ready_to_close(websocket_client_session &session) const;

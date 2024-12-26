@@ -86,7 +86,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
           -DCMAKE_C_COMPILER=${{matrix.cc}} \
           -DCMAKE_CXX_COMPILER=${{matrix.cxx}} \
-          -DIO_THREADS_TLS_AND_CRYPTO_LIBRARY=openssl \
+          -DIO_THREADS_SSL_LIBRARY=openssl \
           -DIO_THREADS_SANITIZER=${{matrix.sanitizer}} \
           -G "Ninja" \
           -S ${{github.workspace}}

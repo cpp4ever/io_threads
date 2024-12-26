@@ -118,11 +118,6 @@ public:
       m_address.shrink_to_fit();
    }
 
-   [[nodiscard]] explicit operator std::string() const
-   {
-      return m_address;
-   }
-
    [[nodiscard]] explicit operator std::string_view() const noexcept
    {
       return m_address;
@@ -136,7 +131,7 @@ public:
       return m_sockaddr;
    }
 
-   static std::shared_ptr<socket_address_impl> parse(std::string_view const address, uint16_t const port, std::error_code &errorCode)
+   static std::shared_ptr<socket_address_impl> parse(std::string_view const &address, uint16_t const port, std::error_code &errorCode)
    {
       if (true == address.empty())
       {

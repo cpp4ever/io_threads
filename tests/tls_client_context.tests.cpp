@@ -23,7 +23,6 @@
    SOFTWARE.
 */
 
-#if (defined(IO_THREADS_SCHANNEL))
 #include "testsuite.hpp"
 
 #include <io_threads/tls_client_context.hpp>
@@ -38,8 +37,13 @@ namespace
 
 tls_client_context create_test_tls_client_context(std::string_view const domainName)
 {
-   tcp_client_thread testThread{0, 1, 1,};
-   return tls_client_context{testThread, domainName, 1,};
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
+   constexpr size_t testCapacityOfInputOutputBuffer{1,};
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+   x509_store const x509Store{};
+   constexpr size_t testTlsSessionsCapacity{1,};
+   return tls_client_context{testThread, x509Store, domainName, testTlsSessionsCapacity,};
 }
 
 using tls_client = testsuite;
@@ -83,4 +87,3 @@ TEST_F(tls_client, tls_client_context)
 }
 
 }
-#endif

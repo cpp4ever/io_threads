@@ -175,9 +175,9 @@ private:
       m_connected.store(true, std::memory_order_relaxed);
    }
 
-   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame, bool), (final));
+   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame const &, bool), (final));
    MOCK_METHOD(websocket_frame, io_frame_to_send, (), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
    MOCK_METHOD(websocket_client_config, io_ready_to_handshake, (), (final));
 };
@@ -194,22 +194,13 @@ TEST_F(wss_client, connect_timeout)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
    constexpr size_t testCapacityOfTcpBuffers{1,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfTcpBuffers,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfTcpBuffers,};
+   x509_store const testX509Store{};
    constexpr size_t testTlsSessionsCapacity{0,};
-   tls_client_context const testTlsContext{testThread, test_domain, testTlsSessionsCapacity,};
+   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    constexpr size_t testCapacityOfWssClientSessionList{0,};
    constexpr size_t testCapacityOfWssBuffers{1,};
-   wss_client_context const testWebsocketContext
-   {
-      testTlsContext,
-      testCapacityOfWssClientSessionList,
-      testCapacityOfWssBuffers,
-   };
+   wss_client_context const testWebsocketContext{testTlsContext, testCapacityOfWssClientSessionList, testCapacityOfWssBuffers,};
    test_wss_client testClient{testWebsocketContext,};
    constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -220,28 +211,13 @@ TEST_F(wss_client, wss)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
    constexpr size_t testCapacityOfTcpBuffers{4 * 1024,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfTcpBuffers,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfTcpBuffers,};
+   x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
    constexpr size_t testTlsSessionsCapacity{1,};
-   tls_client_context const testTlsContext
-   {
-      testThread,
-      test_domain,
-      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12,},
-      testTlsSessionsCapacity,
-   };
+   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    constexpr size_t testCapacityOfWssClientSessionList{1,};
    constexpr size_t testCapacityOfWssBuffers{256,};
-   wss_client_context const testWebsocketContext
-   {
-      testTlsContext,
-      testCapacityOfWssClientSessionList,
-      testCapacityOfWssBuffers,
-   };
+   wss_client_context const testWebsocketContext{testTlsContext, testCapacityOfWssClientSessionList, testCapacityOfWssBuffers,};
    test_wss_client testClient{testWebsocketContext,};
    test_websocket_client<boost::beast::websocket::stream<test_tls_stream, true>>(testClient);
 }

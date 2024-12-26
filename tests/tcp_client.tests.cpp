@@ -148,12 +148,12 @@ private:
       m_connected.store(true, std::memory_order_relaxed);
    }
 
-   MOCK_METHOD(std::error_code, io_data_to_send, (data_chunk, size_t &), (final));
-   MOCK_METHOD(std::error_code, io_data_received, (data_chunk, size_t &), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
+   MOCK_METHOD(std::error_code, io_data_to_send, (data_chunk const &, size_t &), (final));
+   MOCK_METHOD(std::error_code, io_data_received, (data_chunk const &, size_t &), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
 
-   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk, size_t &bytesWritten) final
+   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk const &, size_t &bytesWritten) final
    {
       bytesWritten = 0;
       return {};
@@ -171,12 +171,7 @@ TEST_F(tcp_client, connect_timeout)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{1,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
    test_tcp_client testClient{testThread,};
    constexpr uint16_t testPort{81,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -187,12 +182,7 @@ TEST_F(tcp_client, http)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{256,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
    test_tcp_client testClient{testThread,};
    test_rest_client<boost::beast::tcp_stream>(testThread, testClient);
 }

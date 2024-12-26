@@ -25,16 +25,56 @@
 
 #pragma once
 
+#include <io_threads/network_interface.hpp> ///< for io_threads::network_interface
+#include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
+
 #include <cstdint> ///< for uint8_t
+#include <memory> ///< for std::shared_ptr
+#include <optional> ///< for std::nullopt, std::optional
+#include <string> ///< for std::string
+#include <string_view> ///< for std::string_view
+#include <vector> ///< for std::vector
 
 namespace io_threads
 {
 
-enum struct ssl_certificate_type : uint8_t
+struct domain_address
+{
+   std::string hostname;
+   uint16_t port;
+};
+
+enum struct x509_format : uint8_t
 {
    der [[maybe_unused]],
    pem [[maybe_unused]],
    p12 [[maybe_unused]],
+};
+
+class x509_store final
+{
+public:
+   class tls_client_context;
+
+   [[nodiscard]] x509_store();
+   [[nodiscard]] x509_store(x509_store &&rhs) noexcept;
+   [[nodiscard]] x509_store(x509_store const &rhs) noexcept;
+   [[nodiscard]] x509_store(std::vector<domain_address> const &domainAddresses);
+   [[nodiscard]] x509_store(std::string_view const &x509Data, x509_format const x509DataFormat);
+   [[nodiscard]] x509_store(
+      std::string_view const &x509Data,
+      x509_format const x509DataFormat,
+      std::string_view const &x509DataPassword
+   );
+   ~x509_store();
+
+   x509_store &operator = (x509_store &&rhs) noexcept;
+   x509_store &operator = (x509_store const &rhs);
+
+private:
+   class x509_store_impl;
+
+   std::shared_ptr<x509_store_impl> m_impl;
 };
 
 }

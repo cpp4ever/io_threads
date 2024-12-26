@@ -60,12 +60,12 @@ public:
 
    [[nodiscard]] size_t build_request(
       websocket_client_session &session,
-      data_chunk const dataChunk,
+      data_chunk const &dataChunk,
       websocket_client_config const &config,
-      std::string_view const host
+      std::string_view const &host
    );
 
-   [[nodiscard]] std::error_code handle_response(websocket_client_session &session, std::string_view const handshakeResponse);
+   [[nodiscard]] std::error_code handle_response(websocket_client_session &session, std::string_view const &handshakeResponse);
 
 private:
    random_generator m_randomGenerator{};

@@ -169,7 +169,7 @@ public:
    }
 
 protected:
-   void io_closed([[maybe_unused]] std::error_code const errorCode) override
+   void io_closed([[maybe_unused]] std::error_code const &errorCode) override
    {
       assert(
          false

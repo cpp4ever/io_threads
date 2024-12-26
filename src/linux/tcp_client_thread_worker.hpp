@@ -33,8 +33,7 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config
-#include "io_threads/tcp_keep_alive.hpp" ///< for io_threads::tcp_keep_alive
+#include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config, io_threads::tcp_keep_alive
 #include "linux/socket_address_impl.hpp" ///< for io_threads::socket_address::socket_address_impl
 #include "linux/tcp_client_uring.hpp" ///< for io_threads::tcp_client_uring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor

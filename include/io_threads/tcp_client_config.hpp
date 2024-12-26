@@ -26,14 +26,21 @@
 #pragma once
 
 #include <io_threads/tcp_client_address.hpp> ///< for io_threads::tcp_client_address
-#include <io_threads/tcp_keep_alive.hpp> ///< for io_threads::tcp_keep_alive
 
-#include <chrono> ///< for std::chrono::milliseconds
+#include <cstdint> ///< for uint8_t
+#include <chrono> ///< for std::chrono::milliseconds, std::chrono::seconds
 #include <optional> ///< for std::nullopt, std::optional
 #include <utility> ///< for std::move
 
 namespace io_threads
 {
+
+struct tcp_keep_alive final
+{
+   std::chrono::seconds idleTimeout{std::chrono::seconds::zero()};
+   std::chrono::seconds probeTimeout{std::chrono::seconds::zero()};
+   uint8_t probesCount{0};
+};
 
 enum struct quality_of_service : uint8_t
 {

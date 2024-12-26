@@ -37,7 +37,10 @@ namespace
 
 tcp_client_thread create_test_tcp_client_thread()
 {
-   return tcp_client_thread{0, 1, 1,};
+   constexpr uint16_t testCpuId{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
+   constexpr size_t testCapacityOfInputOutputBuffer{1,};
+   return tcp_client_thread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
 }
 
 using tcp_client = testsuite;

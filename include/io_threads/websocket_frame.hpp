@@ -25,12 +25,17 @@
 
 #pragma once
 
-#include "io_threads/websocket_frame_type.hpp" ///< for io_threads::websocket_frame_type
-
 #include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for uint8_t
 
 namespace io_threads
 {
+
+enum struct websocket_frame_type : uint8_t
+{
+   text [[maybe_unused]] = 0x1,
+   binary [[maybe_unused]] = 0x2,
+};
 
 struct websocket_frame final
 {

@@ -23,6 +23,6 @@
    SOFTWARE.
 ]]
 
-function(setup_tls_and_crypto_library IN_TARGET)
+function(setup_ssl_library IN_TARGET)
    target_compile_definitions(${IN_TARGET} PRIVATE IO_THREADS_SCHANNEL=1)
 endfunction()

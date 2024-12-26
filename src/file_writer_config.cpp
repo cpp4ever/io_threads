@@ -23,8 +23,7 @@
    SOFTWARE.
 */
 
-#include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_config
-#include "io_threads/file_writer_option.hpp" ///< for io_threads::file_writer_option
+#include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_config, io_threads::file_writer_option
 
 #include <cassert> ///< for assert
 #include <filesystem> ///< for std::filesystem::path

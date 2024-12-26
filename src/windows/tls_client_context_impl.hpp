@@ -30,21 +30,21 @@
 #include "common/tls_client_status.hpp" ///< for io_threads::tls_client_status
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
-#include "io_threads/ssl_certificate.hpp" ///< for io_threads::ssl_certificate
 #include "io_threads/tls_client.hpp" ///< for io_threads::make_x509_error_code
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
 #include "windows/tls_client_session.hpp" ///< for io_threads::tls_client_session
 #include "windows/wide_char.hpp" ///< for io_threads::utf8_to_wide_char
 #include "windows/winapi_error.hpp" ///< for io_threads::check_winapi_error
+#include "windows/x509_store_impl.hpp" ///< for io_threads::x509_store_impl
 
 /// for
 ///   APIENTRY,
-///   BYTE,
+///   CertFreeCertificateContext,
 ///   CopyMemory,
 ///   DWORD,
-///   FALSE,
 ///   GetModuleHandleA,
 ///   GetProcAddress,
+///   PCCERT_CONTEXT,
 ///   PRTL_OSVERSIONINFOEXW,
 ///   RTL_OSVERSIONINFOEXW,
 ///   SEC_E_INCOMPLETE_MESSAGE,
@@ -62,10 +62,11 @@
 ///   VER_SERVICEPACKMAJOR,
 ///   VER_SET_CONDITION
 #include <Windows.h>
-#include <SubAuth.h> ///< for NTSTATUS, SCHANNEL_USE_BLACKLISTS, STATUS_SUCCESS
+#include <SubAuth.h> ///< for NTSTATUS, schannel.h, STATUS_SUCCESS
 /// for
 ///   AcquireCredentialsHandleW,
 ///   ApplyControlToken,
+///   CredHandle,
 ///   CtxtHandle,
 ///   DeleteSecurityContext,
 ///   DecryptMessage,
@@ -86,6 +87,15 @@
 ///   PSecPkgInfoW,
 ///   QueryContextAttributesW,
 ///   QuerySecurityPackageInfoW,
+///   SCH_CRED_AUTO_CRED_VALIDATION,
+///   SCH_CRED_MANUAL_CRED_VALIDATION,
+///   SCH_CRED_NO_DEFAULT_CREDS,
+///   SCH_CRED_REVOCATION_CHECK_CHAIN,
+///   SCH_CREDENTIALS,
+///   SCH_CREDENTIALS_VERSION,
+///   SCH_SEND_AUX_RECORD,
+///   SCH_USE_STRONG_CRYPTO,
+///   SCHANNEL_SHUTDOWN,
 ///   SecBuffer,
 ///   SECBUFFER_ALERT,
 ///   SECBUFFER_DATA,
@@ -101,58 +111,11 @@
 ///   SECPKG_FLAG_PRIVACY,
 ///   SECPKG_FLAG_STREAM,
 ///   SECURITY_NETWORK_DREP
-#include <security.h>
-/// for
-///   AUTHTYPE_SERVER,
-///   CERT_CHAIN_CACHE_END_CERT,
-///   CERT_CHAIN_ENGINE_CONFIG,
-///   CERT_CHAIN_PARA,
-///   CERT_CHAIN_POLICY_PARA,
-///   CERT_CHAIN_POLICY_SSL,
-///   CERT_CHAIN_POLICY_SSL_F12_NONE_CATEGORY,
-///   CERT_CHAIN_POLICY_SSL_F12_SUCCESS_LEVEL,
-///   CERT_CHAIN_POLICY_STATUS,
-///   CERT_CHAIN_REVOCATION_CHECK_CHAIN,
-///   CERT_CLOSE_STORE_CHECK_FLAG,
-///   CERT_ENHKEY_USAGE,
-///   CERT_FIND_SUBJECT_STR_W,
-///   CERT_USAGE_MATCH,
-///   CertCloseStore,
-///   CertCreateCertificateChainEngine,
-///   CertFindCertificateInStore,
-///   CertFreeCertificateChain,
-///   CertFreeCertificateChainEngine,
-///   CertFreeCertificateContext,
-///   CertGetCertificateChain,
-///   CertVerifyCertificateChainPolicy,
-///   CredHandle,
-///   CRYPT_DATA_BLOB,
-///   HCERTCHAINENGINE,
-///   HCERTSTORE,
-///   PCCERT_CHAIN_CONTEXT,
-///   PCCERT_CONTEXT,
-///   PFXImportCertStore,
-///   PKCS_7_ASN_ENCODING,
-///   PKCS12_INCLUDE_EXTENDED_PROPERTIES,
-///   PKCS12_NO_PERSIST_KEY,
-///   SCH_CRED_AUTO_CRED_VALIDATION,
-///   SCH_CRED_MANUAL_CRED_VALIDATION,
-///   SCH_CRED_NO_DEFAULT_CREDS,
-///   SCH_CRED_REVOCATION_CHECK_CHAIN,
-///   SCH_CREDENTIALS,
-///   SCH_CREDENTIALS_VERSION,
-///   SCH_SEND_AUX_RECORD,
-///   SCH_USE_STRONG_CRYPTO,
-///   SCHANNEL_SHUTDOWN,
 ///   SP_PROT_TLS1_2_CLIENT,
 ///   SP_PROT_TLS1_3_CLIENT,
-///   SSL_EXTRA_CERT_CHAIN_POLICY_PARA,
-///   SSL_F12_EXTRA_CERT_CHAIN_POLICY_STATUS,
 ///   TLS_PARAMETERS,
 ///   UNISP_NAME_A,
-///   UNISP_NAME_W,
-///   USAGE_MATCH_TYPE_AND,
-///   X509_ASN_ENCODING
+///   UNISP_NAME_W
 #include <schannel.h>
 
 #include <algorithm> ///< for std::max
@@ -225,24 +188,9 @@ public:
    tls_client_context_impl(tls_client_context_impl &&) = delete;
    tls_client_context_impl(tls_client_context_impl const &) = delete;
 
-   [[nodiscard]] tls_client_context_impl(std::string_view const domainName, size_t const capacityOfTlsClientSessionList) :
-      m_sessionMemory
-      {
-         std::make_unique<memory_pool>(
-            capacityOfTlsClientSessionList,
-            std::align_val_t{alignof(tls_client_session),},
-            sizeof(tls_client_session)
-         ),
-      }
-   {
-      validate_environment(capacityOfTlsClientSessionList);
-      set_domain_name(domainName);
-      acquire_credentials_handle();
-   }
-
    [[nodiscard]] tls_client_context_impl(
+      std::shared_ptr<x509_store_impl> const &x509Store,
       std::string_view const domainName,
-      ssl_certificate const &sslCertificate,
       size_t const capacityOfTlsClientSessionList
    ) :
       m_sessionMemory
@@ -252,149 +200,12 @@ public:
             std::align_val_t{alignof(tls_client_session),},
             sizeof(tls_client_session)
          ),
-      }
+      },
+      m_x509Store{x509Store,}
    {
+      assert(nullptr != m_x509Store);
       validate_environment(capacityOfTlsClientSessionList);
       set_domain_name(domainName);
-      CRYPT_DATA_BLOB sslCertificateBlob
-      {
-         .cbData = static_cast<ULONG>(sslCertificate.content().size()),
-         .pbData = std::bit_cast<BYTE *>(sslCertificate.content().data()),
-      };
-      std::wstring wcharPassword{};
-      if (false == sslCertificate.password().empty())
-      {
-         if (auto const errorCode{utf8_to_wide_char(wcharPassword, sslCertificate.password()),}; true == bool{errorCode,}) [[unlikely]]
-         {
-            log_system_error("[tls_client] failed to convert password to wchar_t: ({}) - {}", errorCode);
-            unreachable();
-         }
-      }
-      m_certificateStore = PFXImportCertStore(
-         std::addressof(sslCertificateBlob),
-         wcharPassword.data(),
-         PKCS12_INCLUDE_EXTENDED_PROPERTIES | PKCS12_NO_PERSIST_KEY
-      );
-      if (nullptr == m_certificateStore) [[unlikely]]
-      {
-         check_winapi_error("[tls_client] failed to import ssl certificates: ({}) - {}");
-         unreachable();
-      }
-      m_certificateContext = CertFindCertificateInStore(
-         m_certificateStore,
-         X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
-         0,
-         CERT_FIND_SUBJECT_STR_W,
-         m_domainName.first.data(),
-         nullptr
-      );
-      if (nullptr == m_certificateContext)
-      {
-         check_winapi_error("[tls_client] failed to find certificate: ({}) - {}");
-         unreachable();
-      }
-      CERT_CHAIN_ENGINE_CONFIG certificateChainEngineConfig
-      {
-         .cbSize = sizeof(CERT_CHAIN_ENGINE_CONFIG),
-         .hRestrictedRoot = nullptr,
-         .hRestrictedTrust = nullptr,
-         .hRestrictedOther = nullptr,
-         .cAdditionalStore = 0,
-         .rghAdditionalStore = nullptr,
-         .dwFlags = CERT_CHAIN_CACHE_END_CERT,
-         .dwUrlRetrievalTimeout = 0,
-         .MaximumCachedCertificates = 0,
-         .CycleDetectionModulus = 0,
-         .hExclusiveRoot = m_certificateStore,
-         .hExclusiveTrustedPeople = nullptr,
-         .dwExclusiveFlags = 0,
-      };
-      if (
-         FALSE == CertCreateCertificateChainEngine(
-            std::addressof(certificateChainEngineConfig),
-            std::addressof(m_certificateChainEngine)
-         )
-      )
-      {
-         check_winapi_error("[tls_client] failed to create certificate chain engine: ({}) - {}");
-         unreachable();
-      }
-      CERT_CHAIN_PARA certificateChainPara
-      {
-         .cbSize = sizeof(CERT_CHAIN_PARA),
-         .RequestedUsage = CERT_USAGE_MATCH
-         {
-            .dwType = USAGE_MATCH_TYPE_AND,
-            .Usage = CERT_ENHKEY_USAGE
-            {
-               .cUsageIdentifier = 0,
-               .rgpszUsageIdentifier = nullptr,
-            },
-         },
-      };
-      PCCERT_CHAIN_CONTEXT certificateChainContext{nullptr,};
-      if (
-         FALSE == CertGetCertificateChain(
-            m_certificateChainEngine,
-            m_certificateContext,
-            nullptr,
-            m_certificateContext->hCertStore,
-            std::addressof(certificateChainPara),
-            CERT_CHAIN_CACHE_END_CERT | CERT_CHAIN_REVOCATION_CHECK_CHAIN,
-            nullptr,
-            std::addressof(certificateChainContext)
-         )
-      )
-      {
-         check_winapi_error("[tls_client] failed to get certificate chain: ({}) - {}");
-         unreachable();
-      }
-      SSL_EXTRA_CERT_CHAIN_POLICY_PARA certificateChainExtraPolicyPara
-      {
-         .cbSize = sizeof(SSL_EXTRA_CERT_CHAIN_POLICY_PARA),
-         .dwAuthType = AUTHTYPE_SERVER,
-         .fdwChecks = 0,
-         .pwszServerName = m_domainName.first.data(),
-      };
-      CERT_CHAIN_POLICY_PARA certificateChainPolicyPara
-      {
-         .cbSize = sizeof(CERT_CHAIN_POLICY_PARA),
-         .dwFlags = 0,
-         .pvExtraPolicyPara = std::addressof(certificateChainExtraPolicyPara),
-      };
-      SSL_F12_EXTRA_CERT_CHAIN_POLICY_STATUS certificateChainPolicyExtraStatus
-      {
-         .cbSize = sizeof(SSL_F12_EXTRA_CERT_CHAIN_POLICY_STATUS),
-         .dwErrorLevel = CERT_CHAIN_POLICY_SSL_F12_SUCCESS_LEVEL,
-         .dwErrorCategory = CERT_CHAIN_POLICY_SSL_F12_NONE_CATEGORY,
-         .dwReserved = 0,
-         .wszErrorText = {0,},
-      };
-      CERT_CHAIN_POLICY_STATUS certificateChainPolicyStatus
-      {
-         .cbSize = sizeof(CERT_CHAIN_POLICY_STATUS),
-         .dwError = 0,
-         .lChainIndex = 0,
-         .lElementIndex = 0,
-         .pvExtraPolicyStatus = std::addressof(certificateChainPolicyExtraStatus),
-      };
-      if (
-         FALSE == CertVerifyCertificateChainPolicy(
-            CERT_CHAIN_POLICY_SSL,
-            certificateChainContext,
-            std::addressof(certificateChainPolicyPara),
-            std::addressof(certificateChainPolicyStatus)
-         )
-      )
-      {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] failed to verify certificate chain: {}",
-            certificateChainPolicyStatus.dwError
-         );
-         unreachable();
-      }
-      CertFreeCertificateChain(certificateChainContext);
       acquire_credentials_handle();
    }
 
@@ -409,18 +220,6 @@ public:
       {
          CertFreeCertificateContext(m_certificateContext);
          m_certificateContext = nullptr;
-      }
-      if (nullptr != m_certificateChainEngine)
-      {
-         CertFreeCertificateChainEngine(m_certificateChainEngine);
-      }
-      if (nullptr != m_certificateStore)
-      {
-         if (FALSE == CertCloseStore(m_certificateStore, CERT_CLOSE_STORE_CHECK_FLAG))
-         {
-            check_winapi_error("[tls_client] failed to close the certificate store: ({}) - {}");
-         }
-         m_certificateStore = nullptr;
       }
    }
 
@@ -498,7 +297,7 @@ public:
 
    [[nodiscard]] std::error_code check_session_status(
       tls_client_session &session,
-      data_chunk const dataChunk,
+      data_chunk const &dataChunk,
       size_t &bytesWritten
    )
    {
@@ -536,7 +335,7 @@ public:
 
    [[nodiscard]] std::error_code decrypt_message(
       tls_client_session &session,
-      data_chunk const inboundDataChunk,
+      data_chunk const &inboundDataChunk,
       data_chunk &decryptedDataChunk,
       size_t &bytesProcessed
    )
@@ -704,14 +503,14 @@ public:
       return {};
    }
 
-   [[nodiscard]] std::string_view domain_name() const noexcept
+   [[nodiscard]] std::string const &domain_name() const noexcept
    {
       return m_domainName.second;
    }
 
    [[nodiscard]] std::error_code encrypt_message(
       tls_client_session &session,
-      data_chunk const dataChunk,
+      data_chunk const &dataChunk,
       size_t &bytesWritten
    )
    {
@@ -831,7 +630,7 @@ public:
       m_sessionMemory->push_object(session);
    }
 
-   [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const dataChunk, size_t &bytesWritten)
+   [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const &dataChunk, size_t &bytesWritten)
    {
       assert(tls_client_status::none != session.status);
       assert(nullptr != dataChunk.bytes);
@@ -964,12 +763,12 @@ private:
    std::unique_ptr<memory_pool> m_securityMemory{nullptr,};
    std::unique_ptr<memory_pool> m_sessionMemory;
    std::pair<std::wstring, std::string> m_domainName;
-   HCERTSTORE m_certificateStore{nullptr,};
-   HCERTCHAINENGINE m_certificateChainEngine{nullptr,};
+   std::shared_ptr<x509_store_impl> const m_x509Store;
    PCCERT_CONTEXT m_certificateContext{nullptr,};
 
    void acquire_credentials_handle()
    {
+      m_certificateContext = m_x509Store->make_certificate_context(m_domainName.first);
       auto tlsParameters
       {
          std::to_array(
@@ -1002,8 +801,8 @@ private:
          .dwVersion = SCH_CREDENTIALS_VERSION,
          .dwCredFormat = 0,
          .cCreds = static_cast<ULONG>((nullptr == m_certificateContext) ? 0 : 1),
-         .paCred = ((nullptr == m_certificateContext) ? nullptr : std::addressof(m_certificateContext)),
-         .hRootStore = m_certificateStore,
+         .paCred = (nullptr == m_certificateContext) ? nullptr : std::addressof(m_certificateContext),
+         .hRootStore = (nullptr == m_certificateContext) ? nullptr : m_certificateContext->hCertStore,
          .cMappers = 0,
          .aphMappers = nullptr,
          .dwSessionLifespan = 0,
@@ -1043,7 +842,7 @@ private:
 
    [[nodiscard]] std::error_code handle_handshake(
       tls_client_session &session,
-      data_chunk const inboundDataChunk,
+      data_chunk const &inboundDataChunk,
       size_t &bytesProcessed
    )
    {
@@ -1232,7 +1031,7 @@ private:
 
    [[nodiscard]] size_t handle_handshake_step(
       tls_client_session &session,
-      data_chunk const inboundDataChunk,
+      data_chunk const &inboundDataChunk,
       std::array<SecBuffer, 2> const &inboundSecurityBuffers,
       std::array<SecBuffer, 3> const &outboundSecurityBuffers
    )
@@ -1347,7 +1146,7 @@ private:
       ;
    }
 
-   void set_domain_name(std::string_view const value)
+   void set_domain_name(std::string_view const &value)
    {
       if (auto const errorCode{utf8_to_wide_char(m_domainName.first, value),}; true == bool{errorCode}) [[unlikely]]
       {

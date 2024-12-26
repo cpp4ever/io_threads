@@ -166,9 +166,9 @@ private:
       m_connected.store(true, std::memory_order_relaxed);
    }
 
-   MOCK_METHOD(std::error_code, io_data_decrypted, (data_chunk), (final));
-   MOCK_METHOD(std::error_code, io_data_to_encrypt, (data_chunk, size_t &), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
+   MOCK_METHOD(std::error_code, io_data_decrypted, (data_chunk const &), (final));
+   MOCK_METHOD(std::error_code, io_data_to_encrypt, (data_chunk const &, size_t &), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
 };
 
@@ -178,47 +178,34 @@ using tls_client = testsuite;
 
 }
 
-#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(tls_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{1,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+   x509_store const testX509Store{};
    constexpr size_t testTlsSessionsCapacity{1,};
-   auto testTlsContext = tls_client_context{testThread, test_domain, testTlsSessionsCapacity,};
+   auto testTlsContext = tls_client_context{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
    constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
 }
 
+#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(tls_client, https)
 {
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{0,};
    constexpr size_t testCapacityOfInputOutputBuffer{4 * 1024,};
-   tcp_client_thread const testThread
-   {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+   x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
    constexpr size_t testTlsSessionsCapacity{1,};
-   tls_client_context const testTlsContext
-   {
-      testThread,
-      test_domain,
-      ssl_certificate{test_certificate_p12(), ssl_certificate_type::p12,},
-      testTlsSessionsCapacity,
-   };
+   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
    test_rest_client<test_tls_stream>(testThread, testClient);
 }
+#endif
 
 namespace
 {
@@ -239,24 +226,24 @@ TEST_F(tls_client, badssl)
    std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(X509_V_ERR_HOSTNAME_MISMATCH),};
    std::vector<std::error_code> const testSelfSignedErrorCodes{make_x509_error_code(X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT),};
    std::vector<std::error_code> const testUntrustedRootErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN),};
-   std::vector<std::error_code> const testSuperfishErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testEDellRootErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testDSDTestProviderErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testPreactCLIErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testWebpackDevServerErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_BAD_DH_VALUE)),};
-   std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
-   std::vector<std::error_code> const testDH480ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
-   std::vector<std::error_code> const testDH512ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
-   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testSuperfishErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+   std::vector<std::error_code> const testEDellRootErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+   std::vector<std::error_code> const testDSDTestProviderErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+   std::vector<std::error_code> const testPreactCLIErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+   std::vector<std::error_code> const testWebpackDevServerErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+   std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testDH480ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
+   std::vector<std::error_code> const testDH512ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
+   std::vector<std::error_code> const testDH1024ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
    std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
    std::vector<std::error_code> const testTLSv1_0ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
    std::vector<std::error_code> const testTLSv1_1ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
    std::vector<std::error_code> const test3DESErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_CERT_REVOKED),};
-   std::vector<std::error_code> const testCurveBallErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testFREAKErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
+   std::vector<std::error_code> const testCurveBallErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN),};
+   std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testFREAKErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
 #elif (defined(IO_THREADS_SCHANNEL))
    std::vector<std::error_code> const testExpiredErrorCodes{make_x509_error_code(SEC_E_CERT_EXPIRED),};
    std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(SEC_E_WRONG_PRINCIPAL),};
@@ -363,25 +350,22 @@ TEST_F(tls_client, badssl)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{tls_packet_size_limit,};
-   tcp_client_thread const testThread
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+   std::vector<domain_address> testDomains;
+   testDomains.reserve(testBadAddresses.size());
+   for (auto const &testBadAddress : testBadAddresses)
    {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+      testDomains.push_back(domain_address{.hostname = std::string{testBadAddress.host,}, .port = testBadAddress.port,});
+   }
+   x509_store const testX509Store{testDomains,};
    constexpr size_t testTlsSessionsCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};
-   constexpr tcp_keep_alive testTcpKeepAlive
-   {
-      .idleTimeout = testTimeout,
-      .probeTimeout = testTimeout,
-      .probesCount = 0,
-   };
+   constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testBadAddress : testBadAddresses)
    {
       auto testIPv4Addresses{dns_resolver::resolve_ipv4(testBadAddress.host, testBadAddress.port),};
       ASSERT_FALSE(testIPv4Addresses.empty());
-      tls_client_context const testTlsContext{testThread, testBadAddress.host, testTlsSessionsCapacity,};
+      tls_client_context const testTlsContext{testThread, testX509Store, testBadAddress.host, testTlsSessionsCapacity,};
       test_tls_client testClient{testTlsContext,};
       testClient.expect_error(testing::AnyOfArray(testBadAddress.errorCodes));
       testClient.expect_ready_to_send(std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testBadAddress.host));
@@ -397,6 +381,7 @@ TEST_F(tls_client, badssl)
    }
 }
 
+#if (defined(IO_THREADS_SCHANNEL))
 namespace
 {
 
@@ -436,24 +421,21 @@ TEST_F(tls_client, goodssl)
    constexpr uint16_t testCpuId{0,};
    constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{tls_packet_size_limit,};
-   tcp_client_thread const testThread
+   tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+   std::vector<domain_address> testDomains;
+   testDomains.reserve(testGoodAddresses.size());
+   for (auto const &testGoodAddress : testGoodAddresses)
    {
-      testCpuId,
-      testCapacityOfSocketDescriptorList,
-      testCapacityOfInputOutputBuffer,
-   };
+      testDomains.push_back(domain_address{.hostname = std::string{testGoodAddress.host,}, .port = testGoodAddress.port,});
+   }
+   x509_store const testX509Store{testDomains,};
    constexpr size_t testTlsSessionsCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};
-   constexpr tcp_keep_alive testTcpKeepAlive
-   {
-      .idleTimeout = testTimeout,
-      .probeTimeout = testTimeout,
-      .probesCount = 0,
-   };
+   constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testGoodAddress : testGoodAddresses)
    {
       auto const testIPv4Addresses{dns_resolver::resolve_ipv4(testGoodAddress.host, testGoodAddress.port),};
-      tls_client_context const testTlsContext{testThread, testGoodAddress.host, testTlsSessionsCapacity,};
+      tls_client_context const testTlsContext{testThread, testX509Store, testGoodAddress.host, testTlsSessionsCapacity,};
       test_tls_client testClient{testTlsContext,};
       testClient.expect_recv(
          [&testClient] (auto const)

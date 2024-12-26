@@ -38,17 +38,17 @@
 namespace io_threads
 {
 
-std::vector<socket_address> dns_resolver::resolve_all(std::string_view const host, uint16_t const port)
+std::vector<socket_address> dns_resolver::resolve_all(std::string_view const &host, uint16_t const port)
 {
    return resolve_domain_name(AF_UNSPEC, host, port);
 }
 
-std::vector<socket_address> dns_resolver::resolve_ipv4(std::string_view const host, uint16_t const port)
+std::vector<socket_address> dns_resolver::resolve_ipv4(std::string_view const &host, uint16_t const port)
 {
    return resolve_domain_name(AF_INET, host, port);
 }
 
-std::vector<socket_address> dns_resolver::resolve_ipv6(std::string_view const host, uint16_t const port)
+std::vector<socket_address> dns_resolver::resolve_ipv6(std::string_view const &host, uint16_t const port)
 {
    return resolve_domain_name(AF_INET6, host, port);
 }

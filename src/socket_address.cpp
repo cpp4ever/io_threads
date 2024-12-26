@@ -52,11 +52,6 @@ socket_address::socket_address(std::shared_ptr<socket_address_impl> const &impl)
    assert(nullptr != m_impl);
 }
 
-socket_address::operator std::string() const
-{
-   return m_impl->operator std::string();
-}
-
 socket_address::operator std::string_view() const noexcept
 {
    return m_impl->operator std::string_view();
@@ -75,9 +70,9 @@ std::ostream &operator << (std::ostream &sink, socket_address const &socketAddre
    return sink << std::format("{}", socketAddress);
 }
 
-std::optional<socket_address> make_socket_address(std::string_view const address, std::error_code &errorCode)
+std::optional<socket_address> make_socket_address(std::string_view const &ipport, std::error_code &errorCode)
 {
-   if (auto const impl{socket_address::socket_address_impl::parse(address, 0, errorCode),}; nullptr != impl)
+   if (auto const impl{socket_address::socket_address_impl::parse(ipport, 0, errorCode),}; nullptr != impl)
    {
       return socket_address{impl,};
    }
@@ -85,7 +80,7 @@ std::optional<socket_address> make_socket_address(std::string_view const address
    return std::nullopt;
 }
 
-std::optional<socket_address> make_socket_address(std::string_view const ip, uint16_t const port, std::error_code &errorCode)
+std::optional<socket_address> make_socket_address(std::string_view const &ip, uint16_t const port, std::error_code &errorCode)
 {
    if (auto const impl{socket_address::socket_address_impl::parse(ip, port, errorCode),}; nullptr != impl)
    {

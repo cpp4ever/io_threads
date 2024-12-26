@@ -57,7 +57,7 @@ public:
 
 protected:
    void io_connected() override;
-   void io_disconnected(std::error_code errorCode) override;
+   void io_disconnected(std::error_code const &errorCode) override;
 
    void ready_to_close();
 
@@ -65,11 +65,11 @@ private:
    std::shared_ptr<wss_client_context::wss_client_context_impl> const m_wssClientContext;
    websocket_client_session *m_websocketClientSession{nullptr};
 
-   [[nodiscard]] std::error_code io_data_decrypted(data_chunk dataChunk) final;
-   [[nodiscard]] std::error_code io_data_to_encrypt(data_chunk dataChunk, size_t &bytesWritten) final;
-   [[nodiscard]] virtual std::error_code io_frame_received(websocket_frame dataFrame, bool finalFrame) = 0;
+   [[nodiscard]] std::error_code io_data_decrypted(data_chunk const &dataChunk) final;
+   [[nodiscard]] std::error_code io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten) final;
+   [[nodiscard]] virtual std::error_code io_frame_received(websocket_frame const &dataFrame, bool finalFrame) = 0;
    [[nodiscard]] virtual websocket_frame io_frame_to_send() = 0;
-   [[nodiscard]] std::error_code io_handle_frame(data_chunk dataChunk);
+   [[nodiscard]] std::error_code io_handle_frame(data_chunk const &dataChunk);
    [[nodiscard]] virtual websocket_client_config io_ready_to_handshake() = 0;
 };
 
