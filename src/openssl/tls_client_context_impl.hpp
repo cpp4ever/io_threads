@@ -254,25 +254,16 @@ public:
             }
             m_securityBuffersMemoryPool.push(tlsClientSession.securityBuffer);
             tlsClientSession.securityBuffer = nullptr;
-            return {};
+            return std::error_code{};
          }
-         if (tlsClientSession.securityToken.size() > dataChunk.bytesLength) [[unlikely]]
-         {
-            log_error(
-               std::source_location::current(),
-               "[tls_client] {} byte send buffer is too small for {} byte security token",
-               dataChunk.bytesLength,
-               tlsClientSession.securityToken.size()
-            );
-            unreachable();
-         }
+         assert(tlsClientSession.securityToken.size() <= dataChunk.bytesLength);
          std::memcpy(dataChunk.bytes, tlsClientSession.securityToken.data(), tlsClientSession.securityToken.size());
          bytesWritten = tlsClientSession.securityToken.size();
          tlsClientSession.securityToken = std::string_view{"",};
-         return {};
+         return std::error_code{};
       }
       assert(true == tlsClientSession.securityToken.empty());
-      return {};
+      return std::error_code{};
    }
 
    [[nodiscard]] std::error_code decrypt_message(
@@ -295,7 +286,6 @@ public:
       assert(nullptr == tlsClientSession.wbioBufMem->data);
       assert(0 == tlsClientSession.wbioBufMem->max);
       assert(0 == tlsClientSession.wbioBufMem->flags);
-      assert(tls_client_status::handshake_complete != tlsClientSession.status);
       assert(true == tlsClientSession.securityToken.empty());
       assert(nullptr == tlsClientSession.next);
       assert(nullptr != inboundDataChunk.bytes);
