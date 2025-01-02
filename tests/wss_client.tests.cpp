@@ -188,17 +188,16 @@ using wss_client = testsuite;
 
 }
 
-#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(wss_client, connect_timeout)
 {
    constexpr uint16_t testCpuId{0,};
-   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfTcpBuffers{1,};
    tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfTcpBuffers,};
    x509_store const testX509Store{};
-   constexpr size_t testTlsSessionsCapacity{0,};
+   constexpr size_t testTlsSessionsCapacity{1,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
-   constexpr size_t testCapacityOfWssClientSessionList{0,};
+   constexpr size_t testCapacityOfWssClientSessionList{1,};
    constexpr size_t testCapacityOfWssBuffers{1,};
    wss_client_context const testWebsocketContext{testTlsContext, testCapacityOfWssClientSessionList, testCapacityOfWssBuffers,};
    test_wss_client testClient{testWebsocketContext,};
@@ -209,10 +208,14 @@ TEST_F(wss_client, connect_timeout)
 TEST_F(wss_client, wss)
 {
    constexpr uint16_t testCpuId{0,};
-   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfTcpBuffers{4 * 1024,};
    tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfTcpBuffers,};
+#if (defined(IO_THREADS_OPENSSL))
+   x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
+#elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
+#endif
    constexpr size_t testTlsSessionsCapacity{1,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    constexpr size_t testCapacityOfWssClientSessionList{1,};
@@ -221,6 +224,5 @@ TEST_F(wss_client, wss)
    test_wss_client testClient{testWebsocketContext,};
    test_websocket_client<boost::beast::websocket::stream<test_tls_stream, true>>(testClient);
 }
-#endif
 
 }

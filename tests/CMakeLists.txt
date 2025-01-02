@@ -42,19 +42,11 @@ target_include_directories(io_threads_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(io_threads_tests PRIVATE Boost::beast gmock_main io_threads::io_threads)
 if(IO_THREADS_SSL_LIBRARY STREQUAL "openssl")
    target_compile_definitions(io_threads_tests PRIVATE IO_THREADS_CBC_ALLOWED=1 IO_THREADS_DH2048_ALLOWED=1)
-   if(OPENSSL_VERSION VERSION_GREATER_EQUAL "1.1.1")
-      target_compile_definitions(io_threads_tests PRIVATE IO_THREADS_TLSv1_3_AVAILABLE=1)
-   endif()
 elseif(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
    target_compile_definitions(io_threads_tests PRIVATE IO_THREADS_CBC_ALLOWED=1)
    target_link_libraries(io_threads_tests PRIVATE Boost::wintls)
-   # Minimal Windows wersions with TLS 1.3 support:
-   #  - Windows 11, Version 21H2 (10.0.22000)
-   #  - Windows Server 2022, Version 21H2 (10.0.20348)
-   if(CMAKE_SYSTEM_VERSION VERSION_GREATER_EQUAL "10.0.20348")
-      target_compile_definitions(io_threads_tests PRIVATE IO_THREADS_TLSv1_3_AVAILABLE=1)
-   else()
-      # 3DES, DH-1024 and DH-2048 are deprecated in newer versions of Windows,
+   if(CMAKE_SYSTEM_VERSION VERSION_LESS "10.0.20348")
+      # 3DES, DH-1024 and DH-2048 are deprecated in Windows 11, Version 21H2 (10.0.22000) and Windows Server 2022, Version 21H2 (10.0.20348),
       # but for older versions the corresponding tests should be skipped
       target_compile_definitions(
          io_threads_tests

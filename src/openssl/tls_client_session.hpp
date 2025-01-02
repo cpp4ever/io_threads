@@ -70,4 +70,59 @@ struct tls_client_session final
    };
 };
 
+inline void reset_bio(BIO *bio, BUF_MEM &bufMem)
+{
+   assert(nullptr != bio);
+   assert(nullptr != bufMem.data);
+   assert(0 < bufMem.max);
+   assert(bufMem.length <= bufMem.max);
+   assert(0 == bufMem.flags);
+   bufMem.length = 0;
+   bufMem.data = nullptr;
+   bufMem.max = 0;
+   BIO_set_mem_buf(bio, std::addressof(bufMem), BIO_NOCLOSE);
+}
+
+inline void reset_rbio(tls_client_session &tlsClientSession)
+{
+   assert(nullptr != tlsClientSession.rbio);
+   assert(nullptr != tlsClientSession.rbioBufMem);
+   reset_bio(tlsClientSession.rbio, *tlsClientSession.rbioBufMem);
+}
+
+inline void reset_wbio(tls_client_session &tlsClientSession)
+{
+   assert(nullptr != tlsClientSession.wbio);
+   assert(nullptr != tlsClientSession.wbioBufMem);
+   reset_bio(tlsClientSession.wbio, *tlsClientSession.wbioBufMem);
+}
+
+inline void set_rbio(tls_client_session &tlsClientSession, data_chunk const &dataChunk)
+{
+   assert(nullptr != tlsClientSession.rbio);
+   assert(nullptr != tlsClientSession.rbioBufMem);
+   assert(0 == tlsClientSession.rbioBufMem->length);
+   assert(nullptr == tlsClientSession.rbioBufMem->data);
+   assert(0 == tlsClientSession.rbioBufMem->max);
+   assert(0 == tlsClientSession.rbioBufMem->flags);
+   tlsClientSession.rbioBufMem->length = dataChunk.bytesLength;
+   tlsClientSession.rbioBufMem->data = std::bit_cast<char *>(dataChunk.bytes);
+   tlsClientSession.rbioBufMem->max = dataChunk.bytesLength;
+   BIO_set_mem_buf(tlsClientSession.rbio, tlsClientSession.rbioBufMem, BIO_NOCLOSE);
+}
+
+inline void set_wbio(tls_client_session &tlsClientSession, data_chunk const &dataChunk)
+{
+   assert(nullptr != tlsClientSession.wbio);
+   assert(nullptr != tlsClientSession.wbioBufMem);
+   assert(0 == tlsClientSession.wbioBufMem->length);
+   assert(nullptr == tlsClientSession.wbioBufMem->data);
+   assert(0 == tlsClientSession.wbioBufMem->max);
+   assert(0 == tlsClientSession.wbioBufMem->flags);
+   tlsClientSession.wbioBufMem->length = 0;
+   tlsClientSession.wbioBufMem->data = std::bit_cast<char *>(dataChunk.bytes);
+   tlsClientSession.wbioBufMem->max = dataChunk.bytesLength;
+   BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
+}
+
 }

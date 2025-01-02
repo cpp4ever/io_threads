@@ -121,17 +121,7 @@ std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t 
       return errorCode;
    }
    if (
-      auto const errorCode
-      {
-         io_data_to_encrypt(
-            data_chunk
-            {
-               .bytes = dataChunk.bytes + m_tlsClientContext->header_size(*m_tlsClientSession, dataChunk.bytesLength),
-               .bytesLength = m_tlsClientContext->data_capacity(*m_tlsClientSession, dataChunk.bytesLength),
-            },
-            bytesWritten
-         ),
-      };
+      auto const errorCode{io_data_to_encrypt(tls_client_context_impl::prepare_to_encrypt(*m_tlsClientSession, dataChunk), bytesWritten),};
       (true == bool{errorCode,}) || (0 == bytesWritten)
    )
    {

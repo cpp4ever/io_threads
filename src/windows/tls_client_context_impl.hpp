@@ -138,49 +138,6 @@
 namespace io_threads
 {
 
-namespace
-{
-
-[[nodiscard]] static bool IsWindowsVersionOrGreater(
-   DWORD const majorVersion,
-   DWORD const minorVersion,
-   DWORD const buildNumber
-)
-{
-   static auto const RtlVerifyVersionInfo
-   {
-      std::bit_cast<
-         NTSTATUS (APIENTRY *)(PRTL_OSVERSIONINFOEXW, ULONG, ULONGLONG)
-      >(GetProcAddress(GetModuleHandleA("ntdll"), "RtlVerifyVersionInfo")),
-   };
-   RTL_OSVERSIONINFOEXW osVersionInfo
-   {
-      .dwOSVersionInfoSize = sizeof(RTL_OSVERSIONINFOEXW),
-      .dwMajorVersion = majorVersion,
-      .dwMinorVersion = minorVersion,
-      .dwBuildNumber = buildNumber,
-      .dwPlatformId = VER_PLATFORM_WIN32_NT,
-      .szCSDVersion = {0},
-      .wServicePackMajor = 0,
-      .wServicePackMinor = 0,
-      .wSuiteMask = 0,
-      .wProductType = 0,
-      .wReserved = 0,
-   };
-   ULONGLONG conditionMask{0,};
-   VER_SET_CONDITION(conditionMask, VER_MAJORVERSION, VER_GREATER_EQUAL);
-   VER_SET_CONDITION(conditionMask, VER_MINORVERSION, VER_GREATER_EQUAL);
-   VER_SET_CONDITION(conditionMask, VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
-   VER_SET_CONDITION(conditionMask, VER_BUILDNUMBER, VER_GREATER_EQUAL);
-   return STATUS_SUCCESS == RtlVerifyVersionInfo(
-      std::addressof(osVersionInfo),
-      VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR | VER_BUILDNUMBER,
-      conditionMask
-   );
-}
-
-}
-
 class tls_client_context::tls_client_context_impl final
 {
 public:
@@ -642,6 +599,11 @@ public:
          bytesWritten = securityToken.size();
          return std::error_code{};
       }
+      if (tls_client_status::handshake == session.status)
+      {
+         bytesWritten = 0;
+         return std::error_code{};
+      }
       auto securityContextHandle{session.securityContextHandle,};
       auto const securityContextRequirements{security_context_requirements(),};
       DWORD schannelShutdown{SCHANNEL_SHUTDOWN,};
@@ -734,28 +696,17 @@ public:
       return errorCode;
    }
 
-   [[nodiscard]] static size_t data_capacity(tls_client_session const &session, size_t const bytesCapacity)
+   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &tlsClientSession, data_chunk const &dataChunk)
    {
-      assert(0 < session.streamSizes.cbMaximumMessage);
-      auto const headerSize{session.streamSizes.cbHeader,};
-      auto const trailerSize{session.streamSizes.cbTrailer,};
-      if ((headerSize + 1 + trailerSize) > bytesCapacity) [[unlikely]]
+      auto const streamSizes{tlsClientSession.streamSizes,};
+      assert(0 < streamSizes.cbMaximumMessage);
+      assert(nullptr != dataChunk.bytes);
+      assert((streamSizes.cbHeader + streamSizes.cbBlockSize + streamSizes.cbTrailer) <= dataChunk.bytesLength);
+      return data_chunk
       {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] a buffer of {} bytes is too small for an encrypted message of at least {} bytes",
-            bytesCapacity,
-            (headerSize + 1 + trailerSize)
-         );
-         unreachable();
-      }
-      return std::max<size_t>(bytesCapacity - headerSize - trailerSize, session.streamSizes.cbMaximumMessage);
-   }
-
-   [[nodiscard]] static size_t header_size(tls_client_session const &session, size_t) noexcept
-   {
-      assert(0 < session.streamSizes.cbMaximumMessage);
-      return session.streamSizes.cbHeader;
+         .bytes = dataChunk.bytes + streamSizes.cbHeader,
+         .bytesLength = std::max<size_t>(streamSizes.cbMaximumMessage, dataChunk.bytesLength - streamSizes.cbHeader - streamSizes.cbTrailer),
+      };
    }
 
 private:
@@ -783,7 +734,7 @@ private:
                         DWORD{0,}
                            | SP_PROT_TLS1_2_CLIENT
                            /// Windows Server 2022 Version 21H2 and newer
-                           | ((true == IsWindowsVersionOrGreater(10, 0, 20348)) ? SP_PROT_TLS1_3_CLIENT : 0)
+                           | ((true == tls1_3_available()) ? SP_PROT_TLS1_3_CLIENT : 0)
                      )
 #else
                      ~(DWORD{SP_PROT_TLS1_2_CLIENT,})
@@ -1208,6 +1159,55 @@ std::error_code make_tls_error_code(int const value)
 std::error_code make_x509_error_code(int const value)
 {
    return std::error_code{value, std::system_category(),};
+}
+
+namespace
+{
+
+[[nodiscard]] static bool IsWindowsVersionOrGreater(
+   DWORD const majorVersion,
+   DWORD const minorVersion,
+   DWORD const buildNumber
+)
+{
+   static auto const RtlVerifyVersionInfo
+   {
+      std::bit_cast<
+         NTSTATUS (APIENTRY *)(PRTL_OSVERSIONINFOEXW, ULONG, ULONGLONG)
+      >(GetProcAddress(GetModuleHandleA("ntdll"), "RtlVerifyVersionInfo")),
+   };
+   RTL_OSVERSIONINFOEXW osVersionInfo
+   {
+      .dwOSVersionInfoSize = sizeof(RTL_OSVERSIONINFOEXW),
+      .dwMajorVersion = majorVersion,
+      .dwMinorVersion = minorVersion,
+      .dwBuildNumber = buildNumber,
+      .dwPlatformId = VER_PLATFORM_WIN32_NT,
+      .szCSDVersion = {0},
+      .wServicePackMajor = 0,
+      .wServicePackMinor = 0,
+      .wSuiteMask = 0,
+      .wProductType = 0,
+      .wReserved = 0,
+   };
+   ULONGLONG conditionMask{0,};
+   VER_SET_CONDITION(conditionMask, VER_MAJORVERSION, VER_GREATER_EQUAL);
+   VER_SET_CONDITION(conditionMask, VER_MINORVERSION, VER_GREATER_EQUAL);
+   VER_SET_CONDITION(conditionMask, VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
+   VER_SET_CONDITION(conditionMask, VER_BUILDNUMBER, VER_GREATER_EQUAL);
+   return STATUS_SUCCESS == RtlVerifyVersionInfo(
+      std::addressof(osVersionInfo),
+      VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR | VER_BUILDNUMBER,
+      conditionMask
+   );
+}
+
+}
+
+bool tls1_3_available()
+{
+   /// Windows Server 2022 Version 21H2 and newer
+   return IsWindowsVersionOrGreater(10, 0, 20348);
 }
 
 }

@@ -25,8 +25,10 @@
 
 #pragma once
 
-#include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/utility.hpp" ///< for io_threads::unreachable
+#include "openssl/error.hpp" ///< for io_threads::log_openssl_errors
+
+#include <openssl/evp.h>
 
 #include <array> ///< for std::array
 #include <bit> ///< for std::bit_cast
@@ -44,27 +46,69 @@ using sha1_digest = std::array<std::byte, sha1_digest_size>;
 class sha1_context final
 {
 public:
-   [[nodiscard]] sha1_context() = default;
+   [[nodiscard]] sha1_context()
+   {
+      m_digestMethod = EVP_MD_fetch(nullptr, "SHA1", nullptr);
+      if (nullptr == m_digestMethod) [[unlikely]]
+      {
+         log_openssl_errors("[sha1] failed to fetch digest method");
+         unreachable();
+      }
+      m_digestMethodContext = EVP_MD_CTX_new();
+      if (nullptr == m_digestMethodContext) [[unlikely]]
+      {
+         log_openssl_errors("[sha1] failed to create digest method context");
+         unreachable();
+      }
+      init();
+   }
+
    sha1_context(sha1_context &&) = delete;
    sha1_context(sha1_context const &) = delete;
 
    ~sha1_context()
    {
+      EVP_MD_CTX_free(m_digestMethodContext);
+      EVP_MD_free(m_digestMethod);
    }
 
    sha1_context &operator = (sha1_context &&) = delete;
    sha1_context &operator = (sha1_context const &) = delete;
 
-   [[nodiscard]] sha1_digest finish() const
+   [[nodiscard]] sha1_digest finish()
    {
       sha1_digest digest{};
+      uint32_t digestSize{0,};
+      if (0 == EVP_DigestFinal(m_digestMethodContext, std::bit_cast<uint8_t *>(digest.data()), std::addressof(digestSize))) [[unlikely]]
+      {
+         log_openssl_errors("[sha1] failed to finalize digest");
+         unreachable();
+      }
+      assert(digestSize == digest.size());
+      init();
       return digest;
    }
 
    void update(std::byte const *bytes, size_t const bytesLength)
    {
-      (void)bytes;
-      (void)bytesLength;
+      if (0 == EVP_DigestUpdate(m_digestMethodContext, bytes, bytesLength)) [[unlikely]]
+      {
+         log_openssl_errors("[sha1] failed to update digest");
+         unreachable();
+      }
+   }
+
+private:
+   EVP_MD *m_digestMethod{nullptr,};
+   EVP_MD_CTX *m_digestMethodContext{nullptr,};
+
+   void init()
+   {
+      if (0 == EVP_DigestInit(m_digestMethodContext, m_digestMethod)) [[unlikely]]
+      {
+         log_openssl_errors("[sha1] failed to initialize digest method context");
+         unreachable();
+      }
    }
 };
 

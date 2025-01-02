@@ -192,20 +192,22 @@ TEST_F(tls_client, connect_timeout)
    test_tcp_connect_timeout(testClient, testPort);
 }
 
-#if (defined(IO_THREADS_SCHANNEL))
 TEST_F(tls_client, https)
 {
    constexpr uint16_t testCpuId{0,};
-   constexpr size_t testCapacityOfSocketDescriptorList{0,};
+   constexpr size_t testCapacityOfSocketDescriptorList{1,};
    constexpr size_t testCapacityOfInputOutputBuffer{4 * 1024,};
    tcp_client_thread const testThread{testCpuId, testCapacityOfSocketDescriptorList, testCapacityOfInputOutputBuffer,};
+#if (defined(IO_THREADS_OPENSSL))
+   x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
+#elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
+#endif
    constexpr size_t testTlsSessionsCapacity{1,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionsCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
    test_rest_client<test_tls_stream>(testThread, testClient);
 }
-#endif
 
 namespace
 {
@@ -301,49 +303,49 @@ TEST_F(tls_client, badssl)
    {
       std::to_array(
          {
-            /// https://badssl.com/dashboard/
-            ///   Certificate Validation (High Risk)
-                  test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testExpiredErrorCodes,},
-                  test_host_port_error_code{.host = "wrong.host.badssl.com", .errorCodes = testWrongHostErrorCodes,},
-                  test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testSelfSignedErrorCodes,},
-                  test_host_port_error_code{.host = "untrusted-root.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
-            ///   Interception Certificates (High Risk)
-                  test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testSuperfishErrorCodes,},
-                  test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testEDellRootErrorCodes,},
-                  test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testDSDTestProviderErrorCodes,},
-                  test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testPreactCLIErrorCodes,},
-                  test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testWebpackDevServerErrorCodes,},
-            ///   Broken Cryptography (Medium Risk)
-                  test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testRC4ErrorCodes,},
-                  test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testRC4MD5ErrorCodes,},
-                  test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testDH480ErrorCodes,},
-                  test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testDH512ErrorCodes,},
+         /// https://badssl.com/dashboard/
+         ///   Certificate Validation (High Risk)
+               test_host_port_error_code{.host = "expired.badssl.com", .errorCodes = testExpiredErrorCodes,},
+               test_host_port_error_code{.host = "wrong.host.badssl.com", .errorCodes = testWrongHostErrorCodes,},
+               test_host_port_error_code{.host = "self-signed.badssl.com", .errorCodes = testSelfSignedErrorCodes,},
+               test_host_port_error_code{.host = "untrusted-root.badssl.com", .errorCodes = testUntrustedRootErrorCodes,},
+         ///   Interception Certificates (High Risk)
+               test_host_port_error_code{.host = "superfish.badssl.com", .errorCodes = testSuperfishErrorCodes,},
+               test_host_port_error_code{.host = "edellroot.badssl.com", .errorCodes = testEDellRootErrorCodes,},
+               test_host_port_error_code{.host = "dsdtestprovider.badssl.com", .errorCodes = testDSDTestProviderErrorCodes,},
+               test_host_port_error_code{.host = "preact-cli.badssl.com", .errorCodes = testPreactCLIErrorCodes,},
+               test_host_port_error_code{.host = "webpack-dev-server.badssl.com", .errorCodes = testWebpackDevServerErrorCodes,},
+         ///   Broken Cryptography (Medium Risk)
+               test_host_port_error_code{.host = "rc4.badssl.com", .errorCodes = testRC4ErrorCodes,},
+               test_host_port_error_code{.host = "rc4-md5.badssl.com", .errorCodes = testRC4MD5ErrorCodes,},
+               test_host_port_error_code{.host = "dh480.badssl.com", .errorCodes = testDH480ErrorCodes,},
+               test_host_port_error_code{.host = "dh512.badssl.com", .errorCodes = testDH512ErrorCodes,},
 #if (not defined(IO_THREADS_DH1024_ALLOWED)) ///< Skip test of DH-1024 deprecation
-                  test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testDH1024ErrorCodes,},
+               test_host_port_error_code{.host = "dh1024.badssl.com", .errorCodes = testDH1024ErrorCodes,},
 #endif
-                  test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testNullErrorCodes,},
-            ///   Legacy Cryptography (Moderate Risk)
-                  test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testTLSv1_0ErrorCodes,},
-                  test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testTLSv1_1ErrorCodes,},
+               test_host_port_error_code{.host = "null.badssl.com", .errorCodes = testNullErrorCodes,},
+         ///   Legacy Cryptography (Moderate Risk)
+               test_host_port_error_code{.host = "tls-v1-0.badssl.com", .port = 1010, .errorCodes = testTLSv1_0ErrorCodes,},
+               test_host_port_error_code{.host = "tls-v1-1.badssl.com", .port = 1011, .errorCodes = testTLSv1_1ErrorCodes,},
 #if (not defined(IO_THREADS_CBC_ALLOWED)) ///< Skip test of CBC ciphers deprecation
-                  test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testCBCErrorCodes,},
+               test_host_port_error_code{.host = "cbc.badssl.com", .errorCodes = testCBCErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_3DES_ALLOWED)) ///< Skip test of 3DES cipher deprecation
-                  test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = test3DESErrorCodes,},
+               test_host_port_error_code{.host = "3des.badssl.com", .errorCodes = test3DESErrorCodes,},
 #endif
 #if (not defined(IO_THREADS_DH2048_ALLOWED)) ///< Skip test of DH-2048 deprecation
-                  test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testDH2048ErrorCodes,},
+               test_host_port_error_code{.host = "dh2048.badssl.com", .errorCodes = testDH2048ErrorCodes,},
 #endif
-            ///   Domain Security Policies
-                  test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testRevokedErrorCodes,},
+         ///   Domain Security Policies
+               test_host_port_error_code{.host = "revoked.badssl.com", .errorCodes = testRevokedErrorCodes,},
 
-            /// https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html
-            ///   CVE-2020-0601 (CurveBall) Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testCurveBallErrorCodes,},
-            ///   Logjam Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testLogjamErrorCodes,},
-            ///   FREAK Vulnerability
-                  test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testFREAKErrorCodes,},
+         /// https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html
+         ///   CVE-2020-0601 (CurveBall) Vulnerability
+               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10446, .errorCodes = testCurveBallErrorCodes,},
+         ///   Logjam Vulnerability
+               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10445, .errorCodes = testLogjamErrorCodes,},
+         ///   FREAK Vulnerability
+               test_host_port_error_code{.host = "www.ssllabs.com", .port = 10444, .errorCodes = testFREAKErrorCodes,},
          }
       ),
    };
@@ -389,6 +391,7 @@ struct test_host_port final
 {
    std::string_view host{"",};
    uint16_t port{443,};
+   bool tls1_3Required{false,};
 };
 
 }
@@ -399,22 +402,17 @@ TEST_F(tls_client, goodssl)
    {
       std::to_array(
          {
-            /// https://badssl.com/dashboard/
-               test_host_port{.host = "tls-v1-2.badssl.com", .port = 1012},
-               test_host_port{.host = "sha256.badssl.com"},
-               test_host_port{.host = "rsa2048.badssl.com"},
-               test_host_port{.host = "ecc256.badssl.com"},
-               test_host_port{.host = "ecc384.badssl.com"},
-#if (not defined(_WIN32) && not defined(_WIN64))
-               test_host_port{.host = "extended-validation.badssl.com"},
-#endif
-               test_host_port{.host = "mozilla-modern.badssl.com"},
+         /// https://badssl.com/dashboard/
+            test_host_port{.host = "tls-v1-2.badssl.com", .port = 1012},
+            test_host_port{.host = "sha256.badssl.com"},
+            test_host_port{.host = "rsa2048.badssl.com"},
+            test_host_port{.host = "ecc256.badssl.com"},
+            test_host_port{.host = "ecc384.badssl.com"},
+            test_host_port{.host = "mozilla-modern.badssl.com"},
 
-            /// https://browserleaks.com/tls
-               test_host_port{.host = "tls12.browserleaks.com"},
-#if (defined(IO_THREADS_TLSv1_3_AVAILABLE))
-               test_host_port{.host = "tls13.browserleaks.com"},
-#endif
+         /// https://browserleaks.com/tls
+            test_host_port{.host = "tls12.browserleaks.com"},
+            test_host_port{.host = "tls13.browserleaks.com", .tls1_3Required = true},
          }
       ),
    };
@@ -426,6 +424,10 @@ TEST_F(tls_client, goodssl)
    testDomains.reserve(testGoodAddresses.size());
    for (auto const &testGoodAddress : testGoodAddresses)
    {
+      if ((true == testGoodAddress.tls1_3Required) && (false == tls1_3_available()))
+      {
+         continue;
+      }
       testDomains.push_back(domain_address{.hostname = std::string{testGoodAddress.host,}, .port = testGoodAddress.port,});
    }
    x509_store const testX509Store{testDomains,};
@@ -434,6 +436,10 @@ TEST_F(tls_client, goodssl)
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testGoodAddress : testGoodAddresses)
    {
+      if ((true == testGoodAddress.tls1_3Required) && (false == tls1_3_available()))
+      {
+         continue;
+      }
       auto const testIPv4Addresses{dns_resolver::resolve_ipv4(testGoodAddress.host, testGoodAddress.port),};
       tls_client_context const testTlsContext{testThread, testX509Store, testGoodAddress.host, testTlsSessionsCapacity,};
       test_tls_client testClient{testTlsContext,};

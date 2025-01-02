@@ -24,17 +24,16 @@
 ]]
 
 if(NOT OPENSSL_FOUND)
-   if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-      find_package(OpenSSL QUIET)
-   else()
-      find_package(OpenSSL)
-   endif()
-
+   set(OPENSSL_USE_STATIC_LIBS ON)
+   find_package(OpenSSL)
    if(OPENSSL_FOUND)
       add_library(io_threads_openssl INTERFACE)
       add_library(io_threads::openssl ALIAS io_threads_openssl)
       target_include_directories(io_threads_openssl INTERFACE "${OPENSSL_INCLUDE_DIR}")
       target_link_libraries(io_threads_openssl INTERFACE ${OPENSSL_LIBRARIES})
+      if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+         target_link_libraries(io_threads_openssl INTERFACE Crypt32)
+      endif()
    endif()
 endif()
 

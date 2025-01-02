@@ -149,6 +149,9 @@ public:
    {
       assert(0 < capacityOfTlsClientSessionList);
       X509_VERIFY_PARAM_set1_host(SSL_CTX_get0_param(m_sslContext.get()), domainName.data(), domainName.size());
+      SSL_CTX_set_mode(m_sslContext.get(), SSL_MODE_AUTO_RETRY | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+      SSL_CTX_set_tlsext_status_cb(m_sslContext.get(), oscp_status_callback);
+      SSL_CTX_set_tlsext_status_arg(m_sslContext.get(), this);
       for (size_t tlsClientSessionIndex{0,}; capacityOfTlsClientSessionList > tlsClientSessionIndex; ++tlsClientSessionIndex)
       {
          std::unique_ptr<SSL> ssl{SSL_new(m_sslContext.get()),};
@@ -221,21 +224,20 @@ public:
       assert(TLSEXT_STATUSTYPE_ocsp == SSL_get_tlsext_status_type(tlsClientSession.ssl.get()));
       tlsClientSession.status = tls_client_status::handshake;
       tlsClientSession.securityBuffer = m_securityBuffersMemoryPool.pop();
-      assert(0 == tlsClientSession.wbioBufMem->length);
-      tlsClientSession.wbioBufMem->data = std::bit_cast<char *>(tlsClientSession.securityBuffer);
-      tlsClientSession.wbioBufMem->max = m_securityBuffersMemoryPool.memory_size();
-      BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
+      set_wbio(
+         tlsClientSession,
+         data_chunk{.bytes = tlsClientSession.securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_size(),}
+      );
       auto const returnCode{SSL_connect(tlsClientSession.ssl.get()),};
       if (auto const errorCode = SSL_get_error(tlsClientSession.ssl.get(), returnCode); SSL_ERROR_WANT_READ != errorCode) [[unlikely]]
       {
          log_openssl_errors("[tls_client] failed to start TLS handshake:");
          unreachable();
       }
-      tlsClientSession.securityToken = std::string_view
-      {
-         std::bit_cast<char const *>(tlsClientSession.securityBuffer),
-         tlsClientSession.wbioBufMem->length,
-      };
+      auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
+      assert(m_securityBuffersMemoryPool.memory_size() >= bytesWritten);
+      tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(tlsClientSession.securityBuffer), bytesWritten,};
+      reset_wbio(tlsClientSession);
       return tlsClientSession;
    }
 
@@ -266,10 +268,6 @@ public:
          }
          std::memcpy(dataChunk.bytes, tlsClientSession.securityToken.data(), tlsClientSession.securityToken.size());
          bytesWritten = tlsClientSession.securityToken.size();
-         tlsClientSession.wbioBufMem->length = 0;
-         tlsClientSession.wbioBufMem->data = nullptr;
-         tlsClientSession.wbioBufMem->max = 0;
-         BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
          tlsClientSession.securityToken = std::string_view{"",};
          return {};
       }
@@ -277,55 +275,337 @@ public:
       return {};
    }
 
-   [[nodiscard]] std::error_code verify_oscp_response(tls_client_session &tlsClientSession)
+   [[nodiscard]] std::error_code decrypt_message(
+      tls_client_session &tlsClientSession,
+      data_chunk const &inboundDataChunk,
+      data_chunk &decryptedDataChunk,
+      size_t &bytesProcessed
+   )
    {
-      uint8_t *oscpStatus{nullptr,};
-      auto const oscpStatusSize{static_cast<long>(SSL_get_tlsext_status_ocsp_resp(tlsClientSession.ssl.get(), std::addressof(oscpStatus))),};
-      if (nullptr == oscpStatus) [[unlikely]]
+      assert(nullptr != tlsClientSession.ssl);
+      assert(nullptr != tlsClientSession.rbio);
+      assert(nullptr != tlsClientSession.rbioBufMem);
+      assert(0 == tlsClientSession.rbioBufMem->length);
+      assert(nullptr == tlsClientSession.rbioBufMem->data);
+      assert(0 == tlsClientSession.rbioBufMem->max);
+      assert(0 == tlsClientSession.rbioBufMem->flags);
+      assert(nullptr != tlsClientSession.wbio);
+      assert(nullptr != tlsClientSession.wbioBufMem);
+      assert(0 == tlsClientSession.wbioBufMem->length);
+      assert(nullptr == tlsClientSession.wbioBufMem->data);
+      assert(0 == tlsClientSession.wbioBufMem->max);
+      assert(0 == tlsClientSession.wbioBufMem->flags);
+      assert(tls_client_status::none != tlsClientSession.status);
+      assert(tls_client_status::handshake_complete != tlsClientSession.status);
+      assert(true == tlsClientSession.securityToken.empty());
+      assert(nullptr == tlsClientSession.next);
+      assert(nullptr != inboundDataChunk.bytes);
+      assert(0 < inboundDataChunk.bytesLength);
+      decryptedDataChunk = {};
+      if (1 == SSL_is_init_finished(tlsClientSession.ssl.get())) [[likely]]
       {
-         log_openssl_errors("[tls_client] failed to get OSCP status:");
+         assert(nullptr == tlsClientSession.securityBuffer);
+         set_rbio(tlsClientSession, inboundDataChunk);
+         auto *securityBuffer{(nullptr != tlsClientSession.securityBuffer) ? tlsClientSession.securityBuffer : m_securityBuffersMemoryPool.pop(),};
+         set_wbio(
+            tlsClientSession,
+            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_size(),}
+         );
+         auto const returnCode{SSL_read_ex(tlsClientSession.ssl.get(), inboundDataChunk.bytes, inboundDataChunk.bytesLength, std::addressof(decryptedDataChunk.bytesLength)), };
+         auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
+         assert(m_securityBuffersMemoryPool.memory_size() >= bytesWritten);
+         reset_wbio(tlsClientSession);
+         assert(BIO_ctrl_pending(tlsClientSession.rbio) <= inboundDataChunk.bytesLength);
+         bytesProcessed = inboundDataChunk.bytesLength - BIO_ctrl_pending(tlsClientSession.rbio);
+         reset_rbio(tlsClientSession);
+         if (0 == bytesWritten) [[likely]]
+         {
+            tlsClientSession.securityBuffer = nullptr;
+            m_securityBuffersMemoryPool.push(securityBuffer);
+         }
+         else
+         {
+            tlsClientSession.securityBuffer = securityBuffer;
+            tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(securityBuffer), bytesWritten,};
+         }
+         if (0 == returnCode) [[unlikely]]
+         {
+            if (
+               auto const errorCode{make_ssl_error_code(*tlsClientSession.ssl, returnCode),};
+               make_ssl_error_code(SSL_ERROR_WANT_READ) != errorCode
+            )
+            {
+               log_openssl_errors("[tls_client] failed to decrypt message");
+               return errorCode;
+            }
+            decryptedDataChunk.bytesLength = 0;
+         }
+         else
+         {
+            decryptedDataChunk.bytes = inboundDataChunk.bytes;
+         }
+      }
+      else
+      {
+         assert(tls_client_status::handshake == tlsClientSession.status);
+         set_rbio(
+            tlsClientSession,
+            data_chunk{.bytes = inboundDataChunk.bytes, .bytesLength = inboundDataChunk.bytesLength,}
+         );
+         auto *securityBuffer
+         {
+            (nullptr != tlsClientSession.securityBuffer)
+               ? tlsClientSession.securityBuffer
+               : m_securityBuffersMemoryPool.pop()
+         };
+         set_wbio(
+            tlsClientSession,
+            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_size(),}
+         );
+         std::error_code errorCode{};
+         if (
+            auto const returnCode{SSL_do_handshake(tlsClientSession.ssl.get()),};
+            0 >= returnCode
+         )
+         {
+            errorCode = make_ssl_error_code(*tlsClientSession.ssl, returnCode);
+            if (errorCode != make_ssl_error_code(SSL_ERROR_WANT_READ)) [[unlikely]]
+            {
+               log_openssl_errors("[tls_client] failed to complete TLS handshake");
+            }
+         }
+         auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
+         assert(m_securityBuffersMemoryPool.memory_size() >= bytesWritten);
+         reset_wbio(tlsClientSession);
+         assert(BIO_ctrl_pending(tlsClientSession.rbio) <= inboundDataChunk.bytesLength);
+         bytesProcessed = inboundDataChunk.bytesLength - BIO_ctrl_pending(tlsClientSession.rbio);
+         reset_rbio(tlsClientSession);
+         if (false == bool{errorCode,})
+         {
+            if (0 == bytesWritten)
+            {
+               tlsClientSession.status = tls_client_status::ready;
+               tlsClientSession.securityBuffer = nullptr;
+               m_securityBuffersMemoryPool.push(securityBuffer);
+            }
+            else
+            {
+               tlsClientSession.status = tls_client_status::handshake_complete;
+               tlsClientSession.securityBuffer = securityBuffer;
+               tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(securityBuffer), bytesWritten,};
+            }
+         }
+         else if (errorCode == make_ssl_error_code(SSL_ERROR_WANT_READ))
+         {
+            tlsClientSession.securityBuffer = securityBuffer;
+            tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(securityBuffer), bytesWritten,};
+            errorCode = std::error_code{};
+         }
+         else
+         {
+            bytesProcessed = inboundDataChunk.bytesLength;
+            if (0 == bytesWritten)
+            {
+               tlsClientSession.securityBuffer = nullptr;
+               m_securityBuffersMemoryPool.push(securityBuffer);
+            }
+            else
+            {
+               tlsClientSession.securityBuffer = securityBuffer;
+               tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(securityBuffer), bytesWritten,};
+            }
+         }
+         return errorCode;
+      }
+      return std::error_code{};
+   }
+
+   [[nodiscard]] std::string const &domain_name() const noexcept
+   {
+      return m_domainName;
+   }
+
+   [[nodiscard]] std::error_code encrypt_message(
+      tls_client_session &tlsClientSession,
+      data_chunk const &dataChunk,
+      size_t &bytesWritten
+   )
+   {
+      assert(nullptr != tlsClientSession.ssl);
+      assert(nullptr != tlsClientSession.rbio);
+      assert(nullptr != tlsClientSession.rbioBufMem);
+      assert(0 == tlsClientSession.rbioBufMem->length);
+      assert(nullptr == tlsClientSession.rbioBufMem->data);
+      assert(0 == tlsClientSession.rbioBufMem->max);
+      assert(0 == tlsClientSession.rbioBufMem->flags);
+      assert(nullptr != tlsClientSession.wbio);
+      assert(nullptr != tlsClientSession.wbioBufMem);
+      assert(0 == tlsClientSession.wbioBufMem->length);
+      assert(nullptr == tlsClientSession.wbioBufMem->data);
+      assert(0 == tlsClientSession.wbioBufMem->max);
+      assert(0 == tlsClientSession.wbioBufMem->flags);
+      assert(tls_client_status::ready == tlsClientSession.status);
+      assert(nullptr == tlsClientSession.securityBuffer);
+      assert(true == tlsClientSession.securityToken.empty());
+      assert(nullptr == tlsClientSession.next);
+      assert(nullptr != dataChunk.bytes);
+      assert(SSL3_RT_MAX_ENCRYPTED_OVERHEAD < dataChunk.bytesLength);
+      assert(0 < bytesWritten);
+      assert((SSL3_RT_MAX_ENCRYPTED_OVERHEAD + bytesWritten) <= dataChunk.bytesLength);
+      set_wbio(tlsClientSession, dataChunk);
+      size_t bytesEncoded{0,};
+      if (
+         auto const returnCode{SSL_write_ex(tlsClientSession.ssl.get(), dataChunk.bytes + SSL3_RT_MAX_ENCRYPTED_OVERHEAD, bytesWritten, std::addressof(bytesEncoded)),};
+         0 == returnCode
+      ) [[unlikely]]
+      {
+         auto const errorCode{make_ssl_error_code(ERR_peek_last_error()),};
+         log_openssl_errors("[tls_client] failed to encrypt message");
+         reset_wbio(tlsClientSession);
+         return errorCode;
+      }
+      assert(bytesEncoded == bytesWritten);
+      bytesWritten = BIO_ctrl_pending(tlsClientSession.wbio);
+      assert(bytesWritten <= dataChunk.bytesLength);
+      reset_wbio(tlsClientSession);
+      return {};
+   }
+
+   void release_session(tls_client_session &tlsClientSession)
+   {
+      if (0 == SSL_clear(tlsClientSession.ssl.get())) [[unlikely]]
+      {
+         log_openssl_errors("[tls_client] failed to clear SSL structure");
          unreachable();
       }
-      uint8_t const *oscpStatusConst{oscpStatus,};
-      std::unique_ptr<OCSP_RESPONSE> const oscpResponse
+      if (nullptr != tlsClientSession.securityBuffer)
       {
-         d2i_OCSP_RESPONSE(nullptr, std::addressof(oscpStatusConst), oscpStatusSize),
+         m_securityBuffersMemoryPool.push(tlsClientSession.securityBuffer);
+         tlsClientSession.securityBuffer = nullptr;
+      }
+      tlsClientSession.securityToken = std::string_view{"",};
+      tlsClientSession.next = std::launder(m_tlsClientSessions);
+      m_tlsClientSessions = std::launder(std::addressof(tlsClientSession));
+   }
+
+   [[nodiscard]] std::error_code shutdown(tls_client_session &tlsClientSession, data_chunk const &dataChunk, size_t &bytesWritten)
+   {
+      assert(tls_client_status::none != tlsClientSession.status);
+      assert(nullptr != dataChunk.bytes);
+      if (false == tlsClientSession.securityToken.empty())
+      {
+         assert(nullptr != tlsClientSession.securityBuffer);
+         std::string_view const securityToken{tlsClientSession.securityToken,};
+         std::memcpy(dataChunk.bytes, securityToken.data(), securityToken.size());
+         bytesWritten = securityToken.size();
+         return std::error_code{};
+      }
+      if (tls_client_status::handshake == tlsClientSession.status)
+      {
+         bytesWritten = 0;
+         return std::error_code{};
+      }
+      if (SSL_SENT_SHUTDOWN == SSL_get_shutdown(tlsClientSession.ssl.get()))
+      {
+         bytesWritten = 0;
+         return std::error_code{};
+      }
+      assert(0 == SSL_get_shutdown(tlsClientSession.ssl.get()));
+      set_wbio(tlsClientSession, dataChunk);
+      std::error_code errorCode{};
+      if (auto const returnCode{SSL_shutdown(tlsClientSession.ssl.get()),}; 0 > returnCode) [[unlikely]]
+      {
+         errorCode = make_ssl_error_code(*tlsClientSession.ssl, returnCode);
+         log_openssl_errors("[tls_client] failed to shutdown session");
+         bytesWritten = 0;
+      }
+      else
+      {
+         assert(BIO_ctrl_pending(tlsClientSession.wbio) <= dataChunk.bytesLength);
+         bytesWritten = BIO_ctrl_pending(tlsClientSession.wbio);
+      }
+      reset_wbio(tlsClientSession);
+      tlsClientSession.status = tls_client_status::none;
+      return errorCode;
+   }
+
+   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &, data_chunk const &dataChunk)
+   {
+      assert(SSL3_RT_MAX_ENCRYPTED_OVERHEAD < dataChunk.bytesLength);
+      return data_chunk
+      {
+         .bytes = dataChunk.bytes + SSL3_RT_MAX_ENCRYPTED_OVERHEAD,
+         .bytesLength = std::min<size_t>(SSL3_RT_MAX_PLAIN_LENGTH, dataChunk.bytesLength - SSL3_RT_MAX_ENCRYPTED_OVERHEAD),
       };
+   }
+
+private:
+   std::unique_ptr<SSL_CTX> m_sslContext;
+   memory_pool m_securityBuffersMemoryPool;
+   tls_client_session *m_tlsClientSessions{nullptr,};
+   std::string const m_domainName;
+   memory_pool m_tlsClientSessionsMemoryPool;
+
+   [[nodiscard]] static BIO *create_memory_bio()
+   {
+      auto *memoryBio{BIO_new(BIO_s_mem()),};
+      if (nullptr == memoryBio) [[unlikely]]
+      {
+         log_openssl_errors("[tls_client] failed to create memory BIO");
+         unreachable();
+      }
+      return memoryBio;
+   }
+
+   [[nodiscard]] static int oscp_status_callback(SSL *ssl, void *userdata)
+   {
+      assert(nullptr != ssl);
+      assert(nullptr != userdata);
+      auto &self{*std::bit_cast<tls_client_context_impl *>(userdata),};
+      assert(self.m_sslContext.get() == SSL_get_SSL_CTX(ssl));
+      uint8_t *oscpStatus{nullptr,};
+      auto const oscpStatusSize{static_cast<long>(SSL_get_tlsext_status_ocsp_resp(ssl, std::addressof(oscpStatus))),};
+      if (-1 == oscpStatusSize)
+      {
+         return 1;
+      }
+      uint8_t const *oscpStatusConst{oscpStatus,};
+      std::unique_ptr<OCSP_RESPONSE> const oscpResponse{d2i_OCSP_RESPONSE(nullptr, std::addressof(oscpStatusConst), oscpStatusSize),};
       if (nullptr == oscpResponse) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to get OSCP response:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to get OSCP response");
+         return -1;
       }
       auto const oscpResponseStatus{OCSP_response_status(oscpResponse.get()),};
       if (OCSP_RESPONSE_STATUS_SUCCESSFUL != oscpResponseStatus) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to OSCP request failed:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to OSCP request failed");
+         return -1;
       }
       std::unique_ptr<OCSP_BASICRESP> const oscpDecodedResponse{OCSP_response_get1_basic(oscpResponse.get()),};
       if (nullptr == oscpDecodedResponse) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to decode OSCP response:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to decode OSCP response");
+         return -1;
       }
-      auto *clientCertificateChain{SSL_get_peer_cert_chain(tlsClientSession.ssl.get()),};
+      auto *clientCertificateChain{SSL_get_peer_cert_chain(ssl),};
       if (nullptr == clientCertificateChain) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to get cerificate chain:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to get cerificate chain");
+         return -1;
       }
-      auto *x509Store{SSL_CTX_get_cert_store(m_sslContext.get()),};
+      auto *x509Store{SSL_CTX_get_cert_store(self.m_sslContext.get()),};
       assert(nullptr != x509Store);
       if (OCSP_basic_verify(oscpDecodedResponse.get(), clientCertificateChain, x509Store, 0) <= 0) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to verify OSCP response:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to verify OSCP response");
+         return -1;
       }
-      std::unique_ptr<X509> const peerCertificate{SSL_get1_peer_certificate(tlsClientSession.ssl.get()),};
+      std::unique_ptr<X509> const peerCertificate{SSL_get1_peer_certificate(ssl),};
       if (nullptr == peerCertificate) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to get peer cerificate:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to get peer cerificate");
+         return -1;
       }
       std::unique_ptr<OCSP_CERTID> ocspCertificateId{nullptr,};
       for (int x509Index{0,}; sk_X509_num(clientCertificateChain) > x509Index; ++x509Index)
@@ -339,8 +619,8 @@ public:
       }
       if (nullptr == ocspCertificateId) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to get OSCP cerificate identifier:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to get OSCP cerificate identifier");
+         return -1;
       }
       int oscpCertificateStatus{V_OCSP_CERTSTATUS_GOOD,};
       int oscpCrlReason{OCSP_REVOKED_STATUS_NOSTATUS,};
@@ -359,194 +639,24 @@ public:
          )
       ) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] failed to handle OSCP response:");
-         unreachable();
+         log_openssl_errors("[tls_client] failed to handle OSCP response");
+         return -1;
       }
       if (0 == OCSP_check_validity(lastUpdateTime, nextUpdateTime, 300L, -1L)) [[unlikely]]
       {
-         log_openssl_errors("[tls_client] OSCP response has expired:");
-         unreachable();
+         log_openssl_errors("[tls_client] OSCP response has expired");
+         return -1;
       }
-      switch (oscpCertificateStatus)
-      {
-      case V_OCSP_CERTSTATUS_GOOD: return std::error_code{};
-      case V_OCSP_CERTSTATUS_REVOKED: return make_x509_error_code(X509_V_ERR_CERT_REVOKED);
-
-      [[unlikely]] default:
-      {
-         unreachable();
-      }
-      }
-   }
-
-   [[nodiscard]] std::error_code decrypt_message(
-      tls_client_session &tlsClientSession,
-      data_chunk const &inboundDataChunk,
-      data_chunk &decryptedDataChunk,
-      size_t &bytesProcessed
-   )
-   {
-      assert(true == tlsClientSession.securityToken.empty());
-      decryptedDataChunk = {};
-      if (tls_client_status::handshake == tlsClientSession.status)
-      {
-         tlsClientSession.rbioBufMem->length = inboundDataChunk.bytesLength;
-         tlsClientSession.rbioBufMem->data = std::bit_cast<char *>(inboundDataChunk.bytes);
-         tlsClientSession.rbioBufMem->max = inboundDataChunk.bytesLength;
-         BIO_set_mem_buf(tlsClientSession.rbio, tlsClientSession.rbioBufMem, BIO_NOCLOSE);
-         auto *securityBuffer
-         {
-            (nullptr != tlsClientSession.securityBuffer)
-               ? tlsClientSession.securityBuffer
-               : m_securityBuffersMemoryPool.pop()
-         };
-         assert(0 == tlsClientSession.wbioBufMem->length);
-         tlsClientSession.wbioBufMem->data = std::bit_cast<char *>(securityBuffer);
-         tlsClientSession.wbioBufMem->max = m_securityBuffersMemoryPool.memory_size();
-         BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
-         auto const returnCode{SSL_connect(tlsClientSession.ssl.get()),};
-         bytesProcessed = tlsClientSession.rbioBufMem->length;
-         tlsClientSession.rbioBufMem->length = 0;
-         tlsClientSession.rbioBufMem->data = nullptr;
-         tlsClientSession.rbioBufMem->max = 0;
-         BIO_set_mem_buf(tlsClientSession.rbio, tlsClientSession.rbioBufMem, BIO_NOCLOSE);
-         auto errorCode{make_ssl_error_code(*tlsClientSession.ssl, returnCode)};
-         if (false == bool{errorCode,})
-         {
-            errorCode = verify_oscp_response(tlsClientSession);
-         }
-         if (false == bool{errorCode,})
-         {
-            if (0 == tlsClientSession.wbioBufMem->length)
-            {
-               tlsClientSession.status = tls_client_status::ready;
-               tlsClientSession.wbioBufMem->data = nullptr;
-               tlsClientSession.wbioBufMem->max = 0;
-               BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
-               tlsClientSession.securityBuffer = nullptr;
-               m_securityBuffersMemoryPool.push(securityBuffer);
-            }
-            else
-            {
-               tlsClientSession.status = tls_client_status::handshake_complete;
-               tlsClientSession.securityBuffer = securityBuffer;
-               tlsClientSession.securityToken = std::string_view
-               {
-                  std::bit_cast<char const *>(securityBuffer),
-                  tlsClientSession.wbioBufMem->length,
-               };
-            }
-         }
-         else if (errorCode == make_ssl_error_code(SSL_ERROR_WANT_READ))
-         {
-            tlsClientSession.securityBuffer = securityBuffer;
-            tlsClientSession.securityToken = std::string_view
-            {
-               std::bit_cast<char const *>(tlsClientSession.securityBuffer),
-               tlsClientSession.wbioBufMem->length,
-            };
-         }
-         else
-         {
-            bytesProcessed = inboundDataChunk.bytesLength;
-            tlsClientSession.wbioBufMem->length = 0;
-            tlsClientSession.wbioBufMem->data = nullptr;
-            tlsClientSession.wbioBufMem->max = 0;
-            BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
-            tlsClientSession.securityBuffer = nullptr;
-            m_securityBuffersMemoryPool.push(securityBuffer);
-            log_openssl_errors("[tls_client] failed to complete TLS handshake:");
-            return errorCode;
-         }
-      }
-      return {};
-   }
-
-   [[nodiscard]] std::string const &domain_name() const noexcept
-   {
-      return m_domainName;
-   }
-
-   [[nodiscard]] std::error_code encrypt_message(
-      tls_client_session &session,
-      data_chunk const dataChunk,
-      size_t &bytesWritten
-   )
-   {
-      assert(false && "Bad");
-      (void)session;
-      (void)dataChunk;
-      (void)bytesWritten;
-      return {};
-   }
-
-   void release_session(tls_client_session &tlsClientSession)
-   {
-      if (0 == SSL_clear(tlsClientSession.ssl.get())) [[unlikely]]
-      {
-         log_openssl_errors("[tls_client] failed to clear SSL structure:");
-         unreachable();
-      }
-      if (nullptr != tlsClientSession.securityBuffer)
-      {
-         tlsClientSession.wbioBufMem->length = 0;
-         tlsClientSession.wbioBufMem->data = nullptr;
-         tlsClientSession.wbioBufMem->max = 0;
-         BIO_set_mem_buf(tlsClientSession.wbio, tlsClientSession.wbioBufMem, BIO_NOCLOSE);
-         m_securityBuffersMemoryPool.push(tlsClientSession.securityBuffer);
-         tlsClientSession.securityBuffer = nullptr;
-      }
-      tlsClientSession.securityToken = std::string_view{"",};
-      tlsClientSession.next = std::launder(m_tlsClientSessions);
-      m_tlsClientSessions = std::launder(std::addressof(tlsClientSession));
-   }
-
-   [[nodiscard]] std::error_code shutdown(tls_client_session &tlsClientSession, data_chunk const &dataChunk, size_t &bytesWritten)
-   {
-      (void)dataChunk;
-      (void)bytesWritten;
-      if (tls_client_status::ready == tlsClientSession.status)
-      {
-         assert(false && "******************* shutdown");
-      }
-      else
-      {
-         bytesWritten = 0;
-      }
-      tlsClientSession.status = tls_client_status::none;
-      return {};
-   }
-
-   [[nodiscard]] static size_t data_capacity(tls_client_session const &session, size_t const bytesCapacity)
-   {
-      (void)session;
-      (void)bytesCapacity;
-      return 0;
-   }
-
-   [[nodiscard]] static size_t header_size(tls_client_session const &session, size_t) noexcept
-   {
-      (void)session;
-      return 0;
-   }
-
-private:
-   std::unique_ptr<SSL_CTX> m_sslContext;
-   memory_pool m_securityBuffersMemoryPool;
-   tls_client_session *m_tlsClientSessions{nullptr,};
-   std::string const m_domainName;
-   memory_pool m_tlsClientSessionsMemoryPool;
-
-   [[nodiscard]] static BIO *create_memory_bio()
-   {
-      auto *memoryBio{BIO_new(BIO_s_mem()),};
-      if (nullptr == memoryBio) [[unlikely]]
-      {
-         log_openssl_errors("[tls_client] failed to create memory BIO:");
-         unreachable();
-      }
-      return memoryBio;
+      return (V_OCSP_CERTSTATUS_GOOD == oscpCertificateStatus) ? 1 : 0;
    }
 };
+
+bool tls1_3_available()
+{
+   constexpr auto openssl_v1_1_1_prerepease = 0x1010001FL;
+   constexpr auto openssl_v1_1_1_repease = 0x10100010L;
+   auto const opensslVersion{OpenSSL_version_num(),};
+   return (openssl_v1_1_1_prerepease < opensslVersion) || (openssl_v1_1_1_repease == opensslVersion);
+}
 
 }

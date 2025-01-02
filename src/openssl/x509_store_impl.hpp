@@ -58,8 +58,9 @@
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h> ///< for X509_PURPOSE_SSL_CLIENT
 
+#include <cstring> ///< for std::memcpy
 #include <map> ///< for std::map
-#include <memory> ///< for std::default_delete, std::make_unique, std::unique_ptr
+#include <memory> ///< for std::default_delete, std::unique_ptr
 
 template<>
 struct std::default_delete<SSL_CTX>
@@ -120,21 +121,43 @@ private:
 public:
    [[nodiscard]] x509_store_impl()
    {
-      initialize_default_store();
+      if (0 == X509_STORE_set_default_paths(m_x509Store.get())) [[unlikely]]
+      {
+         log_openssl_errors("[x509_store] failed to load from default paths");
+         unreachable();
+      }
+      auto *x509VerifyParam{X509_STORE_get0_param(m_x509Store.get()),};
+      assert(nullptr != x509VerifyParam);
+      X509_VERIFY_PARAM_set_auth_level(x509VerifyParam, 2);
+      X509_VERIFY_PARAM_set_flags(
+         x509VerifyParam,
+         0
+         | X509_V_FLAG_CRL_CHECK             ///< enable revocation check
+         | X509_V_FLAG_CRL_CHECK_ALL         ///< revocation checks for the entire certificate chain
+         | X509_V_FLAG_EXTENDED_CRL_SUPPORT  ///< enable check of additional CRL features
+         | X509_V_FLAG_POLICY_CHECK          ///< enable policy check
+         | X509_V_FLAG_TRUSTED_FIRST         ///< should do nothing for default setup
+         | X509_V_FLAG_USE_DELTAS            ///< use delta CRLs to determine certificate status
+         | X509_V_FLAG_X509_STRICT           ///< disable workarounds
+      );
+      X509_VERIFY_PARAM_set_inh_flags(x509VerifyParam, X509_VP_FLAG_RESET_FLAGS);
+      X509_VERIFY_PARAM_set_hostflags(x509VerifyParam, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
+      X509_VERIFY_PARAM_set_purpose(x509VerifyParam, X509_PURPOSE_SSL_CLIENT);
+      X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
    }
 
    x509_store_impl(x509_store_impl &&) = delete;
    x509_store_impl(x509_store_impl const &) = delete;
 
-   [[nodiscard]] x509_store_impl(std::vector<domain_address> const &domainAddresses)
+   [[nodiscard]] x509_store_impl(std::vector<domain_address> const &domainAddresses) :
+      x509_store_impl{}
    {
-      initialize_default_store();
-      auto *x509VerifyParam{X509_STORE_get0_param(m_x509Store.get()),};
+      auto sslContext{create_ssl_context(),};
+      auto *x509VerifyParam{SSL_CTX_get0_param(sslContext.get()),};
       for (auto const &domainAddress : domainAddresses)
       {
          X509_VERIFY_PARAM_add1_host(x509VerifyParam, domainAddress.hostname.data(), domainAddress.hostname.size());
       }
-      auto sslContext{create_ssl_context(),};
       map_url_to_x509_crl mapUrlToX509Crl{};
       if (0 == X509_STORE_set_ex_data(m_x509Store.get(), 0, std::addressof(mapUrlToX509Crl)))
       {
@@ -151,22 +174,43 @@ public:
       /// Update the store cache with downloaded CRLs
       for (auto const &[url, x509Crl] : mapUrlToX509Crl)
       {
-         if (0 == X509_STORE_add_crl(m_x509Store.get(), x509Crl.get())) [[unlikely]]
-         {
-            log_openssl_errors("[x509_store] failed to update CRLs store:");
-         }
+         add_crl_to_store(m_x509Store.get(), x509Crl.get());
       }
    }
 
    [[nodiscard]] x509_store_impl(
       std::string_view const &x509Data,
-      x509_format const x509DataFormat,
+      [[maybe_unused]] x509_format const x509Format,
       std::string_view const &x509DataPassword
    )
    {
-      (void)x509Data;
-      (void)x509DataFormat;
-      (void)x509DataPassword;
+      assert(false == x509Data.empty());
+      assert(x509_format::pem == x509Format);
+      auto *x509VerifyParam{X509_STORE_get0_param(m_x509Store.get()),};
+      assert(nullptr != x509VerifyParam);
+      X509_VERIFY_PARAM_set_flags(x509VerifyParam, X509_V_FLAG_CHECK_SS_SIGNATURE);
+      X509_VERIFY_PARAM_set_inh_flags(x509VerifyParam, X509_VP_FLAG_RESET_FLAGS);
+      X509_VERIFY_PARAM_set_hostflags(x509VerifyParam, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
+      X509_VERIFY_PARAM_set_purpose(x509VerifyParam, X509_PURPOSE_SSL_CLIENT);
+      X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
+      BIO *bio{BIO_new_mem_buf(x509Data.data(), static_cast<int>(x509Data.size())),};
+      auto *x509InfoStack = PEM_X509_INFO_read_bio(bio, nullptr, pem_password_callback, std::bit_cast<void *>(std::addressof(x509DataPassword)));
+      for (int x509InfoIndex{0,}; sk_X509_INFO_num(x509InfoStack) > x509InfoIndex; ++x509InfoIndex)
+      {
+         if (auto *x509Info{sk_X509_INFO_value(x509InfoStack, x509InfoIndex),}; nullptr != x509Info)
+         {
+            if (nullptr != x509Info->x509)
+            {
+               add_certificate_to_store(m_x509Store.get(), x509Info->x509);
+            }
+            if (nullptr != x509Info->crl)
+            {
+               add_crl_to_store(m_x509Store.get(), x509Info->crl);
+            }
+         }
+      }
+      sk_X509_INFO_pop_free(x509InfoStack, X509_INFO_free);
+      BIO_free(bio);
    }
 
    x509_store_impl &operator = (x509_store_impl &&) = delete;
@@ -197,33 +241,6 @@ public:
 private:
    std::unique_ptr<X509_STORE> m_x509Store{create_x509_store(),};
 
-   void initialize_default_store()
-   {
-      if (0 == X509_STORE_set_default_paths(m_x509Store.get())) [[unlikely]]
-      {
-         log_openssl_errors("[x509_store] failed to load from default paths");
-         unreachable();
-      }
-      auto *x509VerifyParam{X509_STORE_get0_param(m_x509Store.get()),};
-      assert(nullptr != x509VerifyParam);
-      X509_VERIFY_PARAM_set_auth_level(x509VerifyParam, 2);
-      X509_VERIFY_PARAM_set_flags(
-         x509VerifyParam,
-         0
-         | X509_V_FLAG_CRL_CHECK             ///< enable revocation check
-         | X509_V_FLAG_CRL_CHECK_ALL         ///< revocation checks for the entire certificate chain
-         | X509_V_FLAG_EXTENDED_CRL_SUPPORT  ///< enable check of additional CRL features
-         | X509_V_FLAG_POLICY_CHECK          ///< enable policy check
-         | X509_V_FLAG_TRUSTED_FIRST         ///< should do nothing for default setup
-         | X509_V_FLAG_USE_DELTAS            ///< use delta CRLs to determine certificate status
-         | X509_V_FLAG_X509_STRICT           ///< disable workarounds
-      );
-      X509_VERIFY_PARAM_set_inh_flags(x509VerifyParam, X509_VP_FLAG_RESET_FLAGS);
-      X509_VERIFY_PARAM_set_hostflags(x509VerifyParam, X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT);
-      X509_VERIFY_PARAM_set_purpose(x509VerifyParam, X509_PURPOSE_SSL_CLIENT);
-      X509_VERIFY_PARAM_set_trust(x509VerifyParam, 0);
-   }
-
    void verify_certificate(SSL_CTX *sslContext, domain_address const &domainAddress)
    {
       auto *bio{BIO_new_ssl_connect(sslContext),};
@@ -236,6 +253,26 @@ private:
       SSL_set_tlsext_host_name(ssl, domainAddress.hostname.data());
       BIO_do_connect(bio);
       BIO_free_all(bio);
+   }
+
+   static void add_certificate_to_store(X509_STORE *x509Store, X509 *x509)
+   {
+      assert(nullptr != x509Store);
+      assert(nullptr != x509);
+      if (0 == X509_STORE_add_cert(x509Store, x509)) [[unlikely]]
+      {
+         log_openssl_errors("[x509_store] failed to add certificate");
+      }
+   }
+
+   static void add_crl_to_store(X509_STORE *x509Store, X509_CRL *x509Crl)
+   {
+      assert(nullptr != x509Store);
+      assert(nullptr != x509Crl);
+      if (0 == X509_STORE_add_crl(x509Store, x509Crl)) [[unlikely]]
+      {
+         log_openssl_errors("[x509_store] failed to add CRL");
+      }
    }
 
    [[nodiscard]] static std::unique_ptr<X509_STORE> create_x509_store()
@@ -273,12 +310,12 @@ private:
       {
          return nullptr;
       }
-      download_crls(*mapUrlToX509Crl, x509CrlStack, x509, NID_crl_distribution_points);
-      download_crls(*mapUrlToX509Crl, x509CrlStack, x509, NID_freshest_crl);
+      download_crl(*mapUrlToX509Crl, x509CrlStack, x509, NID_crl_distribution_points);
+      download_crl(*mapUrlToX509Crl, x509CrlStack, x509, NID_freshest_crl);
       return x509CrlStack;
    }
 
-   static void download_crls(
+   static void download_crl(
       map_url_to_x509_crl &mapUrlToX509Crl,
       STACK_OF(X509_CRL) *x509CrlStack,
       X509 const *x509,
@@ -290,24 +327,25 @@ private:
       {
          if (
             auto const *crlDistributionPoint{sk_DIST_POINT_value(crlDistributionPointStack, crlDistributionPointIndex),};
-            (nullptr != crlDistributionPoint) && (nullptr != crlDistributionPoint->distpoint) && (0 == crlDistributionPoint->distpoint->type)
+            (
+               true
+               && (nullptr != crlDistributionPoint)
+               && (nullptr != crlDistributionPoint->distpoint)
+               && (0 == crlDistributionPoint->distpoint->type)
+            )
          )
          {
             auto *generalNameStack{crlDistributionPoint->distpoint->name.fullname};
             for (int generalNameIndex{0,}; sk_GENERAL_NAME_num(generalNameStack) > generalNameIndex; ++generalNameIndex)
             {
-               download_crls(mapUrlToX509Crl, x509CrlStack, sk_GENERAL_NAME_value(generalNameStack, generalNameIndex));
+               download_crl(mapUrlToX509Crl, x509CrlStack, sk_GENERAL_NAME_value(generalNameStack, generalNameIndex));
             }
          }
       }
       sk_DIST_POINT_pop_free(crlDistributionPointStack, DIST_POINT_free);
    }
 
-   static void download_crls(
-      map_url_to_x509_crl &mapUrlToX509Crl,
-      STACK_OF(X509_CRL) *x509CrlStack,
-      GENERAL_NAME const *generalName
-   )
+   static void download_crl(map_url_to_x509_crl &mapUrlToX509Crl, STACK_OF(X509_CRL) *x509CrlStack, GENERAL_NAME const *generalName)
    {
       if (nullptr == generalName) [[unlikely]]
       {
@@ -315,10 +353,7 @@ private:
       }
       int generalNameType{0,};
       if (
-         auto const *generalNameValue
-         {
-            static_cast<ASN1_STRING *>(GENERAL_NAME_get0_value(generalName, std::addressof(generalNameType))),
-         };
+         auto const *generalNameValue{static_cast<ASN1_STRING *>(GENERAL_NAME_get0_value(generalName, std::addressof(generalNameType))),};
          (
             true
             && (nullptr != generalNameValue)
@@ -332,22 +367,23 @@ private:
             (nullptr != uri) && (0 == strncmp(uri, OSSL_HTTP_PREFIX, sizeof(OSSL_HTTP_PREFIX) - 1))
          )
          {
-            download_crls(mapUrlToX509Crl, x509CrlStack, std::string{uri,});
+            download_crl(mapUrlToX509Crl, x509CrlStack, std::string{uri,});
          }
       }
    }
 
-   static void download_crls(
-      map_url_to_x509_crl &mapUrlToX509Crl,
-      STACK_OF(X509_CRL) *x509CrlStack,
-      std::string const &url
-   )
+   static void download_crl(map_url_to_x509_crl &mapUrlToX509Crl, STACK_OF(X509_CRL) *x509CrlStack, std::string const &url)
    {
-      if (auto const urlToX509Crl = mapUrlToX509Crl.find(url); mapUrlToX509Crl.end() != urlToX509Crl)
+      auto &x509Crl{mapUrlToX509Crl[url],};
+      if (nullptr == x509Crl)
       {
-         push_x509_crl(x509CrlStack, urlToX509Crl->second.get());
-         return;
+         x509Crl = download_crl(url);
       }
+      push_x509_crl(x509CrlStack, x509Crl.get());
+   }
+
+   [[nodiscard]] static std::unique_ptr<X509_CRL> download_crl(std::string const &url)
+   {
       BIO *crlRequest
       {
          OSSL_HTTP_get(
@@ -366,19 +402,30 @@ private:
             0 ///< timeout
          ),
       };
-      if (
-         auto *x509Crl{static_cast<X509_CRL *>(ASN1_item_d2i_bio(ASN1_ITEM_rptr(X509_CRL), crlRequest, nullptr)),};
-         nullptr != x509Crl
-      )
-      {
-         mapUrlToX509Crl.emplace(url, std::unique_ptr<X509_CRL>{x509Crl,});
-         push_x509_crl(x509CrlStack, x509Crl);
-      }
-      else
+      if (nullptr == crlRequest)
       {
          log_openssl_errors("[x509_store] failed to download CRL");
+         return nullptr;
+      }
+      auto *x509Crl{static_cast<X509_CRL *>(ASN1_item_d2i_bio(ASN1_ITEM_rptr(X509_CRL), crlRequest, nullptr)),};
+      if (nullptr == x509Crl) [[unlikely]]
+      {
+         log_openssl_errors("[x509_store] failed to deserialize CRL");
       }
       BIO_free(crlRequest);
+      return std::unique_ptr<X509_CRL>{x509Crl,};
+   }
+
+   [[nodiscard]] static int pem_password_callback(char *passwordBuffer, int const passwordBufferSize, int const, void *userdata)
+   {
+      assert(nullptr != passwordBuffer);
+      assert(0 < passwordBufferSize);
+      assert(nullptr != userdata);
+      auto const &password = *std::bit_cast<std::string_view const *>(userdata);
+      auto const passwordLength{std::min(static_cast<size_t>(passwordBufferSize - 1), password.size()),};
+      std::memcpy(passwordBuffer, password.data(), passwordLength);
+      passwordBuffer[passwordLength] = 0;
+      return static_cast<int>(passwordLength);
    }
 
    static void push_x509_crl(STACK_OF(X509_CRL) *x509CrlStack, X509_CRL *x509Crl)
