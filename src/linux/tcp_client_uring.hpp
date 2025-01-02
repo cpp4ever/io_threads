@@ -34,7 +34,7 @@
 
 #include <cstddef> ///< for size_t
 #include <cstdint> ///< fro int32_t, uint16_t, uint32_t
-#include <memory> ///< for std::shared_ptr
+#include <memory> ///< for std::unique_ptr
 
 namespace io_threads
 {
@@ -85,7 +85,7 @@ public:
    virtual void stop() = 0;
    virtual void wake() = 0;
 
-   [[nodiscard]] static std::shared_ptr<tcp_client_uring> construct(uint16_t coreCpuId, size_t capacityOfRingQueue);
+   [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(uint16_t coreCpuId, size_t capacityOfRingQueue);
 
 protected:
    [[nodiscard]] tcp_client_uring() noexcept = default;

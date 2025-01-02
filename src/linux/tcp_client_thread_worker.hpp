@@ -54,7 +54,7 @@
 #include <cstring> ///< for std::memcpy, std::memmove, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr, std::unique_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
@@ -73,11 +73,11 @@ public:
 
    [[nodiscard]] tcp_client_thread_worker(
       uint16_t const coreCpuId,
-      std::shared_ptr<tcp_client_uring> const &tcpClientUring,
+      std::unique_ptr<tcp_client_uring> tcpClientUring,
       size_t const capacityOfSocketDescriptorList,
       size_t const capacityOfInputOutputBuffer
    ) :
-      m_tcpClientUring{tcpClientUring,},
+      m_tcpClientUring{std::move(tcpClientUring),},
       m_uringCommandQueue{capacityOfSocketDescriptorList,},
       m_soIncomingCpu{coreCpuId,}
    {
@@ -172,29 +172,27 @@ public:
                log_system_error("[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
-            auto const tcpClientUring = tcp_client_uring::construct(coreCpuId, capacityOfSocketDescriptorList * 2 + 1);
             auto const threadWorker
             {
                std::make_shared<tcp_client_thread_worker>(
                   coreCpuId,
-                  tcpClientUring,
+                  tcp_client_uring::construct(coreCpuId, capacityOfSocketDescriptorList * 2 + 1),
                   capacityOfSocketDescriptorList,
                   capacityOfInputOutputBuffer
                ),
             };
             workerPromise.set_value(threadWorker);
-            tcpClientUring->run(*threadWorker);
-            tcpClientUring->unregister_tcp_socket_descriptors(threadWorker->m_tcpSocketDescriptors);
+            threadWorker->m_tcpClientUring->run(*threadWorker);
+            threadWorker->m_tcpClientUring->unregister_tcp_socket_descriptors(threadWorker->m_tcpSocketDescriptors);
             threadWorker->m_tcpSocketDescriptors = nullptr;
-            tcpClientUring->unregister_tcp_socket_operations(threadWorker->m_tcpSocketOperations);
+            threadWorker->m_tcpClientUring->unregister_tcp_socket_operations(threadWorker->m_tcpSocketOperations);
             threadWorker->m_tcpSocketOperations = nullptr;
-            threadWorker->m_tcpClientUring.reset();
          }
       };
    }
 
 private:
-   std::shared_ptr<tcp_client_uring> m_tcpClientUring;
+   std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
    uring_command_queue m_uringCommandQueue;
    tcp_socket_operation *m_tcpSocketOperations{nullptr,};
