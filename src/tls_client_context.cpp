@@ -146,7 +146,7 @@ std::error_code tls_client::io_data_received(data_chunk const &encryptedDataChun
    assert(0 < encryptedBytesLength);
    assert(nullptr != m_tlsClientSession);
    bytesRead = 0;
-   auto const isHandshake{tls_client_status::handshake == m_tlsClientSession->status,};
+   auto const isHandshake{(tls_client_status::handshake == m_tlsClientSession->status) || (tls_client_status::handshake_complete == m_tlsClientSession->status),};
    while (0 < encryptedBytesLength)
    {
       data_chunk decrypredDataChunk{};

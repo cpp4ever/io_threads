@@ -121,10 +121,10 @@ void test_websocket_client(test_client &testClient)
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
-         auto const testRequest = std::string{R"raw({"test_request":"disconnect_on_message"})raw"};
+         std::string const testRequest{R"raw({"test_request":"disconnect_on_message"})raw",};
          EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
             .WillOnce(
-               [&testRequest] (auto const &testInboundBuffer, auto &)
+               [testRequest] (auto const &testInboundBuffer, auto &)
                {
                   auto const testInboundMessage = std::string_view
                   {
@@ -147,11 +147,11 @@ void test_websocket_client(test_client &testClient)
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
-         auto const testRequest = std::string{R"raw({"test_request":"do_not_keep_alive"})raw"};
-         auto const testResponse = std::string{R"raw({"test_response":"do_not_keep_alive"})raw"};
+         std::string const testRequest{R"raw({"test_request":"do_not_keep_alive"})raw",};
+         std::string const testResponse{R"raw({"test_response":"do_not_keep_alive"})raw",};
          EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
             .WillOnce(
-               [&testRequest, &testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
+               [testRequest, testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
                   auto const testInboundMessage = std::string_view
                   {
@@ -169,7 +169,7 @@ void test_websocket_client(test_client &testClient)
             testResponse,
             [
                &testClient,
-               &testRequest,
+               testRequest,
                &testConnectivityIssueErrorCodeMatcher
             ] ()
             {
@@ -187,11 +187,11 @@ void test_websocket_client(test_client &testClient)
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
-         auto const testRequest = std::string{R"raw({"test_request":"connection_close"})raw"};
-         auto const testResponse = std::string{R"raw({"test_response":"connection_close"})raw"};
+         std::string const testRequest{R"raw({"test_request":"connection_close"})raw",};
+         std::string const testResponse{R"raw({"test_response":"connection_close"})raw",};
          EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
             .WillOnce(
-               [&testRequest, &testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
+               [testRequest, testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
                   auto const testInboundMessage = std::string_view
                   {

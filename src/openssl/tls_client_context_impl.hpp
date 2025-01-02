@@ -329,7 +329,7 @@ public:
             auto const errorCode{make_ssl_error_code(*tlsClientSession.ssl, returnCode),};
             if (make_ssl_error_code(SSL_ERROR_ZERO_RETURN) == errorCode)
             {
-               if (SSL_SENT_SHUTDOWN != SSL_get_shutdown(tlsClientSession.ssl.get()))
+               if (tls_client_status::none != tlsClientSession.status)
                {
                   return std::make_error_code(std::errc::connection_reset);
                }
@@ -502,11 +502,6 @@ public:
          return std::error_code{};
       }
       if (tls_client_status::handshake == tlsClientSession.status)
-      {
-         bytesWritten = 0;
-         return std::error_code{};
-      }
-      if (SSL_SENT_SHUTDOWN == SSL_get_shutdown(tlsClientSession.ssl.get()))
       {
          bytesWritten = 0;
          return std::error_code{};
