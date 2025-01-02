@@ -81,13 +81,13 @@ public:
             {
                m_lastOutboundMessage.clear();
                m_connected.store(false, std::memory_order_relaxed);
+               super::io_disconnected(errorCode);
                EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
                EXPECT_CALL(*this, io_frame_received(testing::_, testing::_)).Times(0);
                EXPECT_CALL(*this, io_frame_to_send()).Times(0);
                EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
                EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
                EXPECT_CALL(*this, io_ready_to_handshake()).Times(0);
-               super::io_disconnected(errorCode);
                assert(nullptr != m_internalState);
                m_internalState->done.set_value();
             }

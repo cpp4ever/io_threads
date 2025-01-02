@@ -271,16 +271,7 @@ public:
             session.securityBuffer = nullptr;
             return {};
          }
-         if (session.securityToken.size() > dataChunk.bytesLength) [[unlikely]]
-         {
-            log_error(
-               std::source_location::current(),
-               "[tls_client] {} byte send buffer is too small for {} byte security token",
-               dataChunk.bytesLength,
-               session.securityToken.size()
-            );
-            unreachable();
-         }
+         assert(session.securityToken.size() <= dataChunk.bytesLength);
          CopyMemory(dataChunk.bytes, session.securityToken.data(), session.securityToken.size());
          bytesWritten = session.securityToken.size();
          session.securityToken = std::string_view{"",};

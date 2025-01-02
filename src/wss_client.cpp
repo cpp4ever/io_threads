@@ -62,7 +62,6 @@ wss_client::wss_client(wss_client_context const &wssClientContext) noexcept :
 wss_client::~wss_client()
 {
    assert(nullptr != m_wssClientContext);
-   assert(nullptr == m_websocketClientSession);
 }
 
 void wss_client::io_connected()

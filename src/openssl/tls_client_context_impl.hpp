@@ -294,7 +294,15 @@ public:
       if (1 == SSL_is_init_finished(tlsClientSession.ssl.get())) [[likely]]
       {
          set_rbio(tlsClientSession, inboundDataChunk);
-         auto *securityBuffer{(nullptr != tlsClientSession.securityBuffer) ? tlsClientSession.securityBuffer : m_securityBuffersMemoryPool.pop(),};
+         std::byte *securityBuffer{tlsClientSession.securityBuffer,};
+         if (nullptr == securityBuffer) [[likely]]
+         {
+            securityBuffer = m_securityBuffersMemoryPool.pop();
+         }
+         else if (tls_client_status::handshake_complete == tlsClientSession.status) [[unlikely]]
+         {
+            tlsClientSession.status = tls_client_status::ready;
+         }
          set_wbio(
             tlsClientSession,
             data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_size(),}
@@ -503,7 +511,6 @@ public:
          bytesWritten = 0;
          return std::error_code{};
       }
-      assert(0 == SSL_get_shutdown(tlsClientSession.ssl.get()));
       set_wbio(tlsClientSession, dataChunk);
       std::error_code errorCode{};
       if (auto const returnCode{SSL_shutdown(tlsClientSession.ssl.get()),}; 0 > returnCode) [[unlikely]]
