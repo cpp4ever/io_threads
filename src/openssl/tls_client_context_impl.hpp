@@ -295,7 +295,6 @@ public:
       assert(nullptr == tlsClientSession.wbioBufMem->data);
       assert(0 == tlsClientSession.wbioBufMem->max);
       assert(0 == tlsClientSession.wbioBufMem->flags);
-      assert(tls_client_status::none != tlsClientSession.status);
       assert(tls_client_status::handshake_complete != tlsClientSession.status);
       assert(true == tlsClientSession.securityToken.empty());
       assert(nullptr == tlsClientSession.next);
@@ -330,10 +329,15 @@ public:
          }
          if (0 == returnCode) [[unlikely]]
          {
-            if (
-               auto const errorCode{make_ssl_error_code(*tlsClientSession.ssl, returnCode),};
-               make_ssl_error_code(SSL_ERROR_WANT_READ) != errorCode
-            )
+            auto const errorCode{make_ssl_error_code(*tlsClientSession.ssl, returnCode),};
+            if (make_ssl_error_code(SSL_ERROR_ZERO_RETURN) == errorCode)
+            {
+               if (SSL_SENT_SHUTDOWN != SSL_get_shutdown(tlsClientSession.ssl.get()))
+               {
+                  return std::make_error_code(std::errc::connection_reset);
+               }
+            }
+            else if (make_ssl_error_code(SSL_ERROR_WANT_READ) != errorCode)
             {
                log_openssl_errors("[tls_client] failed to decrypt message");
                return errorCode;

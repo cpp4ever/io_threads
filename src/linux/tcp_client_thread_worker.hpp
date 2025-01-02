@@ -54,7 +54,7 @@
 #include <cstring> ///< for std::memcpy, std::memmove, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
@@ -73,11 +73,11 @@ public:
 
    [[nodiscard]] tcp_client_thread_worker(
       uint16_t const coreCpuId,
-      std::unique_ptr<tcp_client_uring> tcpClientUring,
+      std::shared_ptr<tcp_client_uring> const &tcpClientUring,
       size_t const capacityOfSocketDescriptorList,
       size_t const capacityOfInputOutputBuffer
    ) :
-      m_tcpClientUring{std::move(tcpClientUring),},
+      m_tcpClientUring{tcpClientUring,},
       m_uringCommandQueue{capacityOfSocketDescriptorList,},
       m_soIncomingCpu{coreCpuId,}
    {
@@ -87,12 +87,6 @@ public:
          std::max(sizeof(tcp_socket_operation) + sizeof(tcp_socket_options), tcp_socket_operation::total_size(capacityOfInputOutputBuffer))
       );
       m_tcpSocketDescriptors = m_tcpClientUring->register_tcp_socket_descriptors(capacityOfSocketDescriptorList);
-   }
-
-   ~tcp_client_thread_worker() override
-   {
-      m_tcpClientUring->unregister_tcp_socket_descriptors(m_tcpSocketDescriptors);
-      m_tcpClientUring->unregister_tcp_socket_operations(m_tcpSocketOperations);
    }
 
    tcp_client_thread_worker &operator = (tcp_client_thread_worker &&) = delete;
@@ -178,23 +172,29 @@ public:
                log_system_error("[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                unreachable();
             }
+            auto const tcpClientUring = tcp_client_uring::construct(coreCpuId, capacityOfSocketDescriptorList * 2 + 1);
             auto const threadWorker
             {
                std::make_shared<tcp_client_thread_worker>(
                   coreCpuId,
-                  tcp_client_uring::construct(coreCpuId, capacityOfSocketDescriptorList * 2 + 1),
+                  tcpClientUring,
                   capacityOfSocketDescriptorList,
                   capacityOfInputOutputBuffer
                ),
             };
             workerPromise.set_value(threadWorker);
-            threadWorker->m_tcpClientUring->run(*threadWorker);
+            tcpClientUring->run(*threadWorker);
+            tcpClientUring->unregister_tcp_socket_descriptors(threadWorker->m_tcpSocketDescriptors);
+            threadWorker->m_tcpSocketDescriptors = nullptr;
+            tcpClientUring->unregister_tcp_socket_operations(threadWorker->m_tcpSocketOperations);
+            threadWorker->m_tcpSocketOperations = nullptr;
+            threadWorker->m_tcpClientUring.reset();
          }
       };
    }
 
 private:
-   std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
+   std::shared_ptr<tcp_client_uring> m_tcpClientUring;
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
    uring_command_queue m_uringCommandQueue;
    tcp_socket_operation *m_tcpSocketOperations{nullptr,};
@@ -716,7 +716,7 @@ private:
       }
    }
 
-   void handle_send_completion(tcp_socket_operation &tcpSocketOperation, uint32_t const flags)
+   void handle_send_completion(tcp_socket_operation &tcpSocketOperation)
    {
       assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
@@ -730,27 +730,23 @@ private:
       assert(nullptr == tcpSocketDescriptor.next);
       assert(0 == tcpSocketOperation.bufferOffset);
       assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
-      if (IORING_CQE_F_MORE != (IORING_CQE_F_MORE & flags))
+      if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) [[likely]]
       {
-         assert(IORING_CQE_F_NOTIF == (IORING_CQE_F_NOTIF & flags));
-         if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) [[likely]]
-         {
-            assert(2 == tcpSocketDescriptor.refsCount);
-            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
-            push_tcp_socket_operation(tcpSocketOperation);
-            assert(1 == tcpSocketDescriptor.refsCount);
-            send(tcpSocketDescriptor);
-         }
-         else if (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus)
-         {
-            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
-            prep_disconnect(tcpSocketOperation);
-         }
-         else
-         {
-            assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-            push_tcp_socket_operation(tcpSocketOperation);
-         }
+         assert(2 == tcpSocketDescriptor.refsCount);
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
+         push_tcp_socket_operation(tcpSocketOperation);
+         assert(1 == tcpSocketDescriptor.refsCount);
+         send(tcpSocketDescriptor);
+      }
+      else if (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus)
+      {
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         prep_disconnect(tcpSocketOperation);
+      }
+      else
+      {
+         assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
+         push_tcp_socket_operation(tcpSocketOperation);
       }
    }
 
@@ -932,15 +928,30 @@ private:
 
       case tcp_socket_operation_type::send:
       {
-         handle_send_completion(tcpSocketOperation, flags);
+         if (IORING_CQE_F_MORE == (IORING_CQE_F_MORE & flags))
+         {
+            assert(IORING_CQE_F_MORE == flags);
+         }
+         else
+         {
+            assert(IORING_CQE_F_NOTIF == flags);
+            handle_send_completion(tcpSocketOperation);
+         }
       }
       break;
 
       case tcp_socket_operation_type::disconnect:
       {
          assert(tcp_socket_status::close == tcpSocketOperation.descriptor->tcpSocketStatus);
-         assert(0 == flags);
-         prep_shutdown(tcpSocketOperation);
+         if (IORING_CQE_F_MORE == (IORING_CQE_F_MORE & flags))
+         {
+            assert(IORING_CQE_F_MORE == flags);
+         }
+         else
+         {
+            assert(IORING_CQE_F_NOTIF == flags);
+            prep_shutdown(tcpSocketOperation);
+         }
       }
       break;
 
@@ -1152,6 +1163,7 @@ private:
       assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
       assert(nullptr == tcpSocketDescriptor.next);
       auto &tcpSocketOperation{pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send),};
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::busy;
       assert(2 == tcpSocketDescriptor.refsCount);
       size_t bytesWritten{static_cast<size_t>(-1),};
       if (
@@ -1172,12 +1184,12 @@ private:
          assert(static_cast<size_t>(-1) != bytesWritten);
          if (0 == bytesWritten)
          {
+            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
             push_tcp_socket_operation(tcpSocketOperation);
             assert(1 == tcpSocketDescriptor.refsCount);
             return;
          }
          m_tcpClientUring->prep_send(tcpSocketOperation, bytesWritten);
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::busy;
       }
       else
       {

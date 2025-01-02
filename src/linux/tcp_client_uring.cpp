@@ -545,9 +545,9 @@ private:
    }
 };
 
-std::unique_ptr<tcp_client_uring> tcp_client_uring::construct(uint16_t const coreCpuId, size_t const capacityOfRingQueue)
+std::shared_ptr<tcp_client_uring> tcp_client_uring::construct(uint16_t const coreCpuId, size_t const capacityOfRingQueue)
 {
-   return std::make_unique<tcp_client_uring_impl>(coreCpuId, capacityOfRingQueue);
+   return std::make_shared<tcp_client_uring_impl>(coreCpuId, capacityOfRingQueue);
 }
 
 }
