@@ -233,6 +233,7 @@ void wss_client_context::wss_client_context_impl::ready_to_close(websocket_clien
 {
    if (false == session.closed)
    {
+      std::cerr << "========= client close" << std::endl;
       auto &outboundConnectionCloseFrame
       {
          (nullptr == session.outboundFrame)

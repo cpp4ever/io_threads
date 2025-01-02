@@ -118,16 +118,19 @@ public:
       {
       case to_underlying(websocket_frame_opcode_text): [[fallthrough]];
       case to_underlying(websocket_frame_opcode_binary):
+         std::cerr << "========= server data" << std::endl;
       return handle_data_frame(session, inboundFrame, frameHandler);
 
       case to_underlying(websocket_frame_opcode_connection_close):
       {
+         std::cerr << "========= server close" << std::endl;
          handle_connection_close_frame(session, inboundFrame);
       }
       return {};
 
       case to_underlying(websocket_frame_opcode_ping):
       {
+         std::cerr << "========= server ping" << std::endl;
          handle_ping_frame(session, inboundFrame);
       }
       return {};
@@ -135,6 +138,7 @@ public:
       case to_underlying(websocket_frame_opcode_pong):
       {
          /// Do nothing
+         std::cerr << "========= server pong" << std::endl;
       }
       return {};
 
