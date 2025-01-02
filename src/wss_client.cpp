@@ -122,6 +122,9 @@ std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size
    {
       if (nullptr != m_websocketClientSession->outboundFrame)
       {
+         std::cerr << "========= client send "
+            << (int)m_websocketClientSession->outboundFrame->header.opcode
+            << std::endl;
          bytesWritten = m_wssClientContext->format_frame(
             *m_websocketClientSession,
             dataChunk,
