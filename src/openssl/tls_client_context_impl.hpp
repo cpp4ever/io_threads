@@ -293,7 +293,6 @@ public:
       decryptedDataChunk = {};
       if (1 == SSL_is_init_finished(tlsClientSession.ssl.get())) [[likely]]
       {
-         assert(nullptr == tlsClientSession.securityBuffer);
          set_rbio(tlsClientSession, inboundDataChunk);
          auto *securityBuffer{(nullptr != tlsClientSession.securityBuffer) ? tlsClientSession.securityBuffer : m_securityBuffersMemoryPool.pop(),};
          set_wbio(
