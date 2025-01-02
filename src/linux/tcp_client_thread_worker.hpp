@@ -202,6 +202,7 @@ private:
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget) override
    {
+      assert(std::this_thread::get_id() == m_threadId);
       switch (commandId)
       {
       [[unlikely]] case to_underlying(tcp_client_command::unknown):
@@ -542,6 +543,7 @@ private:
 
    void handle_event_completion() override
    {
+      assert(std::this_thread::get_id() == m_threadId);
       m_uringCommandQueue.handle(*this);
    }
 
@@ -883,6 +885,7 @@ private:
       assert(0 < tcpSocketOperation.descriptor->refsCount);
       assert(nullptr == tcpSocketOperation.descriptor->next);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
+      assert(std::this_thread::get_id() == m_threadId);
       if (0 > result) [[unlikely]]
       {
          assert(0 == flags);

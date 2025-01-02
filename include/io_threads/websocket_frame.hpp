@@ -33,6 +33,7 @@ namespace io_threads
 
 enum struct websocket_frame_type : uint8_t
 {
+   none [[maybe_unused]] = 0x0,
    text [[maybe_unused]] = 0x1,
    binary [[maybe_unused]] = 0x2,
 };
@@ -41,7 +42,7 @@ struct websocket_frame final
 {
    std::byte *bytes{nullptr};
    size_t bytesLength{0};
-   websocket_frame_type type{websocket_frame_type::text};
+   websocket_frame_type type{websocket_frame_type::none};
 };
 
 }

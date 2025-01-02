@@ -120,35 +120,28 @@ std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size
    assert(nullptr != m_websocketClientSession);
    if (nullptr == m_websocketClientSession->handshakeKey) [[likely]]
    {
-      if (nullptr != m_websocketClientSession->outboundFrame)
+      bytesWritten = 0;
+      if ((nullptr == m_websocketClientSession->outboundFrame) && (false == m_websocketClientSession->closed))
       {
-         std::cerr << "========= client send "
-            << (int)m_websocketClientSession->outboundFrame->header.opcode
-            << std::endl;
-         bytesWritten = m_wssClientContext->format_frame(
-            *m_websocketClientSession,
-            dataChunk,
-            *m_websocketClientSession->outboundFrame
-         );
+         if (auto const frame{io_frame_to_send(),}; websocket_frame_type::none != frame.type)
+         {
+            websocket_frame_header const outboundFrameHeader
+            {
+               .opcode = static_cast<std::byte>(frame.type),
+               .fin = std::byte{1},
+            };
+            websocket_frame_data const outboundFrame
+            {
+               .header = outboundFrameHeader,
+               .bytesLength = static_cast<uint32_t>(frame.bytesLength),
+               .bytes = frame.bytes,
+            };
+            bytesWritten = m_wssClientContext->format_frame(*m_websocketClientSession, dataChunk, outboundFrame);
+         }
       }
-      else if (false == m_websocketClientSession->closed)
+      if ((0 == bytesWritten) && (nullptr != m_websocketClientSession->outboundFrame))
       {
-         auto const frame{io_frame_to_send(),};
-         websocket_frame_header const outboundFrameHeader
-         {
-            .opcode = static_cast<std::byte>(frame.type),
-            .fin = std::byte{1},
-         };
-         websocket_frame_data const outboundFrame
-         {
-            .header = outboundFrameHeader,
-            .bytesLength = static_cast<uint32_t>(frame.bytesLength),
-            .bytes = frame.bytes,
-         };
-         bytesWritten = (0 < outboundFrame.bytesLength)
-            ? m_wssClientContext->format_frame(*m_websocketClientSession, dataChunk, outboundFrame)
-            : 0
-         ;
+         bytesWritten = m_wssClientContext->format_frame(*m_websocketClientSession, dataChunk, *m_websocketClientSession->outboundFrame);
       }
    }
    else
