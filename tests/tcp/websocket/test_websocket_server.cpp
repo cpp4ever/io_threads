@@ -93,6 +93,9 @@ void test_websocket_server<test_websocket_stream>::async_read(test_websocket_str
             false
 #if(defined(IO_THREADS_OPENSSL))
             || (boost::asio::ssl::error::make_error_code(boost::asio::ssl::error::stream_errors::stream_truncated) == testErrorCode)
+#  if (defined(_WIN32) || defined(_WIN64))
+            || (std::error_code{WSAECONNABORTED, std::system_category(),} == testErrorCode)
+#  endif
 #endif
             || (boost::beast::websocket::make_error_code(boost::beast::websocket::error::closed) == testErrorCode)
             || (boost::asio::error::make_error_code(boost::asio::error::eof) == testErrorCode)

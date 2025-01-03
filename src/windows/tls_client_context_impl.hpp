@@ -74,7 +74,6 @@
 ///   FreeContextBuffer,
 ///   FreeCredentialsHandle,
 ///   InitializeSecurityContextW,
-///   ISC_REQ_ALLOCATE_MEMORY,
 ///   ISC_REQ_CONFIDENTIALITY,
 ///   ISC_REQ_DELEGATE,
 ///   ISC_REQ_EXTENDED_ERROR,
@@ -354,16 +353,7 @@ public:
 
                case SECBUFFER_EXTRA:
                {
-                  if (inboundDataChunk.bytesLength < securityBuffer.cbBuffer) [[unlikely]]
-                  {
-                     log_error(
-                        std::source_location::current(),
-                        "[tls_client] data size check failed during decryption: expected {} bytes but actual size is {} bytes",
-                        securityBuffer.cbBuffer,
-                        inboundDataChunk.bytesLength
-                     );
-                     unreachable();
-                  }
+                  assert(inboundDataChunk.bytesLength >= securityBuffer.cbBuffer);
                   assert(inboundDataChunk.bytes <= securityBuffer.pvBuffer);
                   assert(
                      (std::bit_cast<std::byte const *>(securityBuffer.pvBuffer) + securityBuffer.cbBuffer) == (inboundDataChunk.bytes + inboundDataChunk.bytesLength)
@@ -397,11 +387,7 @@ public:
 
                [[unlikely]] default:
                {
-                  log_error(
-                     std::source_location::current(),
-                     "[tls_client] unexpected security buffer type {}",
-                     securityBuffer.BufferType
-                  );
+                  log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", securityBuffer.BufferType);
                   unreachable();
                }
                }
@@ -467,16 +453,7 @@ public:
       assert(0 < dataChunk.bytesLength);
       auto const headerSize{session.streamSizes.cbHeader,};
       auto const trailerSize{session.streamSizes.cbTrailer,};
-      if ((headerSize + bytesWritten + trailerSize) > dataChunk.bytesLength) [[unlikely]]
-      {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] data size check failed during encryption: expected {} bytes but actual size is {} bytes",
-            (headerSize + bytesWritten + trailerSize),
-            dataChunk.bytesLength
-         );
-         unreachable();
-      }
+      assert((headerSize + bytesWritten + trailerSize) <= dataChunk.bytesLength);
       auto securityBuffers
       {
          std::to_array(
@@ -509,15 +486,7 @@ public:
          .cBuffers = static_cast<ULONG>(securityBuffers.size()),
          .pBuffers = securityBuffers.data(),
       };
-      auto const returnCode
-      {
-         EncryptMessage(
-            std::addressof(session.securityContextHandle),
-            0,
-            std::addressof(securityBufferDescriptor),
-            0
-         ),
-      };
+      auto const returnCode{EncryptMessage(std::addressof(session.securityContextHandle), 0, std::addressof(securityBufferDescriptor), 0),};
       bytesWritten = 0;
       std::error_code errorCode{};
       if (SEC_E_OK == returnCode) [[likely]]
@@ -543,11 +512,7 @@ public:
 
             [[unlikely]] default:
             {
-               log_error(
-                  std::source_location::current(),
-                  "[tls_client] unexpected security buffer type: {}",
-                  securityBuffer.BufferType
-               );
+               log_error(std::source_location::current(), "[tls_client] unexpected security buffer type: {}", securityBuffer.BufferType);
                unreachable();
             }
             }
@@ -585,7 +550,8 @@ public:
       if (false == session.securityToken.empty())
       {
          assert(nullptr != session.securityBuffer);
-         std::string_view const securityToken{session.securityToken, };
+         std::string_view const securityToken{session.securityToken,};
+         session.securityToken = std::string_view{"",};
          CopyMemory(dataChunk.bytes, securityToken.data(), securityToken.size());
          bytesWritten = securityToken.size();
          return std::error_code{};
@@ -597,16 +563,17 @@ public:
       }
       auto securityContextHandle{session.securityContextHandle,};
       auto const securityContextRequirements{security_context_requirements(),};
-      DWORD schannelShutdown{SCHANNEL_SHUTDOWN,};
+      DWORD const schannelShutdown{SCHANNEL_SHUTDOWN,};
+      CopyMemory(dataChunk.bytes, std::addressof(schannelShutdown), sizeof(schannelShutdown));
       auto inboundSecurityBuffers
       {
          std::to_array(
             {
                SecBuffer
                {
-                  .cbBuffer = sizeof(schannelShutdown),
+                  .cbBuffer = static_cast<ULONG>(dataChunk.bytesLength),
                   .BufferType = SECBUFFER_TOKEN,
-                  .pvBuffer = std::addressof(schannelShutdown),
+                  .pvBuffer = dataChunk.bytes,
                },
             }
          ),
@@ -627,7 +594,16 @@ public:
       }
       auto outboundSecurityBuffers
       {
-         std::to_array({SecBuffer{.cbBuffer = 0, .BufferType = SECBUFFER_EMPTY, .pvBuffer = nullptr,},}),
+         std::to_array(
+            {
+               SecBuffer
+               {
+                  .cbBuffer = static_cast<ULONG>(dataChunk.bytesLength),
+                  .BufferType = SECBUFFER_TOKEN,
+                  .pvBuffer = dataChunk.bytes,
+               },
+            }
+         ),
       };
       SecBufferDesc outboundSecurityBufferDescriptor
       {
@@ -642,7 +618,7 @@ public:
             std::addressof(m_handle), ///< Credentials handle
             std::addressof(securityContextHandle), ///< Existing security context handle
             m_domainName.first.data(), ///< Name of target
-            securityContextRequirements | ISC_REQ_ALLOCATE_MEMORY, ///< Security context requirements
+            securityContextRequirements, ///< Security context requirements
             0, ///< Reserved
             SECURITY_NETWORK_DREP, ///< Data representation
             nullptr, ///< Input buffers
@@ -657,26 +633,10 @@ public:
       std::error_code errorCode{};
       if ((SEC_E_OK == shutdownReturnCode) || (SEC_I_CONTEXT_EXPIRED == shutdownReturnCode)) [[likely]]
       {
-         bytesWritten = 0;
-         for (auto const &outboundSecurityBuffer : outboundSecurityBuffers)
-         {
-            if (dataChunk.bytesLength < (bytesWritten + outboundSecurityBuffer.cbBuffer)) [[unlikely]]
-            {
-               log_error(
-                  std::source_location::current(),
-                  "[tls_client] data size check failed during shutdown: expected {} bytes but actual size is {} bytes",
-                  (bytesWritten + outboundSecurityBuffer.cbBuffer),
-                  dataChunk.bytesLength
-               );
-               unreachable();
-            }
-            CopyMemory(dataChunk.bytes + bytesWritten, outboundSecurityBuffer.pvBuffer, outboundSecurityBuffer.cbBuffer);
-            bytesWritten += outboundSecurityBuffer.cbBuffer;
-            if (auto const returnCode{FreeContextBuffer(outboundSecurityBuffer.pvBuffer),}; SEC_E_OK != returnCode) [[unlikely]]
-            {
-               log_system_error("[tls_client] failed to free memory buffers allocated by security context: ({:#X}) - {}", returnCode);
-            }
-         }
+         assert(1 == outboundSecurityBuffers.size());
+         assert(dataChunk.bytes == outboundSecurityBuffers[0].pvBuffer);
+         assert(dataChunk.bytesLength >= outboundSecurityBuffers[0].cbBuffer);
+         bytesWritten = outboundSecurityBuffers[0].cbBuffer;
       }
       else
       {
@@ -963,10 +923,7 @@ private:
       auto const tlsPacketSizeLimit{session.streamSizes.cbHeader + session.streamSizes.cbMaximumMessage + session.streamSizes.cbTrailer,};
       if (tls_packet_size_limit < tlsPacketSizeLimit) [[unlikely]]
       {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] maximum message size is greater than 18 KiB"
-         );
+         log_error(std::source_location::current(), "[tls_client] maximum message size is greater than 18 KiB");
          unreachable();
       }
    }
@@ -999,27 +956,14 @@ private:
 
          case SECBUFFER_EXTRA:
          {
-            if (inboundDataChunk.bytesLength < inboundSecurityBuffer.cbBuffer) [[unlikely]]
-            {
-               log_error(
-                  std::source_location::current(),
-                  "[tls_client] data size check failed during handshake: expected {} bytes but actual size is {} bytes",
-                  inboundSecurityBuffer.cbBuffer,
-                  inboundDataChunk.bytesLength
-               );
-               unreachable();
-            }
+            assert(inboundDataChunk.bytesLength >= inboundSecurityBuffer.cbBuffer);
             bytesProcessed -= inboundSecurityBuffer.cbBuffer;
          }
          break;
 
          [[unlikely]] default:
          {
-            log_error(
-               std::source_location::current(),
-               "[tls_client] unexpected security buffer type {}",
-               inboundSecurityBuffer.BufferType
-            );
+            log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", inboundSecurityBuffer.BufferType);
             unreachable();
          }
          }
@@ -1056,11 +1000,7 @@ private:
 
          [[unlikely]] default:
          {
-            log_error(
-               std::source_location::current(),
-               "[tls_client] unexpected security buffer type {}",
-               outboundSecurityBuffer.BufferType
-            );
+            log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", outboundSecurityBuffer.BufferType);
             unreachable();
          }
          }
@@ -1114,20 +1054,12 @@ private:
       assert((std::wstring_view{UNISP_NAME_W,}) == securityPackageInfo->Name);
       if (SECPKG_FLAG_PRIVACY != (SECPKG_FLAG_PRIVACY & securityPackageInfo->fCapabilities)) [[unlikely]]
       {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] {} does not support encruption/decryption",
-            std::string_view{UNISP_NAME_A,}
-         );
+         log_error(std::source_location::current(), "[tls_client] {} does not support encruption/decryption", std::string_view{UNISP_NAME_A,});
          unreachable();
       }
       if (SECPKG_FLAG_STREAM != (SECPKG_FLAG_STREAM & securityPackageInfo->fCapabilities)) [[unlikely]]
       {
-         log_error(
-            std::source_location::current(),
-            "[tls_client] {} does not support TCP",
-            std::string_view{UNISP_NAME_A,}
-         );
+         log_error(std::source_location::current(), "[tls_client] {} does not support TCP", std::string_view{UNISP_NAME_A,});
          unreachable();
       }
       m_securityMemory = std::make_unique<memory_pool>(

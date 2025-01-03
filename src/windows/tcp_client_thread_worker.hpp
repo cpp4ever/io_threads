@@ -152,39 +152,36 @@ public:
    tcp_client_thread_worker(tcp_client_thread_worker &&) = delete;
    tcp_client_thread_worker(tcp_client_thread_worker const &) = delete;
 
-   [[nodiscard]] tcp_client_thread_worker(
-      size_t const capacityOfSocketDescriptorList,
-      size_t const capacityOfInputOutputBuffer
-   ) :
-      m_completionPortEntries{std::make_unique<completion_port::entries>()},
+   [[nodiscard]] tcp_client_thread_worker(size_t const capacityOfSocketDescriptorList, size_t const capacityOfInputOutputBuffer) :
+      m_completionPortEntries{std::make_unique<completion_port::entries>(),},
       m_ioMemory
       {
          std::make_unique<memory_pool>(
             capacityOfSocketDescriptorList * 2,
-            std::align_val_t{std::max(alignof(tcp_connectivity_context), alignof(tcp_data_transfer_context))},
+            std::align_val_t{std::max(alignof(tcp_connectivity_context), alignof(tcp_data_transfer_context)),},
             std::max(
                sizeof(tcp_connectivity_context) + std::max(sizeof(SOCKADDR_IN), sizeof(SOCKADDR_IN6)),
                sizeof(tcp_data_transfer_context) + capacityOfInputOutputBuffer
             )
-         )
+         ),
       },
       m_socketMemory
       {
          std::make_unique<memory_pool>(
             capacityOfSocketDescriptorList,
-            std::align_val_t{alignof(tcp_socket_descriptor)},
+            std::align_val_t{alignof(tcp_socket_descriptor),},
             sizeof(tcp_socket_descriptor)
-         )
+         ),
       }
    {
       assert(0 < capacityOfInputOutputBuffer);
-      constexpr int socketFamily{AF_INET};
-      constexpr int socketType{SOCK_STREAM};
-      constexpr int socketProtocol{IPPROTO_TCP};
-      constexpr LPWSAPROTOCOL_INFOW protocolInfo{nullptr};
-      constexpr GROUP socketGroup{0};
-      constexpr DWORD flags{0};
-      auto const socket{WSASocketW(socketFamily, socketType, socketProtocol, protocolInfo, socketGroup, flags)};
+      constexpr int socketFamily{AF_INET,};
+      constexpr int socketType{SOCK_STREAM,};
+      constexpr int socketProtocol{IPPROTO_TCP,};
+      constexpr LPWSAPROTOCOL_INFOW protocolInfo{nullptr,};
+      constexpr GROUP socketGroup{0,};
+      constexpr DWORD flags{0,};
+      auto const socket{WSASocketW(socketFamily, socketType, socketProtocol, protocolInfo, socketGroup, flags),};
       if (INVALID_SOCKET == socket) [[unlikely]]
       {
          check_winsock_error("[tcp_client] failed to create TCP socket: ({}) - {}");
@@ -211,21 +208,15 @@ public:
 
    void execute(std::function<void()> const &ioRoutine)
    {
-      assert(true == bool{ioRoutine});
+      assert(true == (bool{ioRoutine,}));
       if (std::this_thread::get_id() == m_threadId)
       {
          ioRoutine();
       }
       else
       {
-         thread_task const ioTask
-         {
-            .routine{ioRoutine},
-         };
-         m_completionPort.post_queued_completion_status(
-            to_completion_key(ioTask),
-            to_completion_overlapped(tcp_client_command::execute)
-         );
+         thread_task const ioTask{.routine{ioRoutine},};
+         m_completionPort.post_queued_completion_status(to_completion_key(ioTask), to_completion_overlapped(tcp_client_command::execute));
          ioTask.completionFuture.wait();
       }
    }
@@ -238,10 +229,7 @@ public:
       }
       else
       {
-         m_completionPort.post_queued_completion_status(
-            to_completion_key(client),
-            to_completion_overlapped(tcp_client_command::ready_to_connect)
-         );
+         m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_connect));
       }
    }
 
@@ -253,10 +241,7 @@ public:
       }
       else
       {
-         m_completionPort.post_queued_completion_status(
-            to_completion_key(client),
-            to_completion_overlapped(tcp_client_command::ready_to_disconnect)
-         );
+         m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_disconnect));
       }
    }
 
@@ -268,10 +253,7 @@ public:
       }
       else
       {
-         m_completionPort.post_queued_completion_status(
-            to_completion_key(client),
-            to_completion_overlapped(tcp_client_command::ready_to_send)
-         );
+         m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_send));
       }
    }
 
@@ -292,7 +274,7 @@ public:
       {
          [coreCpuId, capacityOfSocketDescriptorList, capacityOfInputOutputBuffer, &workerPromise] (std::stop_token const stopToken)
          {
-            if (0 == SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(1) << coreCpuId)) [[unlikely]]
+            if (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << coreCpuId)) [[unlikely]]
             {
                check_winapi_error("[tcp_client] failed to pin thread to cpu core: ({}) - {}");
             }
@@ -316,33 +298,30 @@ public:
    }
 
 private:
-   std::jthread::id const m_threadId{std::this_thread::get_id()};
+   std::jthread::id const m_threadId{std::this_thread::get_id(),};
    completion_port m_completionPort{};
    std::unique_ptr<completion_port::entries> const m_completionPortEntries;
    std::unique_ptr<memory_pool> const m_ioMemory;
-   LPFN_CONNECTEX m_connect{nullptr};
-   LPFN_DISCONNECTEX m_disconnect{nullptr};
+   LPFN_CONNECTEX m_connect{nullptr,};
+   LPFN_DISCONNECTEX m_disconnect{nullptr,};
    std::unique_ptr<memory_pool> const m_socketMemory;
 
    void connect(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr == socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr != socketDescriptor.connectivityContext);
       assert(nullptr != socketDescriptor.connectivityContext->address);
-      auto &address{*socketDescriptor.connectivityContext->address};
+      auto &address{*socketDescriptor.connectivityContext->address,};
       assert((AF_INET == address.sa_family) || (AF_INET6 == address.sa_family));
       assert(nullptr != m_connect);
-      int const addressSize = (AF_INET6 == address.sa_family)
-         ? sizeof(SOCKADDR_IN6)
-         : sizeof(SOCKADDR_IN)
-      ;
-      constexpr PVOID sendBuffer{nullptr};
-      constexpr DWORD sendDataLength{0};
-      DWORD bytesSent{0};
+      auto const addressSize{static_cast<int>((AF_INET6 == address.sa_family) ? sizeof(SOCKADDR_IN6) : sizeof(SOCKADDR_IN)),};
+      constexpr PVOID sendBuffer{nullptr,};
+      constexpr DWORD sendDataLength{0,};
+      DWORD bytesSent{0,};
       if (
          FALSE == (*m_connect)(
             socketDescriptor.handle,
@@ -356,8 +335,8 @@ private:
       ) [[likely]]
       {
          if (
-            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to connect TCP socket: ({}) - {}", WSA_IO_PENDING)};
-            true == bool{errorCode}
+            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to connect TCP socket: ({}) - {}", WSA_IO_PENDING),};
+            true == bool{errorCode,}
          ) [[unlikely]]
          {
             handle_disconnected(client, errorCode);
@@ -368,15 +347,15 @@ private:
    void disconnect(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr != socketDescriptor.connectivityContext);
       assert(nullptr == socketDescriptor.connectivityContext->address);
       assert(nullptr != m_disconnect);
-      constexpr DWORD flags{0};
-      constexpr DWORD reserved{0};
+      constexpr DWORD flags{0,};
+      constexpr DWORD reserved{0,};
       if (
          FALSE == (*m_disconnect)(
             socketDescriptor.handle,
@@ -387,8 +366,8 @@ private:
       ) [[likely]]
       {
          if (
-            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to disconnect TCP socket: ({}) - {}", WSA_IO_PENDING)};
-            true == bool{errorCode}
+            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to disconnect TCP socket: ({}) - {}", WSA_IO_PENDING),};
+            true == bool{errorCode,}
          ) [[unlikely]]
          {
             handle_disconnected(client, errorCode);
@@ -474,10 +453,7 @@ private:
          }
          else [[unlikely]]
          {
-            log_error(
-               std::source_location::current(),
-               "[tcp_client] unexpected completion overlapped: it must be a bug"
-            );
+            log_error(std::source_location::current(), "[tcp_client] unexpected completion overlapped: it must be a bug");
             unreachable();
          }
       }
@@ -488,14 +464,14 @@ private:
    void handle_connect_completion(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr == socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr != socketDescriptor.connectivityContext);
       assert(nullptr != socketDescriptor.connectivityContext->address);
-      DWORD bytesTransferred{0};
-      DWORD flags{0};
+      DWORD bytesTransferred{0,};
+      DWORD flags{0,};
       if (
          TRUE == WSAGetOverlappedResult(
             socketDescriptor.handle,
@@ -523,18 +499,18 @@ private:
       else
       {
          /// It must be a connectivity issue or shutdown on the peer side
-         auto const errorCode{check_winsock_error("[tcp_client] failed to connect TCP socket: ({}) - {}")};
+         auto const errorCode{check_winsock_error("[tcp_client] failed to connect TCP socket: ({}) - {}"),};
 #if (defined(TCP_ICMP_ERROR_INFO))
-         if (std::error_code{WSAEHOSTUNREACH, std::system_category()} == errorCode)
+         if (std::error_code{WSAEHOSTUNREACH, std::system_category(),} == errorCode)
          {
             ICMP_ERROR_INFO icmpErrorInfo{};
             if (SOCKET_ERROR != WSAGetIcmpErrorInfo(socketDescriptor.handle, std::addressof(icmpErrorInfo)))
             {
-               socket_address::socket_address_impl socketAddress{icmpErrorInfo.srcaddress};
+               socket_address::socket_address_impl const socketAddress{icmpErrorInfo.srcaddress,};
                log_error(
                   std::source_location::current(),
                   "[tcp_client] ICMP error info: srcaddress={} protocol={} type={} code={}",
-                  std::string_view{socketAddress},
+                  std::string_view{socketAddress,},
                   to_underlying(icmpErrorInfo.protocol),
                   static_cast<int>(icmpErrorInfo.type),
                   static_cast<int>(icmpErrorInfo.code)
@@ -549,13 +525,13 @@ private:
    void handle_disconnect_completion(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr != socketDescriptor.connectivityContext);
       assert(nullptr == socketDescriptor.connectivityContext->address);
-      DWORD bytesTransferred{0};
-      DWORD flags{0};
+      DWORD bytesTransferred{0,};
+      DWORD flags{0,};
       if (
          FALSE == WSAGetOverlappedResult(
             socketDescriptor.handle,
@@ -575,7 +551,7 @@ private:
    void handle_disconnected(tcp_client &client, std::error_code errorCode)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto *socketDescriptor{std::launder(client.m_socketDescriptor)};
+      auto *socketDescriptor{std::launder(client.m_socketDescriptor),};
       assert(INVALID_SOCKET != socketDescriptor->handle);
       client.m_socketDescriptor = nullptr;
       if (SOCKET_ERROR == closesocket(socketDescriptor->handle)) [[unlikely]]
@@ -609,8 +585,8 @@ private:
    void handle_ready_to_connect(tcp_client &client)
    {
       assert(nullptr == client.m_socketDescriptor);
-      auto const config{client.io_ready_to_connect()};
-      auto const &socketAddress{config.peer_address().socket_address()->sockaddr()};
+      auto const config{client.io_ready_to_connect(),};
+      auto const &socketAddress{config.peer_address().socket_address()->sockaddr(),};
       auto const socket
       {
          WSASocketW(
@@ -620,12 +596,12 @@ private:
             nullptr,
             0,
             WSA_FLAG_NO_HANDLE_INHERIT | WSA_FLAG_OVERLAPPED
-         )
+         ),
       };
       if (INVALID_SOCKET != socket) [[likely]]
       {
          m_completionPort.add_handle(std::bit_cast<HANDLE>(socket), to_completion_key(client));
-         if (auto const errorCode{apply_socket_config(socket, config)}; true == bool{errorCode}) [[unlikely]]
+         if (auto const errorCode{apply_socket_config(socket, config),}; true == bool{errorCode,}) [[unlikely]]
          {
             if (SOCKET_ERROR == closesocket(socket)) [[unlikely]]
             {
@@ -635,14 +611,10 @@ private:
          }
          else
          {
-            auto &connectivityContext{pop_connect_context()};
+            auto &connectivityContext{pop_connect_context(),};
             assert(nullptr != connectivityContext.address);
-            CopyMemory(
-               connectivityContext.address,
-               std::addressof(socketAddress),
-               std::max(sizeof(SOCKADDR_IN), sizeof(SOCKADDR_IN6))
-            );
-            auto &socketDescriptor = m_socketMemory->pop_object<tcp_socket_descriptor>();
+            CopyMemory(connectivityContext.address, std::addressof(socketAddress), sizeof(SOCKADDR_INET));
+            auto &socketDescriptor{m_socketMemory->pop_object<tcp_socket_descriptor>(),};
             assert(INVALID_SOCKET == socketDescriptor.handle);
             assert(nullptr == socketDescriptor.recvContext);
             assert(nullptr == socketDescriptor.sendContext);
@@ -662,23 +634,23 @@ private:
    void handle_ready_to_disconnect(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr == socketDescriptor.connectivityContext);
-      auto &sendContext{pop_data_transfer_context()};
-      auto bytesWritten{static_cast<size_t>(-1)};
+      auto &sendContext{pop_data_transfer_context(),};
+      auto bytesWritten{static_cast<size_t>(-1),};
       auto errorCode
       {
          client.io_data_to_shutdown(
-            data_chunk{.bytes = std::bit_cast<std::byte *>(sendContext.buffer.buf), .bytesLength = sendContext.buffer.len},
+            data_chunk{.bytes = std::bit_cast<std::byte *>(sendContext.buffer.buf), .bytesLength = sendContext.buffer.len,},
             bytesWritten
-         )
+         ),
       };
-      assert((true == bool{errorCode}) || (bytesWritten != static_cast<size_t>(-1)));
+      assert((true == bool{errorCode,}) || (bytesWritten != static_cast<size_t>(-1)));
       socketDescriptor.connectivityContext = std::addressof(pop_disconnect_context());
-      if ((true == bool{errorCode}) || (0 == bytesWritten))
+      if ((true == bool{errorCode,}) || (0 == bytesWritten))
       {
          push_io_context(sendContext);
          disconnect(client);
@@ -691,9 +663,9 @@ private:
       }
       sendContext.buffer.len = static_cast<ULONG>(bytesWritten);
       socketDescriptor.sendContext = std::addressof(sendContext);
-      constexpr DWORD bufferCount{1};
-      DWORD bytesSent{0};
-      constexpr DWORD flags{0};
+      constexpr DWORD bufferCount{1,};
+      DWORD bytesSent{0,};
+      constexpr DWORD flags{0,};
       if (
          SOCKET_ERROR == WSASend(
             socketDescriptor.handle,
@@ -707,7 +679,7 @@ private:
       ) [[likely]]
       {
          if (
-            true == bool{(errorCode = check_winsock_error_if_not("[tcp_client] failed to send to TCP socket: ({}) - {}", WSA_IO_PENDING))}
+            true == bool{(errorCode = check_winsock_error_if_not("[tcp_client] failed to send to TCP socket: ({}) - {}", WSA_IO_PENDING)),}
          ) [[unlikely]]
          {
             handle_disconnected(client, errorCode);
@@ -717,8 +689,8 @@ private:
 
    void handle_ready_to_send(tcp_client &client)
    {
-      assert(nullptr != client.m_socketDescriptor);
-      if (nullptr == client.m_socketDescriptor->sendContext)
+      auto *socketDescriptor{client.m_socketDescriptor,};
+      if ((nullptr != socketDescriptor) && (nullptr == client.m_socketDescriptor->sendContext))
       {
          send(client);
       }
@@ -727,12 +699,12 @@ private:
    void handle_recv_completion(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.connectivityContext);
-      DWORD bytesReceived{0};
-      DWORD flags{0};
+      DWORD bytesReceived{0,};
+      DWORD flags{0,};
       if (
          TRUE == WSAGetOverlappedResult(
             socketDescriptor.handle,
@@ -784,10 +756,10 @@ private:
    void handle_received_data(tcp_client &client, size_t const bytesReceived)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(nullptr != socketDescriptor.recvContext);
-      auto &recvContext{*socketDescriptor.recvContext};
-      auto &recvBuffer{recvContext.buffer};
+      auto &recvContext{*socketDescriptor.recvContext,};
+      auto &recvBuffer{recvContext.buffer,};
       if (bytesReceived > recvBuffer.len) [[unlikely]]
       {
          log_error(std::source_location::current(), "[tcp_client] received more bytes than the buffer contains: it must be a bug");
@@ -798,13 +770,13 @@ private:
          .len = static_cast<ULONG>(m_ioMemory->memory_size() - sizeof(tcp_data_transfer_context)),
          .buf = std::bit_cast<CHAR *>(socketDescriptor.recvContext + 1),
       };
-      auto const totalBytesReceived{static_cast<size_t>(recvBuffer.buf - dataTransferBuffer.buf) + bytesReceived};
-      auto bytesProcessed{static_cast<size_t>(-1)};
+      auto const totalBytesReceived{static_cast<size_t>(recvBuffer.buf - dataTransferBuffer.buf) + bytesReceived,};
+      auto bytesProcessed{static_cast<size_t>(-1),};
       if (
          auto const errorCode
          {
             client.io_data_received(
-               data_chunk{.bytes = std::bit_cast<std::byte *>(dataTransferBuffer.buf), .bytesLength = totalBytesReceived},
+               data_chunk{.bytes = std::bit_cast<std::byte *>(dataTransferBuffer.buf), .bytesLength = totalBytesReceived,},
                bytesProcessed
             )
          };
@@ -839,7 +811,7 @@ private:
       else if (totalBytesReceived > bytesProcessed)
       {
          /// There are some extra bytes (not processed by the client)
-         auto const extraBytes{totalBytesReceived - bytesProcessed};
+         auto const extraBytes{totalBytesReceived - bytesProcessed,};
          MoveMemory(dataTransferBuffer.buf, dataTransferBuffer.buf + bytesProcessed, extraBytes);
          recvBuffer = WSABUF
          {
@@ -857,11 +829,11 @@ private:
    void handle_send_completion(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.sendContext);
-      DWORD bytesSent{0};
-      DWORD flags{0};
+      DWORD bytesSent{0,};
+      DWORD flags{0,};
       if (
          TRUE == WSAGetOverlappedResult(
             socketDescriptor.handle,
@@ -886,7 +858,7 @@ private:
          else
          {
             /// Looks like connectivity issue or connection reset
-            handle_disconnected(client, std::error_code{WSAECONNRESET, std::system_category()});
+            handle_disconnected(client, std::error_code{WSAECONNRESET, std::system_category(),});
          }
       }
       else
@@ -905,7 +877,7 @@ private:
 
    [[nodiscard]] size_t poll(DWORD const timeout)
    {
-      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(*m_completionPortEntries, timeout)};
+      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(*m_completionPortEntries, timeout),};
       assert(numberOfCompletionPortEntriesRemoved <= m_completionPortEntries->size());
       auto completionPortEntry{m_completionPortEntries->begin()};
       for (
@@ -949,16 +921,16 @@ private:
    void recv(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.recvContext);
-      auto &recvContext{*socketDescriptor.recvContext};
+      auto &recvContext{*socketDescriptor.recvContext,};
       assert(nullptr != recvContext.buffer.buf);
       assert(0 < recvContext.buffer.len);
       assert(nullptr == socketDescriptor.connectivityContext);
-      constexpr DWORD bufferCount{1};
-      DWORD bytesReceived{0};
-      DWORD flags{0};
+      constexpr DWORD bufferCount{1,};
+      DWORD bytesReceived{0,};
+      DWORD flags{0,};
       if (
          SOCKET_ERROR == WSARecv(
             socketDescriptor.handle,
@@ -972,8 +944,8 @@ private:
       ) [[likely]]
       {
          if (
-            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to recv from TCP socket: ({}) - {}", WSA_IO_PENDING)};
-            true == bool{errorCode}
+            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to recv from TCP socket: ({}) - {}", WSA_IO_PENDING),};
+            true == bool{errorCode,}
          ) [[unlikely]]
          {
             handle_disconnected(client, errorCode);
@@ -984,22 +956,22 @@ private:
    void send(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto &socketDescriptor{*client.m_socketDescriptor};
+      auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr != socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr == socketDescriptor.connectivityContext);
-      auto &sendContext{pop_data_transfer_context()};
-      auto bytesWritten{static_cast<size_t>(-1)};
+      auto &sendContext{pop_data_transfer_context(),};
+      auto bytesWritten{static_cast<size_t>(-1),};
       if (
          auto const errorCode
          {
             client.io_data_to_send(
-               data_chunk{.bytes = std::bit_cast<std::byte *>(sendContext.buffer.buf), .bytesLength = sendContext.buffer.len},
+               data_chunk{.bytes = std::bit_cast<std::byte *>(sendContext.buffer.buf), .bytesLength = sendContext.buffer.len,},
                bytesWritten
-            )
+            ),
          };
-         true == bool{errorCode}
+         true == bool{errorCode,}
       ) [[unlikely]]
       {
          push_io_context(sendContext);
@@ -1022,9 +994,9 @@ private:
       }
       sendContext.buffer.len = static_cast<ULONG>(bytesWritten);
       socketDescriptor.sendContext = std::addressof(sendContext);
-      constexpr DWORD bufferCount{1};
-      DWORD bytesSent{0};
-      constexpr DWORD flags{0};
+      constexpr DWORD bufferCount{1,};
+      DWORD bytesSent{0,};
+      constexpr DWORD flags{0,};
       if (
          SOCKET_ERROR == WSASend(
             socketDescriptor.handle,
@@ -1038,8 +1010,8 @@ private:
       ) [[likely]]
       {
          if (
-            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to send to TCP socket: ({}) - {}", WSA_IO_PENDING)};
-            true == bool{errorCode}
+            auto const errorCode{check_winsock_error_if_not("[tcp_client] failed to send to TCP socket: ({}) - {}", WSA_IO_PENDING),};
+            true == bool{errorCode,}
          ) [[unlikely]]
          {
             handle_disconnected(client, errorCode);
@@ -1051,14 +1023,14 @@ private:
    {
       if (true == config.keep_alive().has_value())
       {
-         tcp_keep_alive const keepAlive{config.keep_alive().value()};
+         tcp_keep_alive const keepAlive{config.keep_alive().value(),};
          tcp_keepalive tcpKeepAlive
          {
             .onoff = 1,
             .keepalivetime = static_cast<ULONG>(std::chrono::duration_cast<std::chrono::milliseconds>(keepAlive.idleTimeout).count()),
             .keepaliveinterval = static_cast<ULONG>(std::chrono::duration_cast<std::chrono::milliseconds>(keepAlive.probeTimeout).count()),
          };
-         DWORD bytesReturned{0};
+         DWORD bytesReturned{0,};
          if (
             SOCKET_ERROR == WSAIoctl(
                socket,
@@ -1076,7 +1048,7 @@ private:
             return check_winsock_error("[tcp_client] failed to set SIO_KEEPALIVE_VALS socket option: ({}) - {}");
          }
 #if (defined(TCP_KEEPCNT))
-         DWORD const keepAliveProbesCount{keepAlive.probesCount};
+         DWORD const keepAliveProbesCount{keepAlive.probesCount,};
          if (
             SOCKET_ERROR == setsockopt(
                socket,
@@ -1093,7 +1065,7 @@ private:
       }
       if (true == config.nodelay())
       {
-         DWORD const nodelay{TRUE};
+         DWORD const nodelay{TRUE,};
          if (
             SOCKET_ERROR == setsockopt(
                socket,
@@ -1107,26 +1079,22 @@ private:
             return check_winsock_error("[tcp_client] failed to set TCP_NODELAY socket option: ({}) - {}");
          }
       }
-      SOCKET_ADDRESS interfaceAddress{.lpSockaddr = nullptr, .iSockaddrLength = 0};
-      SOCKADDR_INET bindAddress{.si_family = config.peer_address().socket_address()->sockaddr().si_family};
+      SOCKET_ADDRESS interfaceAddress{.lpSockaddr = nullptr, .iSockaddrLength = 0,};
+      SOCKADDR_INET bindAddress{.si_family = config.peer_address().socket_address()->sockaddr().si_family,};
       if (true == config.peer_address().network_interface().has_value())
       {
-         auto const &networkInterface{config.peer_address().network_interface().value()};
+         auto const &networkInterface{config.peer_address().network_interface().value(),};
          if (AF_INET == bindAddress.si_family)
          {
             if (true == networkInterface.ip_v4().has_value()) [[likely]]
             {
-               auto const &sockaddr{networkInterface.ip_v4().value()->sockaddr()};
+               auto const &sockaddr{networkInterface.ip_v4().value()->sockaddr(),};
                interfaceAddress.lpSockaddr = std::bit_cast<LPSOCKADDR>(std::addressof(sockaddr.Ipv4));
                interfaceAddress.iSockaddrLength = sizeof(sockaddr.Ipv4);
             }
             else
             {
-               log_error(
-                  std::source_location::current(),
-                  "[tcp_client] interface has no IPv4 address: {}",
-                  networkInterface.friendly_name()
-               );
+               log_error(std::source_location::current(), "[tcp_client] interface has no IPv4 address: {}", networkInterface.friendly_name());
                unreachable();
             }
          }
@@ -1134,27 +1102,19 @@ private:
          {
             if (true == networkInterface.ip_v6().has_value()) [[likely]]
             {
-               auto const &sockaddr{networkInterface.ip_v6().value()->sockaddr()};
+               auto const &sockaddr{networkInterface.ip_v6().value()->sockaddr(),};
                interfaceAddress.lpSockaddr = std::bit_cast<LPSOCKADDR>(std::addressof(sockaddr.Ipv6));
                interfaceAddress.iSockaddrLength = sizeof(sockaddr.Ipv6);
             }
             else
             {
-               log_error(
-                  std::source_location::current(),
-                  "[tcp_client] interface has no IPv6 address: {}",
-                  networkInterface.friendly_name()
-               );
+               log_error(std::source_location::current(), "[tcp_client] interface has no IPv6 address: {}", networkInterface.friendly_name());
                unreachable();
             }
          }
          else [[unlikely]]
          {
-            log_error(
-               std::source_location::current(),
-               "[tcp_client] unexpected address family: {}",
-               bindAddress.si_family
-            );
+            log_error(std::source_location::current(), "[tcp_client] unexpected address family: {}", bindAddress.si_family);
             unreachable();
          }
       }
@@ -1173,11 +1133,7 @@ private:
          }
          else [[unlikely]]
          {
-            log_error(
-               std::source_location::current(),
-               "[tcp_client] unexpected address family: {}",
-               bindAddress.si_family
-            );
+            log_error(std::source_location::current(), "[tcp_client] unexpected address family: {}", bindAddress.si_family);
             unreachable();
          }
       }
@@ -1193,7 +1149,7 @@ private:
             .MaxSynRetransmissions = 1,
          };
          if (
-            DWORD bytesReturned{0};
+            DWORD bytesReturned{0,};
             SOCKET_ERROR == WSAIoctl(
                socket,
                SIO_TCP_INITIAL_RTO,
@@ -1226,7 +1182,7 @@ private:
       extension_function &functionPointer
    ) noexcept
    {
-      DWORD bytesReturned{0};
+      DWORD bytesReturned{0,};
       return WSAIoctl(
          socket,
          SIO_GET_EXTENSION_FUNCTION_POINTER,

@@ -497,6 +497,7 @@ public:
       {
          assert(nullptr != tlsClientSession.securityBuffer);
          std::string_view const securityToken{tlsClientSession.securityToken,};
+         tlsClientSession.securityToken = std::string_view{"",};
          std::memcpy(dataChunk.bytes, securityToken.data(), securityToken.size());
          bytesWritten = securityToken.size();
          return std::error_code{};
