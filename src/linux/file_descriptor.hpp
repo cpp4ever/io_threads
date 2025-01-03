@@ -30,6 +30,7 @@
 #include <array> ///< for std::array
 #include <climits> ///< for PATH_MAX
 #include <cstdint> ///< for uint32_t, uint8_t
+#include <system_error> ///< for std::error_code
 
 namespace io_threads
 {
@@ -51,6 +52,7 @@ struct file_descriptor final
    bool closeOnCompletion{false,};
    file_writer *fileWriter{nullptr,};
    file_descriptor *next{nullptr,};
+   std::error_code closeReason{};
    std::array<char, PATH_MAX> filePath{0,};
 };
 

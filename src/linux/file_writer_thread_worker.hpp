@@ -190,18 +190,20 @@ private:
    void close_file(file_writer &fileWriter)
    {
       assert(nullptr != fileWriter.m_fileDescriptor);
-      assert(file_status::ready == fileWriter.m_fileDescriptor->fileStatus);
-      assert(std::addressof(fileWriter) == fileWriter.m_fileDescriptor->fileWriter);
-      assert(nullptr == fileWriter.m_fileDescriptor->next);
       auto &fileDescriptor{*fileWriter.m_fileDescriptor,};
+      assert(file_status::none != fileDescriptor.fileStatus);
+      assert(file_status::opening != fileDescriptor.fileStatus);
+      assert(file_status::flushing != fileDescriptor.fileStatus);
+      assert(file_status::closing != fileDescriptor.fileStatus);
+      assert(std::addressof(fileWriter) == fileDescriptor.fileWriter);
+      assert(nullptr == fileDescriptor.next);
       fileDescriptor.fileStatus = file_status::flushing;
-      fileDescriptor.fileWriter = nullptr;
-      fileWriter.m_fileDescriptor = nullptr;
       m_fileWriterUring->prep_fsync(fileDescriptor);
    }
 
    void handle_command(intptr_t const commandId, intptr_t const commandTarget) override
    {
+      assert(std::this_thread::get_id() == m_threadId);
       switch (commandId)
       {
       [[unlikely]] case to_underlying(file_writer_command::unknown):
@@ -238,40 +240,31 @@ private:
          handle_ready_to_close(*std::bit_cast<file_writer *>(commandTarget));
       }
       break;
-
-      [[unlikely]] default:
-      {
-         log_error(std::source_location::current(), "[file_writer] unknown file_writer_command {}: it must be a bug", commandId);
-         unreachable();
-      }
-      break;
       }
    }
 
    void handle_event_completion() override
    {
+      assert(std::this_thread::get_id() == m_threadId);
       m_uringCommandQueue.handle(*this);
    }
 
    void handle_ready_to_close(file_writer &fileWriter)
    {
-      assert(nullptr != fileWriter.m_fileDescriptor);
-      assert(false == fileWriter.m_fileDescriptor->closeOnCompletion);
-      assert(std::addressof(fileWriter) == fileWriter.m_fileDescriptor->fileWriter);
-      assert(nullptr == fileWriter.m_fileDescriptor->next);
-      if (file_status::ready == fileWriter.m_fileDescriptor->fileStatus)
+      auto *fileDescriptor{fileWriter.m_fileDescriptor,};
+      if (nullptr != fileDescriptor) [[likely]]
       {
-         close_file(fileWriter);
-         fileWriter.io_closed(std::error_code{});
-      }
-      else
-      {
-         assert(
-            false
-            || (file_status::opening == fileWriter.m_fileDescriptor->fileStatus)
-            || (file_status::busy == fileWriter.m_fileDescriptor->fileStatus)
-         );
-         fileWriter.m_fileDescriptor->closeOnCompletion = true;
+         assert(std::addressof(fileWriter) == fileDescriptor->fileWriter);
+         assert(nullptr == fileDescriptor->next);
+         if (file_status::ready == fileDescriptor->fileStatus)
+         {
+            close_file(fileWriter);
+         }
+         else
+         {
+            assert(file_status::none != fileDescriptor->fileStatus);
+            fileDescriptor->closeOnCompletion = true;
+         }
       }
    }
 
@@ -328,17 +321,17 @@ private:
 
    void handle_ready_to_write(file_writer &fileWriter)
    {
-      assert(nullptr != fileWriter.m_fileDescriptor);
-      assert(false == fileWriter.m_fileDescriptor->closeOnCompletion);
-      assert(std::addressof(fileWriter) == fileWriter.m_fileDescriptor->fileWriter);
-      assert(nullptr == fileWriter.m_fileDescriptor->next);
-      if (file_status::ready == fileWriter.m_fileDescriptor->fileStatus)
+      auto *fileDescriptor{fileWriter.m_fileDescriptor,};
+      if (nullptr != fileDescriptor) [[likely]]
       {
-         write(fileWriter);
-      }
-      else
-      {
-         assert(file_status::busy == fileWriter.m_fileDescriptor->fileStatus);
+         assert(file_status::none != fileDescriptor->fileStatus);
+         assert(false == fileDescriptor->closeOnCompletion);
+         assert(std::addressof(fileWriter) == fileDescriptor->fileWriter);
+         assert(nullptr == fileDescriptor->next);
+         if (file_status::ready == fileDescriptor->fileStatus)
+         {
+            write(fileWriter);
+         }
       }
    }
 
@@ -348,50 +341,46 @@ private:
       assert(0 == flags);
       auto &fileDescriptor{*std::launder(std::bit_cast<file_descriptor *>(userdata)),};
       assert(file_status::none != fileDescriptor.fileStatus);
+      assert(file_status::ready != fileDescriptor.fileStatus);
+      assert(nullptr != fileDescriptor.fileWriter);
+      auto &fileWriter = *fileDescriptor.fileWriter;
+      assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
       assert(nullptr == fileDescriptor.next);
-      if (nullptr != fileDescriptor.fileWriter) [[likely]]
+      assert(std::this_thread::get_id() == m_threadId);
+      switch (fileDescriptor.fileStatus)
       {
-         if (file_status::busy == fileDescriptor.fileStatus) [[likely]]
+      case file_status::opening:
+      {
+         if (0 <= result) [[likely]]
          {
-            auto &fileWriter = *fileDescriptor.fileWriter;
-            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
             fileDescriptor.fileStatus = file_status::ready;
-            if (0 <= result) [[likely]]
-            {
-               write(fileWriter);
-            }
-            else
-            {
-               close_file(fileWriter);
-               std::error_code errorCode{-result, std::generic_category(),};
-               fileWriter.io_closed(errorCode);
-            }
+            fileWriter.io_opened();
+            write(fileWriter);
          }
          else
          {
-            assert(file_status::opening == fileDescriptor.fileStatus);
-            fileDescriptor.fileStatus = file_status::ready;
-            auto &fileWriter = *fileDescriptor.fileWriter;
-            assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
-            if (0 == result) [[likely]]
-            {
-               fileWriter.io_opened();
-               write(fileWriter);
-            }
-            else
-            {
-               fileWriter.m_fileDescriptor = nullptr;
-               fileDescriptor.fileStatus = file_status::none;
-               fileDescriptor.closeOnCompletion = false;
-               fileDescriptor.fileWriter = nullptr;
-               fileDescriptor.next = m_freeFileDescriptors;
-               m_freeFileDescriptors = std::addressof(fileDescriptor);
-               std::error_code errorCode{-result, std::generic_category(),};
-               fileWriter.io_closed(errorCode);
-            }
+            fileDescriptor.closeReason = std::error_code{-result, std::generic_category(),};
+            push_file_descriptor(fileDescriptor);
          }
       }
-      else if (file_status::flushing == fileDescriptor.fileStatus)
+      break;
+
+      [[likely]] case file_status::busy:
+      {
+         if (0 <= result) [[likely]]
+         {
+            fileDescriptor.fileStatus = file_status::ready;
+            write(fileWriter);
+         }
+         else
+         {
+            fileDescriptor.closeReason = std::error_code{-result, std::generic_category(),};
+            close_file(fileWriter);
+         }
+      }
+      break;
+
+      case file_status::flushing:
       {
          if (0 > result) [[unlikely]]
          {
@@ -400,21 +389,22 @@ private:
          fileDescriptor.fileStatus = file_status::closing;
          m_fileWriterUring->prep_close(fileDescriptor);
       }
-      else if (file_status::closing == fileDescriptor.fileStatus)
+      break;
+
+      case file_status::closing:
       {
          if (0 > result) [[unlikely]]
          {
             log_system_error("[file_writer] failed to close file: ({}) - {}", -result);
          }
-         fileDescriptor.fileStatus = file_status::none;
-         fileDescriptor.closeOnCompletion = false;
-         fileDescriptor.next = m_freeFileDescriptors;
-         m_freeFileDescriptors = std::addressof(fileDescriptor);
+         push_file_descriptor(fileDescriptor);
       }
-      else
-      {
-         log_error(std::source_location::current(), "[file_writer] unexpected file status {}: it must be a bug", to_underlying(fileDescriptor.fileStatus));
-         unreachable();
+      break;
+
+      [[unlikely]] case file_status::none: [[fallthrough]];
+      [[unlikely]] case file_status::ready: [[fallthrough]];
+      [[unlikely]] default:
+      unreachable();
       }
    }
 
@@ -425,6 +415,27 @@ private:
       task.completionPromise.set_value();
    }
 
+   void push_file_descriptor(file_descriptor &fileDescriptor)
+   {
+      assert(file_status::none != fileDescriptor.fileStatus);
+      assert(file_status::ready != fileDescriptor.fileStatus);
+      assert(file_status::busy != fileDescriptor.fileStatus);
+      assert(file_status::flushing != fileDescriptor.fileStatus);
+      assert(nullptr != fileDescriptor.fileWriter);
+      auto &fileWriter = *fileDescriptor.fileWriter;
+      assert(std::addressof(fileDescriptor) == fileWriter.m_fileDescriptor);
+      fileWriter.m_fileDescriptor = nullptr;
+      fileDescriptor.fileStatus = file_status::none;
+      fileDescriptor.closeOnCompletion = false;
+      fileDescriptor.fileWriter = nullptr;
+      fileDescriptor.next = std::launder(m_freeFileDescriptors);
+      auto const closeReason{fileDescriptor.closeReason,};
+      fileDescriptor.closeReason = {};
+      fileDescriptor.filePath[0] = 0;
+      m_freeFileDescriptors = std::launder(std::addressof(fileDescriptor));
+      fileWriter.io_closed(closeReason);
+   }
+
    void write(file_writer &fileWriter)
    {
       assert(nullptr != fileWriter.m_fileDescriptor);
@@ -432,18 +443,17 @@ private:
       assert(file_status::ready == fileDescriptor.fileStatus);
       assert(std::addressof(fileWriter) == fileWriter.m_fileDescriptor->fileWriter);
       assert(nullptr == fileWriter.m_fileDescriptor->next);
+      assert(false == (bool{fileDescriptor.closeReason,}));
       auto const dataChunk{fileWriter.io_ready_to_write(),};
-      if (0 == dataChunk.bytesLength)
+      if (0 < dataChunk.bytesLength)
       {
-         if (true == fileDescriptor.closeOnCompletion)
-         {
-            close_file(fileWriter);
-            fileWriter.io_closed(std::error_code{});
-         }
-         return;
+         fileDescriptor.fileStatus = file_status::busy;
+         m_fileWriterUring->prep_write(fileDescriptor, dataChunk);
       }
-      m_fileWriterUring->prep_write(fileDescriptor, dataChunk);
-      fileDescriptor.fileStatus = file_status::busy;
+      else if (true == fileDescriptor.closeOnCompletion) [[unlikely]]
+      {
+         close_file(fileWriter);
+      }
    }
 };
 
