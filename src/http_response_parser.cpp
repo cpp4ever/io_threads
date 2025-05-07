@@ -163,6 +163,13 @@ std::error_code http_response_parser::parse(std::string_view const &httpResponse
    }
    return httpResponseParserContext.errorCode;
 
+   case llhttp_errno::HPE_CLOSED_CONNECTION:
+   {
+      llhttp_reset(m_llhttp.get());
+      m_contentLength = 0;
+   }
+   return httpResponseParserContext.errorCode;
+
    default:
    {
       assert(false == (bool{httpResponseParserContext.errorCode,}));
