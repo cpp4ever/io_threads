@@ -124,7 +124,8 @@ public:
    x509_store_impl(x509_store_impl &&) = delete;
    x509_store_impl(x509_store_impl const &) = delete;
 
-   [[nodiscard]] explicit x509_store_impl(x509_store_config const &config)
+   [[nodiscard]] explicit x509_store_impl(x509_store_config const &config) :
+      m_enableCertificateVerification{config.enableCertificateVerification,}
    {
       if ((true == config.caDirectoryPath.empty()) && (true == config.caFilePath.empty()))
       {
@@ -202,7 +203,8 @@ public:
       std::string_view const &x509Data,
       [[maybe_unused]] x509_format const x509Format,
       std::string_view const &x509DataPassword
-   )
+   ) :
+      m_enableCertificateVerification{true,}
    {
       assert(false == x509Data.empty());
       assert(x509_format::pem == x509Format);
@@ -254,11 +256,12 @@ public:
       SSL_CTX_set_post_handshake_auth(sslContext.get(), 1);
       SSL_CTX_set_security_level(sslContext.get(), 2);
       SSL_CTX_set_tlsext_status_type(sslContext.get(), TLSEXT_STATUSTYPE_ocsp);
-      SSL_CTX_set_verify(sslContext.get(), SSL_VERIFY_PEER, nullptr);
+      SSL_CTX_set_verify(sslContext.get(), (true == m_enableCertificateVerification) ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, nullptr);
       return sslContext;
    }
 
 private:
+   bool const m_enableCertificateVerification;
    std::unique_ptr<X509_STORE> m_x509Store{create_x509_store(),};
 
    void verify_certificate(SSL_CTX *sslContext, domain_address const &domainAddress)

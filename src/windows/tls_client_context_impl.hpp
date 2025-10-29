@@ -711,7 +711,7 @@ private:
          .dwFlags = DWORD{0,}
             | ((nullptr == m_certificateContext) ? DWORD{SCH_CRED_AUTO_CRED_VALIDATION,} : DWORD{SCH_CRED_MANUAL_CRED_VALIDATION,})
             | SCH_CRED_NO_DEFAULT_CREDS
-            | ((true == m_x509Store->is_evocation_check_enabled()) ? DWORD{SCH_CRED_REVOCATION_CHECK_CHAIN,} : DWORD{0,})
+            | ((true == m_x509Store->revocation_check_enabled()) ? DWORD{SCH_CRED_REVOCATION_CHECK_CHAIN,} : DWORD{0,})
             | SCH_SEND_AUX_RECORD
             | SCH_USE_STRONG_CRYPTO
          ,

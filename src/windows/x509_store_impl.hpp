@@ -176,7 +176,7 @@ public:
    x509_store_impl &operator = (x509_store_impl &&) = delete;
    x509_store_impl &operator = (x509_store_impl const &) = delete;
 
-   [[nodiscard]] bool is_evocation_check_enabled() const noexcept
+   [[nodiscard]] bool revocation_check_enabled() const noexcept
    {
       return m_revocationCheckEnabled;
    }

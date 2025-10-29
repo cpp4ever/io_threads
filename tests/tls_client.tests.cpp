@@ -183,7 +183,7 @@ TEST_F(tls_client, connect_timeout)
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{1,};
    tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
-   x509_store const testX509Store{x509_store_config{.enableRevocationCheck = true,},};
+   x509_store const testX509Store{x509_store_config{},};
    constexpr size_t testTlsSessionListCapacity{1,};
    auto testTlsContext = tls_client_context{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
@@ -356,7 +356,7 @@ TEST_F(tls_client, badssl)
    {
       testDomains.push_back(domain_address{.hostname = std::string{testBadAddress.host,}, .port = testBadAddress.port,});
    }
-   x509_store const testX509Store{x509_store_config{.enableRevocationCheck = true,}, testDomains,};
+   x509_store const testX509Store{x509_store_config{}, testDomains,};
    constexpr size_t testTlsSessionListCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
@@ -426,7 +426,7 @@ TEST_F(tls_client, goodssl)
       }
       testDomains.push_back(domain_address{.hostname = std::string{testGoodAddress.host,}, .port = testGoodAddress.port,});
    }
-   x509_store const testX509Store{x509_store_config{.enableRevocationCheck = true,}, testDomains,};
+   x509_store const testX509Store{x509_store_config{}, testDomains,};
    constexpr size_t testTlsSessionListCapacity{1,};
    constexpr std::chrono::seconds testTimeout{5,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};

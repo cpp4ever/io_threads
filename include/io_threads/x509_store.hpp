@@ -41,9 +41,10 @@ namespace io_threads
 
 struct x509_store_config final
 {
-   std::filesystem::path const caDirectoryPath{};
-   std::filesystem::path const caFilePath{};
-   bool const enableRevocationCheck;
+   std::filesystem::path const caDirectoryPath{}; ///< openssl only
+   std::filesystem::path const caFilePath{}; ///< openssl only
+   bool const enableCertificateVerification{true,}; ///< openssl only
+   bool const enableRevocationCheck{true,};
 };
 
 struct domain_address final

@@ -40,7 +40,7 @@ tls_client_context create_test_tls_client_context(std::string_view const domainN
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{1,};
    tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
-   x509_store const x509Store{x509_store_config{.enableRevocationCheck = true,},};
+   x509_store const x509Store{x509_store_config{},};
    constexpr size_t testTlsSessionListCapacity{1,};
    return tls_client_context{testThread, x509Store, domainName, testTlsSessionListCapacity,};
 }
