@@ -26,7 +26,7 @@
 #pragma once
 
 #include "common/utility.hpp" ///< for io_threads::unreachable
-#include "io_threads/x509_store.hpp" ///< for io_threads::x509_store
+#include "io_threads/x509_store.hpp" ///< for io_threads::x509_store, io_threads::x509_store_config
 #include "openssl/error.hpp" ///< for io_threads::log_openssl_errors
 
 #include <openssl/http.h>
@@ -124,18 +124,32 @@ public:
    x509_store_impl(x509_store_impl &&) = delete;
    x509_store_impl(x509_store_impl const &) = delete;
 
-   [[nodiscard]] explicit x509_store_impl(bool const enableRevocationCheck)
+   [[nodiscard]] explicit x509_store_impl(x509_store_config const &config)
    {
-      if (0 == X509_STORE_set_default_paths(m_x509Store.get())) [[unlikely]]
+      if ((true == config.caDirectoryPath.empty()) && (true == config.caFilePath.empty()))
       {
-         log_openssl_errors("[x509_store] failed to load from default paths");
+         if (0 == X509_STORE_set_default_paths(m_x509Store.get())) [[unlikely]]
+         {
+            log_openssl_errors("[x509_store] failed to load from default CA paths");
+            unreachable();
+         }
+      }
+      else if (
+         0 == X509_STORE_load_locations(
+            m_x509Store.get(),
+            (true == config.caFilePath.empty()) ? nullptr : config.caFilePath.string().data(),
+            (true == config.caDirectoryPath.empty()) ? nullptr : config.caDirectoryPath.string().data()
+         )
+      ) [[unlikely]]
+      {
+         log_openssl_errors("[x509_store] failed to load from custom CA path");
          unreachable();
       }
       auto *x509VerifyParam{X509_STORE_get0_param(m_x509Store.get()),};
       assert(nullptr != x509VerifyParam);
       X509_VERIFY_PARAM_set_auth_level(x509VerifyParam, 2);
       uint32_t x509Flags{0,};
-      if (true == enableRevocationCheck)
+      if (true == config.enableRevocationCheck)
       {
          x509Flags |= X509_V_FLAG_CRL_CHECK;             ///< enable revocation check
          x509Flags |= X509_V_FLAG_CRL_CHECK_ALL;         ///< revocation checks for the entire certificate chain
@@ -152,10 +166,10 @@ public:
       X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
    }
 
-   [[nodiscard]] x509_store_impl(std::vector<domain_address> const &domainAddresses, bool const enableRevocationCheck) :
-      x509_store_impl{enableRevocationCheck}
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::vector<domain_address> const &domainAddresses) :
+      x509_store_impl{config,}
    {
-      if (true == enableRevocationCheck)
+      if (true == config.enableRevocationCheck)
       {
          auto sslContext{create_ssl_context(),};
          auto *x509VerifyParam{SSL_CTX_get0_param(sslContext.get()),};

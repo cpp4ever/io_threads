@@ -23,7 +23,7 @@
    SOFTWARE.
 */
 
-#include "io_threads/x509_store.hpp" ///< for io_threads::domain_address, io_threads::x509_format, io_threads::x509_store
+#include "io_threads/x509_store.hpp" ///< for io_threads::domain_address, io_threads::x509_format, io_threads::x509_store, io_threads::x509_store_config
 #if (defined(IO_THREADS_OPENSSL))
 #  include "openssl/x509_store_impl.hpp" ///< for io_threads::x509_store::x509_store_impl
 #elif (defined(IO_THREADS_SCHANNEL))
@@ -40,23 +40,19 @@ namespace io_threads
 x509_store::x509_store(x509_store &&rhs) noexcept = default;
 x509_store::x509_store(x509_store const &rhs) noexcept = default;
 
-x509_store::x509_store(bool const enableRevocationCheck) :
-   m_impl{std::make_shared<x509_store_impl>(enableRevocationCheck),}
+x509_store::x509_store(x509_store_config const &config) :
+   m_impl{std::make_shared<x509_store_impl>(config),}
 {}
 
-x509_store::x509_store(std::vector<domain_address> const &domainAddresses, bool const enableRevocationCheck) :
-   m_impl{std::make_shared<x509_store_impl>(domainAddresses, enableRevocationCheck),}
+x509_store::x509_store(x509_store_config const &config, std::vector<domain_address> const &domainAddresses) :
+   m_impl{std::make_shared<x509_store_impl>(config, domainAddresses),}
 {}
 
 x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat) :
    m_impl{std::make_shared<x509_store_impl>(x509Data, x509DataFormat, std::string_view{"",}),}
 {}
 
-x509_store::x509_store(
-   std::string_view const &x509Data,
-   x509_format const x509DataFormat,
-   std::string_view const &x509DataPassword
-) :
+x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat, std::string_view const &x509DataPassword) :
    m_impl{std::make_shared<x509_store_impl>(x509Data, x509DataFormat, x509DataPassword),}
 {}
 

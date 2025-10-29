@@ -193,7 +193,7 @@ TEST_F(wss_client, connect_timeout)
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{1,};
    tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
-   x509_store const testX509Store{true,};
+   x509_store const testX509Store{x509_store_config{.enableRevocationCheck = true,},};
    constexpr size_t testTlsSessionListCapacity{1,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
    constexpr size_t tesWssSessionListCapacity{1,};

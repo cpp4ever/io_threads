@@ -29,6 +29,7 @@
 #include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 
 #include <cstdint> ///< for uint8_t
+#include <filesystem> ///< for std::filesystem::path
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::nullopt, std::optional
 #include <string> ///< for std::string
@@ -38,7 +39,14 @@
 namespace io_threads
 {
 
-struct domain_address
+struct x509_store_config final
+{
+   std::filesystem::path const caDirectoryPath{};
+   std::filesystem::path const caFilePath{};
+   bool const enableRevocationCheck;
+};
+
+struct domain_address final
 {
    std::string hostname;
    uint16_t port;
@@ -59,12 +67,12 @@ public:
    x509_store() = delete;
    [[nodiscard]] x509_store(x509_store &&rhs) noexcept;
    [[nodiscard]] x509_store(x509_store const &rhs) noexcept;
-   [[nodiscard]] explicit x509_store(bool enableRevocationCheck);
-   [[nodiscard]] x509_store(std::vector<domain_address> const &domainAddresses, bool enableRevocationCheck);
-   [[nodiscard]] x509_store(std::string_view const &x509Data, x509_format const x509DataFormat);
+   [[nodiscard]] explicit x509_store(x509_store_config const &config);
+   [[nodiscard]] x509_store(x509_store_config const &config, std::vector<domain_address> const &domainAddresses);
+   [[nodiscard]] x509_store(std::string_view const &x509Data, x509_format x509DataFormat);
    [[nodiscard]] x509_store(
       std::string_view const &x509Data,
-      x509_format const x509DataFormat,
+      x509_format x509DataFormat,
       std::string_view const &x509DataPassword
    );
    ~x509_store();

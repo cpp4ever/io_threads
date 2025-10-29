@@ -27,7 +27,7 @@
 
 #include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/utility.hpp" ///< for io_threads::unreachable
-#include "io_threads/x509_store.hpp" ///< for io_threads::x509_format, io_threads::x509_store
+#include "io_threads/x509_store.hpp" ///< for io_threads::x509_format, io_threads::x509_store, io_threads::x509_store_config
 #include "windows/wide_char.hpp" ///< for io_threads::utf8_to_wide_char
 #include "windows/winapi_error.hpp" ///< for io_threads::check_winapi_error
 
@@ -88,12 +88,12 @@ public:
    x509_store_impl(x509_store_impl &&) = delete;
    x509_store_impl(x509_store_impl const &) = delete;
 
-   [[nodiscard]] explicit x509_store_impl(bool const enableRevocationCheck) noexcept :
-      m_revocationCheckEnabled{enableRevocationCheck,}
+   [[nodiscard]] explicit x509_store_impl(x509_store_config const &config) noexcept :
+      m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
-   [[nodiscard]] x509_store_impl(std::vector<domain_address> const &, bool const enableRevocationCheck) noexcept :
-      m_revocationCheckEnabled{enableRevocationCheck,}
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::vector<domain_address> const &) noexcept :
+      m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
    [[nodiscard]] x509_store_impl(
