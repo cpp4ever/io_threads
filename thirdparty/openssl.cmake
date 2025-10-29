@@ -25,7 +25,7 @@
 
 if(NOT OPENSSL_FOUND)
    set(OPENSSL_USE_STATIC_LIBS ON)
-   find_package(OpenSSL)
+   find_package(OpenSSL REQUIRED)
    if(OPENSSL_FOUND)
       add_library(io_threads_openssl INTERFACE)
       add_library(io_threads::openssl ALIAS io_threads_openssl)
@@ -41,18 +41,5 @@ endif()
 
 function(setup_ssl_library IN_TARGET)
    target_compile_definitions(${IN_TARGET} PRIVATE IO_THREADS_OPENSSL=1 OPENSSL_NO_DEPRECATED=1)
-   if(TARGET io_threads_openssl)
-      target_link_libraries(${IN_TARGET} PRIVATE io_threads::openssl)
-   else()
-      set(OPENSSL_VERSION "3.5.3")
-      configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/openssl/packages.config" "${CMAKE_CURRENT_BINARY_DIR}/packages.${IN_TARGET}.config" @ONLY)
-      configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/openssl/user.props" "${CMAKE_CURRENT_BINARY_DIR}/${IN_TARGET}.user.props" @ONLY)
-      set_target_properties(
-         ${IN_TARGET}
-         PROPERTIES
-            VS_PACKAGE_REFERENCES "openssl-native_${OPENSSL_VERSION}"
-            VS_USER_PROPS "${CMAKE_CURRENT_BINARY_DIR}/${IN_TARGET}.user.props"
-      )
-      target_link_libraries(${IN_TARGET} PRIVATE libcrypto libssl)
-   endif()
+   target_link_libraries(${IN_TARGET} PRIVATE io_threads::openssl)
 endfunction()
