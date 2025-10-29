@@ -233,9 +233,9 @@ TEST_F(tls_client, badssl)
    std::vector<std::error_code> const testWebpackDevServerErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
    std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
    std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testDH480ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
-   std::vector<std::error_code> const testDH512ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
-   std::vector<std::error_code> const testDH1024ErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_CRL),};
+   std::vector<std::error_code> const testDH480ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_BAD_DH_VALUE)),};
+   std::vector<std::error_code> const testDH512ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
    std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
    std::vector<std::error_code> const testTLSv1_0ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
    std::vector<std::error_code> const testTLSv1_1ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};

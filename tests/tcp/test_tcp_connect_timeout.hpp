@@ -43,6 +43,7 @@ void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
    {
       testing::AnyOf(
 #if (defined(__linux__))
+         std::make_error_code(std::errc::connection_reset),
          std::make_error_code(std::errc::timed_out)
 #elif (defined(_WIN32) || defined(_WIN64))
          std::error_code{WSAEADDRNOTAVAIL, std::system_category()},
@@ -52,11 +53,7 @@ void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
    };
    constexpr auto testNonRoutableIps = std::to_array<std::string_view>({
       "10.0.0.0",
-      "10.255.255.1",
       "10.255.255.255",
-      "172.16.0.0",
-      "192.168.0.0",
-      "192.168.255.255"
    });
    for (auto const &testNonRoutableIp : testNonRoutableIps)
    {

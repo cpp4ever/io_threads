@@ -773,6 +773,7 @@ private:
          .pBuffers = inboundSecurityBuffers.data(),
       };
       auto *tokenSecurityBuffer{(nullptr == session.securityBuffer) ? m_securityMemory->pop_memory_chunk() : session.securityBuffer,};
+      session.securityBuffer = nullptr;
       auto *alertSecurityBuffer{m_securityMemory->pop_memory_chunk(),};
       auto outboundSecurityBuffers
       {

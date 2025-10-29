@@ -35,9 +35,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-latest
             cc: clang-18
             cxx: clang++-18
             gcov: llvm-cov-18 gcov
@@ -52,7 +52,7 @@ jobs:
         submodules: 'recursive'
 
     - name: Install
-      if: ${{matrix.os == 'ubuntu-24.04'}}
+      if: ${{matrix.os == 'ubuntu-latest'}}
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
         echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
@@ -65,7 +65,7 @@ jobs:
         cmake --version
         ninja --version
         pipx --version
-        pipx install git+https://github.com/gcovr/gcovr.git@8.3#egg=gcovr
+        pipx install git+https://github.com/gcovr/gcovr.git@8.4#egg=gcovr
         gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
@@ -82,7 +82,7 @@ jobs:
         cmake --version
         ninja --version
         pipx --version
-        pipx install git+https://github.com/gcovr/gcovr.git@8.3#egg=gcovr
+        pipx install git+https://github.com/gcovr/gcovr.git@8.4#egg=gcovr
         gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
@@ -107,7 +107,7 @@ jobs:
         gcovr --cobertura ${{runner.workspace}}/build/coverage.xml --exclude-unreachable-branches --filter include/ --filter src/ --gcov-executable '${{matrix.gcov}}' --gcov-object-directory ${{runner.workspace}}/build/ --print-summary --timestamp ${{env.SOURCE_DATE_EPOCH}}
 
     - name: Upload
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         directory: ${{runner.workspace}}/build
         fail_ci_if_error: true
