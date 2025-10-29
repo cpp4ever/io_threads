@@ -141,12 +141,33 @@ public:
 
    template<typename ...types>
       requires(true == std::is_constructible_v<type, types...>)
-   void push(types &&...values)
+   [[maybe_unused]] void push(types &&...values)
    {
-      auto const wakeupIo{push_unordered_task(m_taskAllocator.allocate(std::forward<types>(values)...)),};
-      if ((true == wakeupIo) && (true == m_opened.load(std::memory_order_relaxed)))
+      if (
+         auto const wakeupIo{push_unordered_task(m_taskAllocator.allocate(std::forward<types>(values)...)),};
+         (true == wakeupIo) && (true == m_opened.load(std::memory_order_relaxed))
+      )
       {
          ready_to_write();
+      }
+   }
+
+   template<typename forward_iterator, typename iterator>
+   [[maybe_unused]] void push_batch(forward_iterator first, iterator const last)
+   {
+      if (last != first)
+      {
+         file_write_task<type> &firstTask{m_taskAllocator.allocate(*first),};
+         auto *lastTask{std::addressof(firstTask),};
+         for (++first; last != first; ++first)
+         {
+            lastTask->next = std::addressof(m_taskAllocator.allocate(*first));
+            lastTask = lastTask->next;
+         }
+         if (auto const wakeupIo{push_unordered_task(firstTask),}; (true == wakeupIo) && (true == m_opened.load(std::memory_order_relaxed)))
+         {
+            ready_to_write();
+         }
       }
    }
 
@@ -242,9 +263,14 @@ private:
 
    [[nodiscard]] bool push_unordered_task(file_write_task<type> &task)
    {
+      auto *lastTask{std::addressof(task),};
+      for (; nullptr != lastTask->next; lastTask = lastTask->next)
+      {
+         continue;
+      }
       [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
       bool wakeupIo{nullptr == m_unorderedTasks,};
-      task.next = std::launder(m_unorderedTasks);
+      lastTask->next = std::launder(m_unorderedTasks);
       m_unorderedTasks = std::launder(std::addressof(task));
       return wakeupIo;
    }
