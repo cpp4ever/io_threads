@@ -32,8 +32,8 @@ if(NOT TARGET llhttp_static)
    FetchContent_Declare(
       llhttp
       # Download Step Options
-      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz
-      URL_HASH SHA256=3c163891446e529604b590f9ad097b2e98b5ef7e4d3ddcf1cf98b62ca668f23e
+      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.3.0.tar.gz
+      URL_HASH SHA256=1a2b45cb8dda7082b307d336607023aa65549d6f060da1d246b1313da22b685a
       DOWNLOAD_EXTRACT_TIMESTAMP ON
    )
    FetchContent_MakeAvailable(llhttp)
