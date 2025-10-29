@@ -30,7 +30,7 @@
 #include "common/wss_client_context_impl.hpp" ///< for io_threads::wss_client_context::wss_client_context_impl
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
-#include "io_threads/wss_client.hpp" ///< for io_threads::wss_client
+#include "io_threads/wss_client.hpp" ///< for io_threads::websocket_closure_reason, io_threads::wss_client
 
 #if (defined(__linux__))
 #  include <endian.h> ///< for be16toh, be64toh
@@ -77,11 +77,11 @@ void wss_client::io_disconnected(std::error_code const &errorCode)
    }
 }
 
-void wss_client::ready_to_close()
+void wss_client::ready_to_close(websocket_closure_reason const closureReason)
 {
    if (nullptr != m_websocketClientSession) [[likely]]
    {
-      m_wssClientContext.m_impl->ready_to_close(*m_websocketClientSession);
+      m_wssClientContext.m_impl->ready_to_close(*m_websocketClientSession, to_underlying(closureReason));
       if (nullptr != m_websocketClientSession->outboundFrame)
       {
          ready_to_send();

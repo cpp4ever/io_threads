@@ -229,7 +229,7 @@ std::error_code wss_client_context::wss_client_context_impl::handle_handshake_co
    return errorCode;
 }
 
-void wss_client_context::wss_client_context_impl::ready_to_close(websocket_client_session &session) const
+void wss_client_context::wss_client_context_impl::ready_to_close(websocket_client_session &session, uint16_t closureReason) const
 {
    if (false == session.closed)
    {
@@ -243,6 +243,9 @@ void wss_client_context::wss_client_context_impl::ready_to_close(websocket_clien
       outboundConnectionCloseFrame.header.opcode = websocket_frame_opcode_connection_close;
       outboundConnectionCloseFrame.header.fin = std::byte{1,};
       outboundConnectionCloseFrame.bytes = std::bit_cast<std::byte *>(std::addressof(outboundConnectionCloseFrame) + 1);
+      closureReason = htons(closureReason);
+      std::memcpy(outboundConnectionCloseFrame.bytes, std::addressof(closureReason), sizeof(closureReason));
+      outboundConnectionCloseFrame.bytesLength = sizeof(closureReason);
       session.closed = true;
       session.outboundFrame = std::addressof(outboundConnectionCloseFrame);
    }

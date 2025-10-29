@@ -51,6 +51,7 @@
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for uint16_t
 #include <cstring> ///< for std::memcpy
 #include <memory> ///< for std::addressof, std::unique_ptr
 #include <source_location> ///< for std::source_location
@@ -151,7 +152,7 @@ public:
       data_chunk const &dataChunk
    );
 
-   void ready_to_close(websocket_client_session &session) const;
+   void ready_to_close(websocket_client_session &session, uint16_t closureReason) const;
 
    void release_session(websocket_client_session &session);
 

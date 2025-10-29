@@ -61,7 +61,7 @@ public:
             [this] ()
             {
                expect_error(std::error_code{});
-               ready_to_close();
+               ready_to_close(websocket_closure_reason::normal);
                return websocket_frame{};
             }
          )

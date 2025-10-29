@@ -32,6 +32,7 @@
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
 
 #include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint16_t
 #include <memory> ///< for std::shared_ptr
 #include <system_error> ///< for std::error_code
 
@@ -39,6 +40,17 @@ namespace io_threads
 {
 
 struct websocket_client_session;
+
+enum struct websocket_closure_reason : uint16_t
+{
+   normal [[maybe_unused]] = 1000, ///< meaning that the purpose for which the connection was established has been fulfilled
+   going_away [[maybe_unused]] = 1001,
+   protocol_error [[maybe_unused]] = 1002, ///< terminating the connection due to a protocol error
+   bad_frame_type [[maybe_unused]] = 1003, ///< terminating the connection because it has received a type of data it cannot accept
+   bad_message [[maybe_unused]] = 1007, ///< endpoint is terminating the connection because it has received data within a message that was not consistent with the type of the message
+   message_violates_policy [[maybe_unused]] = 1008, ///< endpoint is terminating the connection because it has received a message that violates its policy
+   message_too_big [[maybe_unused]] = 1009, ///< endpoint is terminating the connection because it has received a message that is too big for it to process
+};
 
 class wss_client_context::wss_client : public tls_client
 {
@@ -64,7 +76,7 @@ protected:
    void io_connected() override;
    void io_disconnected(std::error_code const &errorCode) override;
 
-   void ready_to_close();
+   void ready_to_close(websocket_closure_reason closureReason);
 
 private:
    wss_client_context const m_wssClientContext;
