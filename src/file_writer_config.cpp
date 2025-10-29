@@ -32,15 +32,8 @@
 namespace io_threads
 {
 
-file_writer_config::file_writer_config(std::filesystem::path &&filePath, file_writer_option const option) noexcept :
+file_writer_config::file_writer_config(std::filesystem::path filePath, file_writer_option const option) noexcept :
    m_path{std::move(filePath),},
-   m_option{option,}
-{
-   assert(false == m_path.empty());
-}
-
-file_writer_config::file_writer_config(std::filesystem::path const &filePath, file_writer_option const option) :
-   m_path{filePath,},
    m_option{option,}
 {
    assert(false == m_path.empty());

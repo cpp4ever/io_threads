@@ -129,34 +129,31 @@ file_writer_thread::file_writer_thread(file_writer_thread_config const &fileWrit
 
 file_writer_thread::~file_writer_thread() = default;
 
-file_writer_thread &file_writer_thread::operator = (file_writer_thread &&rhs) noexcept = default;
-file_writer_thread &file_writer_thread::operator = (file_writer_thread const &rhs) = default;
-
 void file_writer_thread::execute(std::function<void()> const &ioRoutine) const
 {
    assert(true == (bool{ioRoutine,}));
    m_impl->execute(ioRoutine);
 }
 
-file_writer_thread::file_writer::file_writer(file_writer_thread const &fileWriterThread) noexcept :
-   m_fileWriterThread{fileWriterThread.m_impl,}
+file_writer_thread::file_writer::file_writer(file_writer_thread fileWriterThread) noexcept :
+   m_fileWriterThread{std::move(fileWriterThread),}
 {}
 
 file_writer_thread::file_writer::~file_writer() = default;
 
 void file_writer_thread::file_writer::ready_to_close()
 {
-   m_fileWriterThread->ready_to_close(*this);
+   m_fileWriterThread.m_impl->ready_to_close(*this);
 }
 
 void file_writer_thread::file_writer::ready_to_open()
 {
-   m_fileWriterThread->ready_to_open(*this);
+   m_fileWriterThread.m_impl->ready_to_open(*this);
 }
 
 void file_writer_thread::file_writer::ready_to_write()
 {
-   m_fileWriterThread->ready_to_write(*this);
+   m_fileWriterThread.m_impl->ready_to_write(*this);
 }
 
 }

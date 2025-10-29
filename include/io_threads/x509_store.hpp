@@ -69,13 +69,12 @@ public:
    );
    ~x509_store();
 
-   x509_store &operator = (x509_store &&rhs) noexcept;
-   x509_store &operator = (x509_store const &rhs);
+   x509_store &operator = (x509_store &&) = delete;
+   x509_store &operator = (x509_store const &) = delete;
 
 private:
    class x509_store_impl;
-
-   std::shared_ptr<x509_store_impl> m_impl;
+   std::shared_ptr<x509_store_impl> const m_impl;
 };
 
 }

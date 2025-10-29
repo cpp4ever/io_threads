@@ -48,47 +48,40 @@
 #include <memory> ///< for std::addressof
 #include <source_location> ///< for std::source_location
 #include <system_error> ///< for std::error_code
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
 
-wss_client::wss_client(wss_client_context const &wssClientContext) noexcept :
+wss_client::wss_client(wss_client_context wssClientContext) noexcept :
    super{wssClientContext.m_tlsClientContext,},
-   m_wssClientContext{wssClientContext.m_impl,}
-{
-   assert(nullptr != m_wssClientContext);
-}
+   m_wssClientContext{std::move(wssClientContext),}
+{}
 
-wss_client::~wss_client()
-{
-   assert(nullptr != m_wssClientContext);
-}
+wss_client::~wss_client() = default;
 
 void wss_client::io_connected()
 {
-   assert(nullptr != m_wssClientContext);
    assert(nullptr == m_websocketClientSession);
-   m_websocketClientSession = std::addressof(m_wssClientContext->acquire_session());
+   m_websocketClientSession = std::addressof(m_wssClientContext.m_impl->acquire_session());
    super::io_connected();
 }
 
 void wss_client::io_disconnected(std::error_code const &errorCode)
 {
    super::io_disconnected(errorCode);
-   assert(nullptr != m_wssClientContext);
    if (nullptr != m_websocketClientSession) [[likely]]
    {
-      m_wssClientContext->release_session(*m_websocketClientSession);
+      m_wssClientContext.m_impl->release_session(*m_websocketClientSession);
       m_websocketClientSession = nullptr;
    }
 }
 
 void wss_client::ready_to_close()
 {
-   assert(nullptr != m_wssClientContext);
    if (nullptr != m_websocketClientSession) [[likely]]
    {
-      m_wssClientContext->ready_to_close(*m_websocketClientSession);
+      m_wssClientContext.m_impl->ready_to_close(*m_websocketClientSession);
       if (nullptr != m_websocketClientSession->outboundFrame)
       {
          ready_to_send();
@@ -98,14 +91,13 @@ void wss_client::ready_to_close()
 
 std::error_code wss_client::io_data_decrypted(data_chunk const &dataChunk)
 {
-   assert(nullptr != m_wssClientContext);
    assert(nullptr != m_websocketClientSession);
    if (nullptr == m_websocketClientSession->handshakeKey) [[likely]]
    {
       return io_handle_frame(dataChunk);
    }
    if (
-      auto const errorCode{m_wssClientContext->handle_handshake_completion(*m_websocketClientSession, dataChunk),};
+      auto const errorCode{m_wssClientContext.m_impl->handle_handshake_completion(*m_websocketClientSession, dataChunk),};
       true == bool{errorCode,}
    ) [[unlikely]]
    {
@@ -118,7 +110,6 @@ std::error_code wss_client::io_data_decrypted(data_chunk const &dataChunk)
 
 std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten)
 {
-   assert(nullptr != m_wssClientContext);
    assert(nullptr != m_websocketClientSession);
    if (nullptr == m_websocketClientSession->handshakeKey) [[likely]]
    {
@@ -138,18 +129,18 @@ std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size
                .bytesLength = static_cast<uint32_t>(frame.bytesLength),
                .bytes = frame.bytes,
             };
-            bytesWritten = m_wssClientContext->format_frame(*m_websocketClientSession, dataChunk, outboundFrame);
+            bytesWritten = m_wssClientContext.m_impl->format_frame(*m_websocketClientSession, dataChunk, outboundFrame);
          }
       }
       if ((0 == bytesWritten) && (nullptr != m_websocketClientSession->outboundFrame))
       {
-         bytesWritten = m_wssClientContext->format_frame(*m_websocketClientSession, dataChunk, *m_websocketClientSession->outboundFrame);
+         bytesWritten = m_wssClientContext.m_impl->format_frame(*m_websocketClientSession, dataChunk, *m_websocketClientSession->outboundFrame);
       }
    }
    else
    {
       bytesWritten = (0 == m_websocketClientSession->handshakeKey->bytesLength)
-         ? m_wssClientContext->format_handshake_request(*m_websocketClientSession, dataChunk, io_ready_to_handshake(), domain_name())
+         ? m_wssClientContext.m_impl->format_handshake_request(*m_websocketClientSession, dataChunk, io_ready_to_handshake(), domain_name())
          : 0
       ;
    }
@@ -185,7 +176,7 @@ std::error_code wss_client::io_handle_frame(data_chunk const &dataChunk)
          if (
             auto const errorCode
             {
-               m_wssClientContext->handle_frame(
+               m_wssClientContext.m_impl->handle_frame(
                   *m_websocketClientSession,
                   inboundFrame,
                   [this] (auto const dataFrame, bool const finalFrame)
@@ -310,7 +301,7 @@ std::error_code wss_client::io_handle_frame(data_chunk const &dataChunk)
       if (
          auto const errorCode
          {
-            m_wssClientContext->handle_frame(
+            m_wssClientContext.m_impl->handle_frame(
                *m_websocketClientSession,
                inboundFrame,
                [this] (auto const dataFrame, bool const finalFrame)

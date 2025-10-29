@@ -44,7 +44,7 @@ public:
    socket_address() = delete;
    [[nodiscard]] socket_address(socket_address &&rhs) noexcept;
    [[nodiscard]] socket_address(socket_address const &rhs) noexcept;
-   [[nodiscard]] explicit socket_address(std::shared_ptr<socket_address_impl> const &impl) noexcept;
+   [[nodiscard]] explicit socket_address(std::shared_ptr<socket_address_impl> impl) noexcept;
 
    [[nodiscard]] explicit operator std::string_view() const noexcept;
 

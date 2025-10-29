@@ -40,6 +40,7 @@
 #include <memory> ///< for std::make_shared
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -48,12 +49,12 @@ tls_client_context::tls_client_context(tls_client_context &&rhs) noexcept = defa
 tls_client_context::tls_client_context(tls_client_context const &rhs) noexcept = default;
 
 tls_client_context::tls_client_context(
-   tcp_client_thread const &executor,
+   tcp_client_thread executor,
    x509_store const &x509Store,
    std::string_view const &domainName,
    size_t const tlsSessionListCapacity
 ) :
-   m_executor{executor,}
+   m_executor{std::move(executor),}
 {
    m_executor.execute(
       [this, &x509Store, domainName, tlsSessionListCapacity] ()
@@ -66,7 +67,7 @@ tls_client_context::tls_client_context(
 
 tls_client_context::~tls_client_context()
 {
-   if (nullptr != m_impl) [[likely]]
+   if (nullptr != m_impl)
    {
       m_executor.execute(
          [this] ()
@@ -78,32 +79,29 @@ tls_client_context::~tls_client_context()
    }
 }
 
-tls_client_context &tls_client_context::operator = (tls_client_context &&rhs) noexcept = default;
-tls_client_context &tls_client_context::operator = (tls_client_context const &rhs) = default;
-
-tls_client::tls_client(tls_client_context const &tlsClientContext) noexcept :
+tls_client::tls_client(tls_client_context tlsClientContext) noexcept :
    super{tlsClientContext.m_executor,},
-   m_tlsClientContext{tlsClientContext.m_impl,}
+   m_tlsClientContext{std::move(tlsClientContext),}
 {}
 
 tls_client::~tls_client() = default;
 
 std::string_view tls_client::domain_name() const noexcept
 {
-   return m_tlsClientContext->domain_name();
+   return m_tlsClientContext.m_impl->domain_name();
 }
 
 void tls_client::io_connected()
 {
    assert(nullptr == m_tlsClientSession);
-   m_tlsClientSession = std::addressof(m_tlsClientContext->acquire_session());
+   m_tlsClientSession = std::addressof(m_tlsClientContext.m_impl->acquire_session());
 }
 
 void tls_client::io_disconnected(std::error_code const &)
 {
    if (nullptr != m_tlsClientSession)
    {
-      m_tlsClientContext->release_session(*m_tlsClientSession);
+      m_tlsClientContext.m_impl->release_session(*m_tlsClientSession);
       m_tlsClientSession = nullptr;
    }
 }
@@ -114,7 +112,7 @@ std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t 
    assert(0 < dataChunk.bytesLength);
    assert(nullptr != m_tlsClientSession);
    if (
-      auto const errorCode{m_tlsClientContext->check_session_status(*m_tlsClientSession, dataChunk, bytesWritten),};
+      auto const errorCode{m_tlsClientContext.m_impl->check_session_status(*m_tlsClientSession, dataChunk, bytesWritten),};
       (true == bool{errorCode,}) || (tls_client_status::ready != m_tlsClientSession->status)
    ) [[unlikely]]
    {
@@ -127,7 +125,7 @@ std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t 
    {
       return errorCode;
    }
-   return m_tlsClientContext->encrypt_message(*m_tlsClientSession, dataChunk, bytesWritten);
+   return m_tlsClientContext.m_impl->encrypt_message(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
 std::error_code tls_client::io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten)
@@ -135,7 +133,7 @@ std::error_code tls_client::io_data_to_shutdown(data_chunk const &dataChunk, siz
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
    assert(nullptr != m_tlsClientSession);
-   return m_tlsClientContext->shutdown(*m_tlsClientSession, dataChunk, bytesWritten);
+   return m_tlsClientContext.m_impl->shutdown(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
 std::error_code tls_client::io_data_received(data_chunk const &encryptedDataChunk, size_t &bytesRead)
@@ -154,7 +152,7 @@ std::error_code tls_client::io_data_received(data_chunk const &encryptedDataChun
       if (
          auto const errorCode
          {
-            m_tlsClientContext->decrypt_message(
+            m_tlsClientContext.m_impl->decrypt_message(
                *m_tlsClientSession,
                data_chunk{.bytes = encryptedBytes, .bytesLength = encryptedBytesLength,},
                decrypredDataChunk,

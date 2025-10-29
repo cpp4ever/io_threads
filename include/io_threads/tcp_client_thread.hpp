@@ -86,15 +86,14 @@ public:
    [[nodiscard]] explicit tcp_client_thread(tcp_client_thread_config const &tcpClientThreadConfig);
    ~tcp_client_thread();
 
-   tcp_client_thread &operator = (tcp_client_thread &&rhs) noexcept;
-   tcp_client_thread &operator = (tcp_client_thread const &rhs);
+   tcp_client_thread &operator = (tcp_client_thread &&) = delete;
+   tcp_client_thread &operator = (tcp_client_thread const &) = delete;
 
    void execute(std::function<void()> const &ioRoutine) const;
 
 private:
    class tcp_client_thread_impl;
-
-   std::shared_ptr<tcp_client_thread_impl> m_impl;
+   std::shared_ptr<tcp_client_thread_impl> const m_impl;
 };
 
 }

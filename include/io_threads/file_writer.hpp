@@ -45,11 +45,16 @@ public:
    file_writer() = delete;
    file_writer(file_writer &&) = delete;
    file_writer(file_writer const &) = delete;
-   [[nodiscard]] explicit file_writer(file_writer_thread const &fileWriterThread) noexcept;
+   [[nodiscard]] explicit file_writer(file_writer_thread fileWriterThread) noexcept;
    virtual ~file_writer();
 
    file_writer &operator = (file_writer &&) = delete;
    file_writer &operator = (file_writer const &) = delete;
+
+   [[maybe_unused, nodiscard]] file_writer_thread const &executor() const noexcept
+   {
+      return m_fileWriterThread;
+   }
 
 protected:
    virtual void io_closed(std::error_code const &errorCode) = 0;
@@ -61,7 +66,7 @@ protected:
 
 private:
    file_descriptor *m_fileDescriptor{nullptr,};
-   std::shared_ptr<file_writer_thread::file_writer_thread_impl> const m_fileWriterThread;
+   file_writer_thread const m_fileWriterThread;
 
    [[nodiscard]] virtual file_writer_config io_ready_to_open() = 0;
    [[nodiscard]] virtual size_t io_ready_to_write(data_chunk const &dataChunk) = 0;

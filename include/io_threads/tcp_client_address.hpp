@@ -29,6 +29,7 @@
 #include <io_threads/socket_address.hpp> ///< for io_threads::socket_address
 
 #include <optional> ///< for std::nullopt, std::optional
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -40,17 +41,14 @@ public:
    [[maybe_unused, nodiscard]] tcp_client_address(tcp_client_address &&) noexcept = default;
    [[maybe_unused, nodiscard]] tcp_client_address(tcp_client_address const &) noexcept = default;
 
-   [[maybe_unused, nodiscard]] explicit tcp_client_address(io_threads::socket_address const &socketAddress) noexcept :
-      m_networkInterface{std::nullopt},
-      m_socketAddress{socketAddress}
+   [[maybe_unused, nodiscard]] explicit tcp_client_address(io_threads::socket_address socketAddress) noexcept :
+      m_networkInterface{std::nullopt,},
+      m_socketAddress{std::move(socketAddress),}
    {}
 
-   [[maybe_unused, nodiscard]] tcp_client_address(
-      io_threads::network_interface const &networkInterface,
-      io_threads::socket_address const &socketAddress
-   ) noexcept :
-      m_networkInterface{networkInterface},
-      m_socketAddress{socketAddress}
+   [[maybe_unused, nodiscard]] tcp_client_address(io_threads::network_interface networkInterface, io_threads::socket_address socketAddress) noexcept :
+      m_networkInterface{std::move(networkInterface),},
+      m_socketAddress{std::move(socketAddress),}
    {}
 
    [[maybe_unused]] tcp_client_address &operator = (tcp_client_address &&) noexcept = default;

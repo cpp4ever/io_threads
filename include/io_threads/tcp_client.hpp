@@ -46,11 +46,16 @@ public:
    tcp_client() = delete;
    tcp_client(tcp_client &&) = delete;
    tcp_client(tcp_client const &) = delete;
-   [[nodiscard]] explicit tcp_client(tcp_client_thread const &tcpClientThread);
+   [[nodiscard]] explicit tcp_client(tcp_client_thread tcpClientThread);
    virtual ~tcp_client();
 
    tcp_client &operator = (tcp_client &&) = delete;
    tcp_client &operator = (tcp_client const &) = delete;
+
+   [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
+   {
+      return m_tcpClientThread;
+   }
 
 protected:
    virtual void io_connected() = 0;
@@ -61,8 +66,8 @@ protected:
    void ready_to_send();
 
 private:
-   tcp_socket_descriptor *m_socketDescriptor{nullptr};
-   std::shared_ptr<tcp_client_thread::tcp_client_thread_impl> const m_tcpClientThread;
+   tcp_socket_descriptor *m_socketDescriptor{nullptr,};
+   tcp_client_thread const m_tcpClientThread;
 
    [[nodiscard]] virtual std::error_code io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
    [[nodiscard]] virtual std::error_code io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten) = 0;

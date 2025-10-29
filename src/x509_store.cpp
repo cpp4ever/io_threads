@@ -62,7 +62,4 @@ x509_store::x509_store(
 
 x509_store::~x509_store() = default;
 
-x509_store &x509_store::operator = (x509_store &&rhs) noexcept = default;
-x509_store &x509_store::operator = (x509_store const &rhs) = default;
-
 }

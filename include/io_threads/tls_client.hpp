@@ -59,11 +59,16 @@ public:
    tls_client() = delete;
    tls_client(tls_client &&) = delete;
    tls_client(tls_client const &) = delete;
-   [[nodiscard]] explicit tls_client(tls_client_context const &tlsClientContext) noexcept;
+   [[nodiscard]] explicit tls_client(tls_client_context tlsClientContext) noexcept;
    ~tls_client() override;
 
    tls_client &operator = (tls_client &&) = delete;
    tls_client &operator = (tls_client const &) = delete;
+
+   [[maybe_unused, nodiscard]] tls_client_context const &context() const noexcept
+   {
+      return m_tlsClientContext;
+   }
 
    [[nodiscard]] std::string_view domain_name() const noexcept;
 
@@ -72,7 +77,7 @@ protected:
    void io_disconnected(std::error_code const &errorCode) override;
 
 private:
-   std::shared_ptr<tls_client_context::tls_client_context_impl> const m_tlsClientContext;
+   tls_client_context const m_tlsClientContext;
    tls_client_session *m_tlsClientSession{nullptr};
 
    [[nodiscard]] virtual std::error_code io_data_decrypted(data_chunk const &dataChunk) = 0;

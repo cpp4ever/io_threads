@@ -129,34 +129,31 @@ tcp_client_thread::tcp_client_thread(tcp_client_thread_config const &tcpClientTh
 
 tcp_client_thread::~tcp_client_thread() = default;
 
-tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread &&rhs) noexcept = default;
-tcp_client_thread &tcp_client_thread::operator = (tcp_client_thread const &rhs) = default;
-
 void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
 {
    assert(true == (bool{ioRoutine,}));
    m_impl->execute(ioRoutine);
 }
 
-tcp_client_thread::tcp_client::tcp_client(tcp_client_thread const &tcpClientThread) :
-   m_tcpClientThread{tcpClientThread.m_impl,}
+tcp_client_thread::tcp_client::tcp_client(tcp_client_thread tcpClientThread) :
+   m_tcpClientThread{std::move(tcpClientThread),}
 {}
 
 tcp_client_thread::tcp_client::~tcp_client() = default;
 
 void tcp_client_thread::tcp_client::ready_to_connect()
 {
-   m_tcpClientThread->ready_to_connect(*this);
+   m_tcpClientThread.m_impl->ready_to_connect(*this);
 }
 
 void tcp_client_thread::tcp_client::ready_to_disconnect()
 {
-   m_tcpClientThread->ready_to_disconnect(*this);
+   m_tcpClientThread.m_impl->ready_to_disconnect(*this);
 }
 
 void tcp_client_thread::tcp_client::ready_to_send()
 {
-   m_tcpClientThread->ready_to_send(*this);
+   m_tcpClientThread.m_impl->ready_to_send(*this);
 }
 
 }

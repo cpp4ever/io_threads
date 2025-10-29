@@ -41,15 +41,11 @@ public:
    wss_client_context() = delete;
    [[nodiscard]] wss_client_context(wss_client_context &&rhs) noexcept;
    [[nodiscard]] wss_client_context(wss_client_context const &rhs) noexcept;
-   [[nodiscard]] wss_client_context(
-      tls_client_context const &tlsClientContext,
-      size_t wssSessionListCapacity,
-      size_t wssBufferCatacity
-   );
+   [[nodiscard]] wss_client_context(tls_client_context tlsClientContext, size_t wssSessionListCapacity, size_t wssBufferCatacity);
    ~wss_client_context();
 
-   wss_client_context &operator = (wss_client_context &&rhs) noexcept;
-   wss_client_context &operator = (wss_client_context const &rhs);
+   wss_client_context &operator = (wss_client_context &&) = delete;
+   wss_client_context &operator = (wss_client_context const &) = delete;
 
    [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
    {
@@ -57,10 +53,9 @@ public:
    }
 
 private:
+   tls_client_context const m_tlsClientContext;
    class wss_client_context_impl;
-
-   tls_client_context m_tlsClientContext;
-   std::shared_ptr<wss_client_context_impl> m_impl{nullptr};
+   std::shared_ptr<wss_client_context_impl> m_impl{nullptr,};
 };
 
 }

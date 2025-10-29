@@ -38,6 +38,7 @@
 #include <optional> ///< for std::optional
 #include <ostream> ///< for std::ostream
 #include <string_view> ///< for std::string_view
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -74,8 +75,8 @@ std::string_view network_interface::system_name() const noexcept
    return m_impl->system_name();
 }
 
-network_interface::network_interface(std::shared_ptr<network_interface_impl> const &impl) noexcept :
-   m_impl{impl,}
+network_interface::network_interface(std::shared_ptr<network_interface_impl> impl) noexcept :
+   m_impl{std::move(impl),}
 {
    assert(nullptr != m_impl);
 }

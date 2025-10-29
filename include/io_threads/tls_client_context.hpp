@@ -43,16 +43,11 @@ public:
    tls_client_context() = delete;
    [[nodiscard]] tls_client_context(tls_client_context &&rhs) noexcept;
    [[nodiscard]] tls_client_context(tls_client_context const &rhs) noexcept;
-   [[nodiscard]] tls_client_context(
-      tcp_client_thread const &executor,
-      x509_store const &x509Store,
-      std::string_view const &domainName,
-      size_t tlsSessionListCapacity
-   );
+   [[nodiscard]] tls_client_context(tcp_client_thread executor, x509_store const &x509Store, std::string_view const &domainName, size_t tlsSessionListCapacity);
    ~tls_client_context();
 
-   tls_client_context &operator = (tls_client_context &&rhs) noexcept;
-   tls_client_context &operator = (tls_client_context const &rhs);
+   tls_client_context &operator = (tls_client_context &&) = delete;
+   tls_client_context &operator = (tls_client_context const &)= delete;
 
    [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
    {
@@ -60,10 +55,9 @@ public:
    }
 
 private:
+   tcp_client_thread const m_executor;
    class tls_client_context_impl;
-
-   tcp_client_thread m_executor;
-   std::shared_ptr<tls_client_context_impl> m_impl{nullptr};
+   std::shared_ptr<tls_client_context_impl> m_impl{nullptr,};
 };
 
 using tls_client_context [[maybe_unused]] = x509_store::tls_client_context;

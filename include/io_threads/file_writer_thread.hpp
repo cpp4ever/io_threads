@@ -86,15 +86,14 @@ public:
    [[nodiscard]] explicit file_writer_thread(file_writer_thread_config const &fileWriterThreadConfig);
    ~file_writer_thread();
 
-   file_writer_thread &operator = (file_writer_thread &&rhs) noexcept;
-   file_writer_thread &operator = (file_writer_thread const &rhs);
+   file_writer_thread &operator = (file_writer_thread &&) = delete;
+   file_writer_thread &operator = (file_writer_thread const &) = delete;
 
    void execute(std::function<void()> const &ioRoutine) const;
 
 private:
    class file_writer_thread_impl;
-
-   std::shared_ptr<file_writer_thread_impl> m_impl;
+   std::shared_ptr<file_writer_thread_impl> const m_impl;
 };
 
 }

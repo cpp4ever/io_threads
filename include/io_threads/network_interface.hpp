@@ -76,10 +76,9 @@ public:
 
 private:
    class network_interface_impl;
-
    std::shared_ptr<network_interface_impl> m_impl;
 
-   [[nodiscard]] explicit network_interface(std::shared_ptr<network_interface_impl> const &impl) noexcept;
+   [[nodiscard]] explicit network_interface(std::shared_ptr<network_interface_impl> impl) noexcept;
 };
 
 std::ostream &operator << (std::ostream &sink, network_interface const &networkInterface);

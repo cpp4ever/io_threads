@@ -44,8 +44,7 @@ public:
    file_writer_config() = delete;
    [[maybe_unused, nodiscard]] file_writer_config(file_writer_config &&rhs) noexcept = default;
    [[maybe_unused, nodiscard]] file_writer_config(file_writer_config const &rhs) = default;
-   [[nodiscard]] file_writer_config(std::filesystem::path &&filePath, file_writer_option const option) noexcept;
-   [[nodiscard]] file_writer_config(std::filesystem::path const &filePath, file_writer_option const option);
+   [[nodiscard]] file_writer_config(std::filesystem::path filePath, file_writer_option option) noexcept;
 
    [[maybe_unused]] file_writer_config &operator = (file_writer_config &&rhs) noexcept = default;
    [[maybe_unused]] file_writer_config &operator = (file_writer_config const &rhs) = default;

@@ -54,10 +54,10 @@
 namespace io_threads
 {
 
-http_response_parser::http_response_parser()
+http_response_parser::http_response_parser() :
+   m_llhttp{std::make_unique<llhttp_t>(),},
+   m_llhttpSettings{std::make_unique<llhttp_settings_t>(),}
 {
-   m_llhttp = std::make_unique<llhttp_t>();
-   m_llhttpSettings = std::make_unique<llhttp_settings_t>();
    llhttp_settings_init(m_llhttpSettings.get());
    m_llhttpSettings->on_message_begin = on_message_begin;
    m_llhttpSettings->on_status = on_status;

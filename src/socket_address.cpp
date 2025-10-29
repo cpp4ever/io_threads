@@ -39,6 +39,7 @@
 #include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -46,8 +47,8 @@ namespace io_threads
 socket_address::socket_address(socket_address &&rhs) noexcept = default;
 socket_address::socket_address(socket_address const &rhs) noexcept = default;
 
-socket_address::socket_address(std::shared_ptr<socket_address_impl> const &impl) noexcept :
-   m_impl{impl,}
+socket_address::socket_address(std::shared_ptr<socket_address_impl> impl) noexcept :
+   m_impl{std::move(impl),}
 {
    assert(nullptr != m_impl);
 }

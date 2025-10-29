@@ -74,12 +74,8 @@ public:
    [[maybe_unused, nodiscard]] tcp_client_config(tcp_client_config &&) noexcept = default;
    [[maybe_unused, nodiscard]] tcp_client_config(tcp_client_config const &) noexcept = default;
 
-   [[maybe_unused, nodiscard]] explicit tcp_client_config(tcp_client_address &&peerAddress) noexcept :
+   [[maybe_unused, nodiscard]] explicit tcp_client_config(tcp_client_address peerAddress) noexcept :
       m_peerAddress{std::move(peerAddress)}
-   {}
-
-   [[maybe_unused, nodiscard]] explicit tcp_client_config(tcp_client_address const &peerAddress) noexcept :
-      m_peerAddress{peerAddress}
    {}
 
    [[maybe_unused]] tcp_client_config &operator = (tcp_client_config &&) noexcept = default;
@@ -100,7 +96,7 @@ public:
       return m_peerAddress;
    }
 
-   [[maybe_unused, nodiscard]] io_threads::quality_of_service const &quality_of_service() const noexcept
+   [[maybe_unused, nodiscard]] io_threads::quality_of_service quality_of_service() const noexcept
    {
       return m_qualityOfService;
    }

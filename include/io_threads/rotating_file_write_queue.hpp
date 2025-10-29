@@ -38,7 +38,7 @@
 #include <new> ///< for std::launder
 #include <system_error> ///< for std::error_code
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_constructible_v, std::is_pointer_v, std::is_reference_v
-#include <utility> ///< for std::forward
+#include <utility> ///< for std::forward, std::move
 
 namespace io_threads
 {
@@ -121,26 +121,26 @@ public:
    rotating_file_write_queue(rotating_file_write_queue &&) = delete;
    rotating_file_write_queue(rotating_file_write_queue const &) = delete;
 
-   [[nodiscard]] explicit rotating_file_write_queue(file_writer_thread const &fileWriterThread) :
-      super{fileWriterThread,},
+   [[nodiscard]] explicit rotating_file_write_queue(file_writer_thread fileWriterThread) :
+      super{std::move(fileWriterThread),},
       m_taskAllocator{},
       m_typeSerializer{}
    {}
 
    template<typename other_type_serializer>
-   [[nodiscard]] rotating_file_write_queue(file_writer_thread const &fileWriterThread, other_type_serializer &&typeSerializer) :
-      super{fileWriterThread,},
+   [[nodiscard]] rotating_file_write_queue(file_writer_thread fileWriterThread, other_type_serializer &&typeSerializer) :
+      super{std::move(fileWriterThread),},
       m_taskAllocator{},
       m_typeSerializer{std::forward<other_type_serializer>(typeSerializer)}
    {}
 
    template<typename other_type_serializer, typename other_task_allocator>
    [[nodiscard]] rotating_file_write_queue(
-      file_writer_thread const &fileWriterThread,
+      file_writer_thread fileWriterThread,
       other_type_serializer &&typeSerializer,
       other_task_allocator &&taskAllocator
    ) :
-      super{fileWriterThread,},
+      super{std::move(fileWriterThread),},
       m_taskAllocator{std::forward<other_task_allocator>(taskAllocator)},
       m_typeSerializer{std::forward<other_type_serializer>(typeSerializer)}
    {}

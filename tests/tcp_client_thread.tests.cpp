@@ -75,18 +75,6 @@ TEST_F(tcp_client, tcp_client_thread)
       testTcpClientThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testTcpClientThread3 = tcp_client_thread{std::move(testTcpClientThread2),};
-   {
-      bool testOk{false,};
-      testTcpClientThread3.execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
-   testTcpClientThread3 = testTcpClientThread1;
-   {
-      bool testOk{false,};
-      testTcpClientThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
 }
 
 }

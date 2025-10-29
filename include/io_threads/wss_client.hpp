@@ -49,11 +49,16 @@ public:
    wss_client() = delete;
    wss_client(wss_client &&) = delete;
    wss_client(wss_client const &) = delete;
-   [[nodiscard]] explicit wss_client(wss_client_context const &wssClientContext) noexcept;
+   [[nodiscard]] explicit wss_client(wss_client_context wssClientContext) noexcept;
    ~wss_client() override;
 
    wss_client &operator = (wss_client &&) = delete;
    wss_client &operator = (wss_client const &) = delete;
+
+   [[maybe_unused, nodiscard]] wss_client_context const &context() const noexcept
+   {
+      return m_wssClientContext;
+   }
 
 protected:
    void io_connected() override;
@@ -62,7 +67,7 @@ protected:
    void ready_to_close();
 
 private:
-   std::shared_ptr<wss_client_context::wss_client_context_impl> const m_wssClientContext;
+   wss_client_context const m_wssClientContext;
    websocket_client_session *m_websocketClientSession{nullptr};
 
    [[nodiscard]] std::error_code io_data_decrypted(data_chunk const &dataChunk) final;

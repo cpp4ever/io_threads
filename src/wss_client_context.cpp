@@ -30,6 +30,7 @@
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::make_unique
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -37,12 +38,8 @@ namespace io_threads
 wss_client_context::wss_client_context(wss_client_context &&rhs) noexcept = default;
 wss_client_context::wss_client_context(wss_client_context const &rhs) noexcept = default;
 
-wss_client_context::wss_client_context(
-   tls_client_context const &tlsClientContext,
-   size_t const wssSessionListCapacity,
-   size_t const wssBufferCatacity
-) :
-   m_tlsClientContext{tlsClientContext,}
+wss_client_context::wss_client_context(tls_client_context tlsClientContext, size_t const wssSessionListCapacity, size_t const wssBufferCatacity) :
+   m_tlsClientContext{std::move(tlsClientContext),}
 {
    executor().execute(
       [this, wssSessionListCapacity, wssBufferCatacity] ()
@@ -58,17 +55,16 @@ wss_client_context::wss_client_context(
 
 wss_client_context::~wss_client_context()
 {
-   assert(nullptr != m_impl);
-   executor().execute(
-      [this] ()
-      {
-         m_impl.reset();
-      }
-   );
-   assert(nullptr == m_impl);
+   if (nullptr != m_impl)
+   {
+      executor().execute(
+         [this] ()
+         {
+            m_impl.reset();
+         }
+      );
+      assert(nullptr == m_impl);
+   }
 }
-
-wss_client_context &wss_client_context::operator = (wss_client_context &&rhs) noexcept = default;
-wss_client_context &wss_client_context::operator = (wss_client_context const &rhs) = default;
 
 }

@@ -75,18 +75,6 @@ TEST_F(file_writer, file_writer_thread)
       testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testFileWriterThread3 = file_writer_thread{std::move(testFileWriterThread2),};
-   {
-      bool testOk{false,};
-      testFileWriterThread3.execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
-   testFileWriterThread3 = testFileWriterThread1;
-   {
-      bool testOk{false,};
-      testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
 }
 
 }

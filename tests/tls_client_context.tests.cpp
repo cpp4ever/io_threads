@@ -71,18 +71,6 @@ TEST_F(tls_client, tls_client_context)
       testTlsClientContext3.executor().execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
       EXPECT_TRUE(testOk);
    }
-   testTlsClientContext3 = tls_client_context{std::move(testTlsClientContext2),};
-   {
-      bool testOk{false,};
-      testTlsClientContext3.executor().execute([testThread2Id, &testOk] () { testOk = bool{testThread2Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
-   testTlsClientContext3 = testTlsClientContext1;
-   {
-      bool testOk{false,};
-      testTlsClientContext3.executor().execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
-      EXPECT_TRUE(testOk);
-   }
 }
 
 }
