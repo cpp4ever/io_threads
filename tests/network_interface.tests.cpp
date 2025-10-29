@@ -40,20 +40,20 @@ using network_interface = testsuite;
 TEST_F(network_interface, network_interface)
 {
    system_network_interfaces testSystemNetworkInterfaces{};
-   auto const testLoopbackInterface = testSystemNetworkInterfaces.loopback();
+   auto const testLoopbackInterface{testSystemNetworkInterfaces.loopback(),};
    ASSERT_TRUE(testLoopbackInterface.has_value());
    EXPECT_FALSE(testLoopbackInterface->friendly_name().empty());
-   EXPECT_TRUE(testLoopbackInterface->ip_v4().has_value() || testLoopbackInterface->ip_v6().has_value());
+   EXPECT_TRUE(testLoopbackInterface->ipv4().has_value() || testLoopbackInterface->ipv6().has_value());
    EXPECT_TRUE(testLoopbackInterface->is_loopback());
    EXPECT_FALSE(testLoopbackInterface->system_name().empty());
    EXPECT_EQ(testLoopbackInterface, testSystemNetworkInterfaces.find(testLoopbackInterface->system_name()));
-   if (true == testLoopbackInterface->ip_v4().has_value())
+   if (true == testLoopbackInterface->ipv4().has_value())
    {
-      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ip_v4().value(),})));
+      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ipv4().value(),})));
    }
-   if (true == testLoopbackInterface->ip_v6().has_value())
+   if (true == testLoopbackInterface->ipv6().has_value())
    {
-      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ip_v6().value(),})));
+      EXPECT_EQ(testLoopbackInterface, (testSystemNetworkInterfaces.find(std::string_view{testLoopbackInterface->ipv6().value(),})));
    }
    EXPECT_EQ(std::format("{}", testLoopbackInterface), std::format("{}", testLoopbackInterface.value()));
 }

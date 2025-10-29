@@ -58,8 +58,8 @@ public:
          || (
                true
                && (system_name() == rhs.system_name())
-               && (ip_v4() == rhs.ip_v4())
-               && (ip_v6() == rhs.ip_v6())
+               && (ipv4() == rhs.ipv4())
+               && (ipv6() == rhs.ipv6())
             )
          ,
       };
@@ -67,8 +67,8 @@ public:
 
    [[nodiscard]] std::string_view friendly_name() const noexcept;
 
-   [[nodiscard]] std::optional<socket_address> const &ip_v4() const noexcept;
-   [[nodiscard]] std::optional<socket_address> const &ip_v6() const noexcept;
+   [[nodiscard]] std::optional<socket_address> const &ipv4() const noexcept;
+   [[nodiscard]] std::optional<socket_address> const &ipv6() const noexcept;
 
    [[nodiscard]] bool is_loopback() const noexcept;
 
@@ -104,8 +104,8 @@ struct std::formatter<io_threads::network_interface, char>
             R"raw({{"friendly_name": "{}", "system_name": "{}", "ipv4": "{}", "ipv6": "{}", "loopback":{}}})raw",
             networkInterface.friendly_name(),
             networkInterface.system_name(),
-            networkInterface.ip_v4(),
-            networkInterface.ip_v6(),
+            networkInterface.ipv4(),
+            networkInterface.ipv6(),
             networkInterface.is_loopback()
          ),
       };

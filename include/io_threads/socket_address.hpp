@@ -58,6 +58,9 @@ public:
       return bool{std::string_view{*this,} == std::string_view{rhs,},};
    }
 
+   [[nodiscard]] bool ipv4() const noexcept;
+   [[nodiscard]] bool ipv6() const noexcept;
+
 private:
    std::shared_ptr<socket_address_impl> m_impl;
 };

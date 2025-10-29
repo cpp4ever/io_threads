@@ -126,6 +126,11 @@ public:
    socket_address_impl &operator = (socket_address_impl &&) = delete;
    socket_address_impl &operator = (socket_address_impl const &) = delete;
 
+   [[nodiscard]] uint32_t family() const noexcept
+   {
+      return m_sockaddr.addressFamily;
+   }
+
    [[nodiscard]] sockaddr_inet const &sockaddr() const noexcept
    {
       return m_sockaddr;

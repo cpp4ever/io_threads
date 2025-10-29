@@ -55,15 +55,15 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
    auto const testLoopbackNetworkInterface = testNetworkInterfaces.loopback();
    ASSERT_TRUE(testLoopbackNetworkInterface.has_value());
    auto testNetworkInterfaceIps = std::vector<std::string_view>{};
-   if (true == testLoopbackNetworkInterface.value().ip_v4().has_value())
+   if (true == testLoopbackNetworkInterface.value().ipv4().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ip_v4().value()};
+      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv4().value()};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
-   if (true == testLoopbackNetworkInterface.value().ip_v6().has_value())
+   if (true == testLoopbackNetworkInterface.value().ipv6().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ip_v6().value()};
+      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv6().value()};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }

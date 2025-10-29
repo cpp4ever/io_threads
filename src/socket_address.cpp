@@ -66,6 +66,16 @@ socket_address::socket_address_impl const *socket_address::operator -> () const 
 socket_address &socket_address::operator = (socket_address &&rhs) noexcept = default;
 socket_address &socket_address::operator = (socket_address const &rhs) = default;
 
+bool socket_address::ipv4() const noexcept
+{
+   return (AF_INET == m_impl->family());
+}
+
+bool socket_address::ipv6() const noexcept
+{
+   return (AF_INET6 == m_impl->family());
+}
+
 std::ostream &operator << (std::ostream &sink, socket_address const &socketAddress)
 {
    return sink << std::format("{}", socketAddress);

@@ -81,12 +81,12 @@ public:
       return m_systemName;
    }
 
-   [[nodiscard]] std::optional<socket_address> const &ip_v4() const noexcept
+   [[nodiscard]] std::optional<socket_address> const &ipv4() const noexcept
    {
       return m_ipv4;
    }
 
-   [[nodiscard]] std::optional<socket_address> const &ip_v6() const noexcept
+   [[nodiscard]] std::optional<socket_address> const &ipv6() const noexcept
    {
       return m_ipv6;
    }

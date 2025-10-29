@@ -55,14 +55,14 @@ std::string_view network_interface::friendly_name() const noexcept
    return m_impl->friendly_name();
 }
 
-std::optional<socket_address> const &network_interface::ip_v4() const noexcept
+std::optional<socket_address> const &network_interface::ipv4() const noexcept
 {
-   return m_impl->ip_v4();
+   return m_impl->ipv4();
 }
 
-std::optional<socket_address> const &network_interface::ip_v6() const noexcept
+std::optional<socket_address> const &network_interface::ipv6() const noexcept
 {
-   return m_impl->ip_v6();
+   return m_impl->ipv6();
 }
 
 bool network_interface::is_loopback() const noexcept
@@ -87,12 +87,12 @@ network_interface::system_network_interfaces::system_network_interfaces()
    {
       network_interface networkInterface{networkInterfaceImpl,};
       m_mapStringToNetworkInterface.emplace(networkInterface.system_name(), networkInterface);
-      auto const &ipv4{networkInterface.ip_v4(),};
+      auto const &ipv4{networkInterface.ipv4(),};
       if (true == ipv4.has_value())
       {
          m_mapStringToNetworkInterface.emplace(ipv4.value(), networkInterface);
       }
-      auto const &ipv6{networkInterface.ip_v6(),};
+      auto const &ipv6{networkInterface.ipv6(),};
       if (true == ipv6.has_value())
       {
          m_mapStringToNetworkInterface.emplace(ipv6.value(), networkInterface);

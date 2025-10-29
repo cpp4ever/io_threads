@@ -830,7 +830,6 @@ private:
          )
       ) [[likely]]
       {
-         assert(0 != bytesSent);
          push_io_context(*socketDescriptor.sendContext);
          socketDescriptor.sendContext = nullptr;
          if (nullptr != socketDescriptor.connectivityContext) [[unlikely]]
@@ -839,6 +838,7 @@ private:
          }
          else if (nullptr != socketDescriptor.recvContext) [[likely]]
          {
+            assert(0 != bytesSent);
             send(client);
          }
          else if (true == bool{socketDescriptor.disconnectReason,})
@@ -1076,9 +1076,9 @@ private:
          auto const &networkInterface{config.peer_address().network_interface().value(),};
          if (AF_INET == bindAddress.si_family)
          {
-            if (true == networkInterface.ip_v4().has_value()) [[likely]]
+            if (true == networkInterface.ipv4().has_value()) [[likely]]
             {
-               auto const &sockaddr{networkInterface.ip_v4().value()->sockaddr(),};
+               auto const &sockaddr{networkInterface.ipv4().value()->sockaddr(),};
                interfaceAddress.lpSockaddr = std::bit_cast<LPSOCKADDR>(std::addressof(sockaddr.Ipv4));
                interfaceAddress.iSockaddrLength = sizeof(sockaddr.Ipv4);
             }
@@ -1090,9 +1090,9 @@ private:
          }
          else if (AF_INET6 == bindAddress.si_family)
          {
-            if (true == networkInterface.ip_v6().has_value()) [[likely]]
+            if (true == networkInterface.ipv6().has_value()) [[likely]]
             {
-               auto const &sockaddr{networkInterface.ip_v6().value()->sockaddr(),};
+               auto const &sockaddr{networkInterface.ipv6().value()->sockaddr(),};
                interfaceAddress.lpSockaddr = std::bit_cast<LPSOCKADDR>(std::addressof(sockaddr.Ipv6));
                interfaceAddress.iSockaddrLength = sizeof(sockaddr.Ipv6);
             }
