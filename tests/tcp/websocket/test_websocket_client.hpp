@@ -29,6 +29,7 @@
 
 #include <io_threads/system_network_interfaces.hpp>
 #include <io_threads/tcp_client_config.hpp>
+#include <io_threads/time.hpp>
 #include <io_threads/websocket_client_config.hpp>
 
 namespace io_threads::tests
@@ -44,30 +45,30 @@ void test_websocket_client(test_client &testClient)
          std::make_error_code(std::errc::connection_aborted),
          std::make_error_code(std::errc::connection_reset)
 #elif (defined(_WIN32) || defined(_WIN64))
-         std::error_code{WSAECONNABORTED, std::system_category()},
-         std::error_code{WSAECONNRESET, std::system_category()}
+         std::error_code{WSAECONNABORTED, std::system_category(),},
+         std::error_code{WSAECONNRESET, std::system_category(),}
 #endif
       ),
    };
    system_network_interfaces testNetworkInterfaces{};
-   auto const testLoopbackNetworkInterface = testNetworkInterfaces.loopback();
+   auto const &testLoopbackNetworkInterface{testNetworkInterfaces.loopback(),};
    ASSERT_TRUE(testLoopbackNetworkInterface.has_value());
-   auto testNetworkInterfaceIps = std::vector<std::string_view>{};
+   std::vector<std::string_view> testNetworkInterfaceIps{};
    if (true == testLoopbackNetworkInterface.value().ipv4().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv4().value()};
+      std::string_view const testNetworkInterfaceIp{testLoopbackNetworkInterface->ipv4().value()};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    if (true == testLoopbackNetworkInterface.value().ipv6().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv6().value()};
+      std::string_view const testNetworkInterfaceIp{testLoopbackNetworkInterface->ipv6().value()};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    ASSERT_FALSE(testNetworkInterfaceIps.empty());
-   constexpr auto testTimeout = std::chrono::seconds{5};
-   constexpr auto testTcpKeepAlive = tcp_keep_alive
+   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
       .probeTimeout = testTimeout,
@@ -75,18 +76,20 @@ void test_websocket_client(test_client &testClient)
    };
    for (auto const &testPeerHost : testNetworkInterfaceIps)
    {
-      testing::StrictMock<test_websocket_server<test_stream>> testServer{boost::asio::ip::make_address(testPeerHost)};
+      testing::StrictMock<test_websocket_server<test_stream>> testServer{boost::asio::ip::make_address(testPeerHost),};
       std::error_code testErrorCode{};
-      auto const testSocketAddress = make_socket_address(testPeerHost, testServer.local_port(), testErrorCode);
+      auto const testSocketAddress{make_socket_address(testPeerHost, testServer.local_port(), testErrorCode),};
       ASSERT_FALSE(testErrorCode) << testErrorCode.value() << ": " << testErrorCode.message();
       ASSERT_TRUE(testSocketAddress.has_value());
-      auto const testTcpConfig =
-         tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value()}}
-         .with_keep_alive(testTcpKeepAlive)
-         .with_nodelay()
-         .with_user_timeout(testTimeout)
-      ;
-      auto const testWebsocketConfig = websocket_client_config{"/test?name=websocket"};
+      auto const testTcpConfig
+      {
+         tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value(),},}
+            .with_keep_alive(testTcpKeepAlive)
+            .with_nodelay()
+            .with_user_timeout(testTimeout)
+         ,
+      };
+      websocket_client_config const testWebsocketConfig{"/test?name=websocket",};
       /// Disconnect on socket accept
       {
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(false));
@@ -126,7 +129,7 @@ void test_websocket_client(test_client &testClient)
             .WillOnce(
                [testRequest] (auto const &testInboundBuffer, auto &)
                {
-                  auto const testInboundMessage = std::string_view
+                  std::string_view const testInboundMessage
                   {
                      static_cast<char const *>(testInboundBuffer.data().data()),
                      testInboundBuffer.data().size(),
@@ -153,7 +156,7 @@ void test_websocket_client(test_client &testClient)
             .WillOnce(
                [testRequest, testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
-                  auto const testInboundMessage = std::string_view
+                  std::string_view const testInboundMessage
                   {
                      static_cast<char const *>(testInboundBuffer.data().data()),
                      testInboundBuffer.data().size(),
@@ -193,7 +196,7 @@ void test_websocket_client(test_client &testClient)
             .WillOnce(
                [testRequest, testResponse] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
-                  auto const testInboundMessage = std::string_view
+                  std::string_view const testInboundMessage
                   {
                      static_cast<char const *>(testInboundBuffer.data().data()),
                      testInboundBuffer.data().size(),
@@ -213,6 +216,94 @@ void test_websocket_client(test_client &testClient)
             }
          );
          testClient.expect_ready_to_send(testRequest);
+         testClient.expect_ready_to_handshake(testWebsocketConfig);
+         testClient.expect_ready_to_connect(testTcpConfig);
+         ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
+      }
+      /// Deferred connect
+      {
+         EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
+         std::string const testRequest{R"raw({"test_request":"deferred_connect"})raw",};
+         std::string const testResponse{R"raw({"test_response":"deferred_connect"})raw",};
+         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
+         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
+         ASSERT_EQ(std::future_status::timeout, testClient.wait_for(std::chrono::milliseconds{10,}));
+         auto const testConnectTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
+            .WillOnce(
+               [testRequest, testResponse, testConnectTime] (auto const &testInboundBuffer, auto &testOutboundBuffer)
+               {
+                  EXPECT_GT(system_clock::now(), testConnectTime);
+                  std::string_view const testInboundMessage
+                  {
+                     static_cast<char const *>(testInboundBuffer.data().data()),
+                     testInboundBuffer.data().size(),
+                  };
+                  EXPECT_EQ(testInboundMessage, testRequest);
+                  testOutboundBuffer.append(testResponse);
+                  return true;
+               }
+            )
+         ;
+         EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
+         testClient.expect_recv(
+            testResponse,
+            [&testClient] ()
+            {
+               testClient.expect_disconnect();
+            }
+         );
+         testClient.expect_ready_to_send(testRequest);
+         testClient.expect_ready_to_handshake(testWebsocketConfig);
+         testClient.executor().execute(
+            [&testClient, &testTcpConfig, testConnectTime] ()
+            {
+               testClient.expect_ready_to_connect_deferred(testTcpConfig, testConnectTime);
+            }
+         );
+         ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
+      }
+      /// Deferred send
+      {
+         EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
+         std::string const testRequest{R"raw({"test_request":"deferred_send"})raw",};
+         std::string const testResponse{R"raw({"test_response":"deferred_send"})raw",};
+         testClient.expect_ready_to_send_deferred(system_clock::now() + std::chrono::milliseconds{10,});
+         auto const testSendTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
+            .WillOnce(
+               [testRequest, testResponse, testSendTime] (auto const &testInboundBuffer, auto &testOutboundBuffer)
+               {
+                  EXPECT_GT(system_clock::now(), testSendTime);
+                  std::string_view const testInboundMessage
+                  {
+                     static_cast<char const *>(testInboundBuffer.data().data()),
+                     testInboundBuffer.data().size(),
+                  };
+                  EXPECT_EQ(testInboundMessage, testRequest);
+                  testOutboundBuffer.append(testResponse);
+                  return true;
+               }
+            )
+         ;
+         EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(true));
+         testClient.expect_recv(
+            testResponse,
+            [&testClient] ()
+            {
+               testClient.expect_disconnect();
+            }
+         );
+         testClient.expect_ready_to_send(
+            [&testClient, &testRequest, testSendTime] ()
+            {
+               testClient.expect_ready_to_send_deferred(testRequest, testSendTime);
+            }
+         );
          testClient.expect_ready_to_handshake(testWebsocketConfig);
          testClient.expect_ready_to_connect(testTcpConfig);
          ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));

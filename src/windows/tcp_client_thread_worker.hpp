@@ -27,7 +27,9 @@
 
 #include "common/logger.hpp" ///< for io_threads::log_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
+#include "common/shared_memory_pool.hpp" ///< for io_threads::shared_memory_pool
 #include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
+#include "common/tcp_deferred_task.hpp" ///< for io_threads::tcp_client::tcp_deferred_task
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
@@ -35,6 +37,7 @@
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
 #include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config, io_threads::tcp_keep_alive
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread_config
+#include "io_threads/time.hpp" ///< for io_threads::time_duration, io_threads::system_clock, io_threads::system_time
 /// for
 ///   io_threads::completion_port,
 ///   io_threads::from_completion_key,
@@ -166,14 +169,8 @@ public:
             )
          ),
       },
-      m_socketMemory
-      {
-         std::make_unique<memory_pool>(
-            socketListCapacity,
-            std::align_val_t{alignof(tcp_socket_descriptor),},
-            sizeof(tcp_socket_descriptor)
-         ),
-      }
+      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),},
+      m_socketMemory{std::make_unique<memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_socket_descriptor),}, sizeof(tcp_socket_descriptor)),}
    {
       constexpr int socketFamily{AF_INET,};
       constexpr int socketType{SOCK_STREAM,};
@@ -226,14 +223,74 @@ public:
       m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_connect));
    }
 
+   void ready_to_connect_deferred(tcp_client &client, system_time const notBeforeTime)
+   {
+      auto &deferredTask
+      {
+         m_deferredTaskMemory->pop<tcp_deferred_task>(
+            tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_connect, .notBeforeTime = notBeforeTime,}
+         ),
+      };
+      if (std::this_thread::get_id() == m_threadId)
+      {
+         cancel_deferred_task(client);
+         enqueue_deferred_task(deferredTask);
+      }
+      else
+      {
+         m_completionPort.post_queued_completion_status(to_completion_key(deferredTask), to_completion_overlapped(tcp_client_command::deferred));
+      }
+   }
+
    void ready_to_disconnect(tcp_client &client)
    {
+      if ((std::this_thread::get_id() == m_threadId) && (nullptr == client.m_socketDescriptor))
+      {
+         return;
+      }
       m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_disconnect));
    }
 
    void ready_to_send(tcp_client &client)
    {
+      if (
+         true
+         && (std::this_thread::get_id() == m_threadId)
+         && ((nullptr == client.m_socketDescriptor) || (nullptr != client.m_socketDescriptor->sendContext))
+      )
+      {
+         return;
+      }
       m_completionPort.post_queued_completion_status(to_completion_key(client), to_completion_overlapped(tcp_client_command::ready_to_send));
+   }
+
+   void ready_to_send_deferred(tcp_client &client, system_time const notBeforeTime)
+   {
+      if (std::this_thread::get_id() == m_threadId)
+      {
+         if ((nullptr == client.m_socketDescriptor) || (nullptr != client.m_socketDescriptor->sendContext))
+         {
+            return;
+         }
+         cancel_deferred_task(client);
+         auto &deferredTask
+         {
+            m_deferredTaskMemory->pop<tcp_deferred_task>(
+               tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
+            ),
+         };
+         enqueue_deferred_task(deferredTask);
+      }
+      else
+      {
+         auto const &deferredTask
+         {
+            m_deferredTaskMemory->pop<tcp_deferred_task>(
+               tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
+            ),
+         };
+         m_completionPort.post_queued_completion_status(to_completion_key(deferredTask), to_completion_overlapped(tcp_client_command::deferred));
+      }
    }
 
    void stop()
@@ -269,7 +326,19 @@ public:
             workerPromise.set_value(threadWorker);
             while (false == stopToken.stop_requested()) [[likely]]
             {
-               auto timeoutMilliseconds{completion_port::infinite_timeout};
+               threadWorker->process_deferred_tasks();
+               auto const *deferredTask{threadWorker->m_deferredTaskHead,};
+               auto timeoutMilliseconds
+               {
+                  (nullptr == deferredTask)
+                     ? completion_port::infinite_timeout
+                     : static_cast<DWORD>(
+                        std::chrono::ceil<std::chrono::milliseconds>(
+                           std::max<time_duration>(std::chrono::milliseconds{1,}, deferredTask->notBeforeTime - system_clock::now())
+                        ).count()
+                     )
+                  ,
+               };
                while (threadWorker->m_completionPortEntries->size() == threadWorker->poll(timeoutMilliseconds))
                {
                   /// Do while there are entries to poll
@@ -286,12 +355,17 @@ public:
 
 private:
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
+   tcp_deferred_task *m_deferredTaskHead{nullptr,};
+   tcp_deferred_task *m_deferredTaskTail{nullptr,};
    completion_port m_completionPort{};
    std::unique_ptr<completion_port::entries> const m_completionPortEntries;
    std::unique_ptr<memory_pool> const m_ioMemory;
+   std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
    LPFN_CONNECTEX m_connect{nullptr,};
    LPFN_DISCONNECTEX m_disconnect{nullptr,};
    std::unique_ptr<memory_pool> const m_socketMemory;
+
+   void cancel_deferred_task(tcp_client &tcpClient);
 
    void connect(tcp_client &client)
    {
@@ -361,6 +435,8 @@ private:
       }
    }
 
+   void enqueue_deferred_task(tcp_deferred_task &deferredTask);
+
    void handle_completion_port_entry(OVERLAPPED_ENTRY const &completionPortEntry)
    {
       switch (from_completion_overlapped(completionPortEntry.lpOverlapped))
@@ -369,6 +445,24 @@ private:
       {
          /// Generated by dtor of io_threads::tcp_client_thread::tcp_client_thread_impl
          assert(0 == completionPortEntry.lpCompletionKey);
+      }
+      break;
+
+      case tcp_client_command::deferred:
+      {
+         assert(0 != completionPortEntry.lpCompletionKey);
+         auto &deferredTask{*from_completion_key<tcp_deferred_task>(completionPortEntry.lpCompletionKey),};
+         auto &client{deferredTask.client,};
+         assert(std::addressof(deferredTask) != client.m_deferredTask);
+         cancel_deferred_task(client);
+         if (system_clock::now() >= deferredTask.notBeforeTime)
+         {
+            handle_deferred_task(deferredTask);
+         }
+         else
+         {
+            enqueue_deferred_task(deferredTask);
+         }
       }
       break;
 
@@ -382,21 +476,27 @@ private:
       case tcp_client_command::ready_to_connect:
       {
          assert(0 != completionPortEntry.lpCompletionKey);
-         handle_ready_to_connect(*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey));
+         auto &client{*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey),};
+         cancel_deferred_task(client);
+         handle_ready_to_connect(client);
       }
       break;
 
       case tcp_client_command::ready_to_disconnect:
       {
          assert(0 != completionPortEntry.lpCompletionKey);
-         handle_ready_to_disconnect(*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey));
+         auto &client{*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey),};
+         cancel_deferred_task(client);
+         handle_ready_to_disconnect(client);
       }
       break;
 
       case tcp_client_command::ready_to_send:
       {
          assert(0 != completionPortEntry.lpCompletionKey);
-         handle_ready_to_send(*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey));
+         auto &client{*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey),};
+         cancel_deferred_task(client);
+         handle_ready_to_send(client);
       }
       break;
 
@@ -404,37 +504,37 @@ private:
       {
          /// Generated by ConnectEx, DisconnectEx, WSARecv or WSASend
          assert(0 != completionPortEntry.lpCompletionKey);
-         auto *client{from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey)};
-         if (nullptr == client->m_socketDescriptor) [[unlikely]]
+         auto &client{*from_completion_key<tcp_client>(completionPortEntry.lpCompletionKey),};
+         if (nullptr == client.m_socketDescriptor) [[unlikely]]
          {
             return;
          }
          if (
-            (nullptr != client->m_socketDescriptor->recvContext) &&
-            (std::addressof(client->m_socketDescriptor->recvContext->overlapped) == completionPortEntry.lpOverlapped)
+            (nullptr != client.m_socketDescriptor->recvContext) &&
+            (std::addressof(client.m_socketDescriptor->recvContext->overlapped) == completionPortEntry.lpOverlapped)
          )
          {
-            handle_recv_completion(*client);
+            handle_recv_completion(client);
          }
          else if (
-            (nullptr != client->m_socketDescriptor->sendContext) &&
-            (std::addressof(client->m_socketDescriptor->sendContext->overlapped) == completionPortEntry.lpOverlapped)
+            (nullptr != client.m_socketDescriptor->sendContext) &&
+            (std::addressof(client.m_socketDescriptor->sendContext->overlapped) == completionPortEntry.lpOverlapped)
          )
          {
-            handle_send_completion(*client);
+            handle_send_completion(client);
          }
          else if (
-            (nullptr != client->m_socketDescriptor->connectivityContext) &&
-            (std::addressof(client->m_socketDescriptor->connectivityContext->overlapped) == completionPortEntry.lpOverlapped)
+            (nullptr != client.m_socketDescriptor->connectivityContext) &&
+            (std::addressof(client.m_socketDescriptor->connectivityContext->overlapped) == completionPortEntry.lpOverlapped)
          )
          {
-            if (nullptr != client->m_socketDescriptor->connectivityContext->address)
+            if (nullptr != client.m_socketDescriptor->connectivityContext->address)
             {
-               handle_connect_completion(*client);
+               handle_connect_completion(client);
             }
             else
             {
-               handle_disconnect_completion(*client);
+               handle_disconnect_completion(client);
             }
          }
          else [[unlikely]]
@@ -475,12 +575,9 @@ private:
          push_io_context(*socketDescriptor.connectivityContext);
          socketDescriptor.connectivityContext = nullptr;
          socketDescriptor.recvContext = std::addressof(pop_data_transfer_context());
-         recv(client);
          client.io_connected();
-         if (nullptr == socketDescriptor.sendContext)
-         {
-            send(client);
-         }
+         recv(client);
+         send(client);
       }
       else
       {
@@ -507,6 +604,8 @@ private:
          handle_disconnected(client, errorCode);
       }
    }
+
+   void handle_deferred_task(tcp_deferred_task &deferredTask);
 
    void handle_disconnect_completion(tcp_client &client)
    {
@@ -565,12 +664,14 @@ private:
          errorCode = socketDescriptor->disconnectReason;
       }
       m_socketMemory->push_object(*socketDescriptor);
+      cancel_deferred_task(client);
       client.io_disconnected(errorCode);
    }
 
    void handle_ready_to_connect(tcp_client &client)
    {
       assert(nullptr == client.m_socketDescriptor);
+      assert(nullptr == client.m_deferredTask);
       auto const config{client.io_ready_to_connect(),};
       auto const &socketAddress{config.peer_address().socket_address()->sockaddr(),};
       auto const socket
@@ -620,6 +721,7 @@ private:
    void handle_ready_to_disconnect(tcp_client &client)
    {
       assert(nullptr != client.m_socketDescriptor);
+      assert(nullptr == client.m_deferredTask);
       auto &socketDescriptor{*client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor.handle);
       assert(nullptr == socketDescriptor.sendContext);
@@ -674,8 +776,8 @@ private:
 
    void handle_ready_to_send(tcp_client &client)
    {
-      auto *socketDescriptor{client.m_socketDescriptor,};
-      if ((nullptr != socketDescriptor) && (nullptr == client.m_socketDescriptor->sendContext))
+      assert(nullptr == client.m_deferredTask);
+      if (auto const *socketDescriptor{client.m_socketDescriptor,}; (nullptr != socketDescriptor) && (nullptr == socketDescriptor->sendContext))
       {
          send(client);
       }
@@ -901,6 +1003,8 @@ private:
       return m_ioMemory->pop_object<tcp_connectivity_context>();
    }
 
+   void process_deferred_tasks();
+
    template<typename io_context>
    void push_io_context(io_context &ioContext)
    {
@@ -951,6 +1055,7 @@ private:
       assert(nullptr != socketDescriptor.recvContext);
       assert(nullptr == socketDescriptor.sendContext);
       assert(nullptr == socketDescriptor.connectivityContext);
+      cancel_deferred_task(client);
       auto &sendContext{pop_data_transfer_context(),};
       auto bytesWritten{static_cast<size_t>(-1),};
       if (

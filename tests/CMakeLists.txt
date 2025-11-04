@@ -74,7 +74,14 @@ if(NOT IO_THREADS_ENABLE_COVERAGE)
       elseif(IO_THREADS_SANITIZER STREQUAL "LSan")
          target_cxx_lsan(io_threads_tests FLAGS detect_leaks=true exitcode=1)
       elseif(IO_THREADS_SANITIZER STREQUAL "UBSan")
-         target_cxx_ubsan(io_threads_tests FLAGS exitcode=1 print_stacktrace=true report_error_type=true silence_unsigned_overflow=true)
+         if(CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+            set(IO_THREADS_UBSAN_IGNORELIST IGNORELIST src:*/format src:*/_deps/*)
+         endif()
+         target_cxx_ubsan(
+            io_threads_tests
+            FLAGS exitcode=1 print_stacktrace=true report_error_type=true
+            ${IO_THREADS_UBSAN_IGNORELIST}
+         )
       else()
          target_cxx_sanitizer(io_threads_tests "${IO_THREADS_SANITIZER}" FLAGS exitcode=1)
       endif()

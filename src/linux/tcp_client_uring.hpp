@@ -30,6 +30,7 @@
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 #include <liburing/io_uring_version.h> ///< for IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
+#include <linux/time_types.h> ///< for __kernel_timespec
 #include <sys/socket.h> ///< for sa_family_t
 
 #include <cstddef> ///< for size_t
@@ -82,7 +83,7 @@ public:
    virtual void unregister_tcp_socket_descriptors(tcp_socket_descriptor *tcpSocketDescriptors) = 0;
    virtual void unregister_tcp_socket_operations(tcp_socket_operation *tcpSocketOperations) = 0;
 
-   virtual void run(uring_listener &uringListener) = 0;
+   [[nodiscard]] virtual intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout) = 0;
    virtual void stop() = 0;
    virtual void wake() = 0;
 

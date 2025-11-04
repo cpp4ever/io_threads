@@ -28,9 +28,9 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
+#include "io_threads/time.hpp" ///< for io_threads::system_time
 
 #include <cstddef> ///< for size_t
-#include <memory> ///< for std::shared_ptr
 #include <system_error> ///< for std::error_code
 
 namespace io_threads
@@ -46,7 +46,7 @@ public:
    tcp_client() = delete;
    tcp_client(tcp_client &&) = delete;
    tcp_client(tcp_client const &) = delete;
-   [[nodiscard]] explicit tcp_client(tcp_client_thread tcpClientThread);
+   [[nodiscard]] explicit tcp_client(tcp_client_thread tcpClientThread) noexcept;
    virtual ~tcp_client();
 
    tcp_client &operator = (tcp_client &&) = delete;
@@ -62,12 +62,16 @@ protected:
    virtual void io_disconnected(std::error_code const &errorCode) = 0;
 
    void ready_to_connect();
+   void ready_to_connect_deferred(system_time notBeforeTime);
    void ready_to_disconnect();
    void ready_to_send();
+   void ready_to_send_deferred(system_time notBeforeTime);
 
 private:
    tcp_socket_descriptor *m_socketDescriptor{nullptr,};
    tcp_client_thread const m_tcpClientThread;
+   struct tcp_deferred_task;
+   tcp_deferred_task *m_deferredTask{nullptr,};
 
    [[nodiscard]] virtual std::error_code io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
    [[nodiscard]] virtual std::error_code io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten) = 0;

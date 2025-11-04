@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include <common/shared_memory_pool.hpp> ///< for io_threads::shared_memory_pool
-#include <linux/uring_listener.hpp> ///< for io_threads::uring_listener
+#include "common/shared_memory_pool.hpp" ///< for io_threads::shared_memory_pool
+#include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 #include <cstddef> ///< for size_t
 #include <cstdint> ///< for intptr_t
@@ -43,8 +43,8 @@ private:
    struct uring_command final
    {
       uring_command *next;
-      intptr_t id;
-      intptr_t target;
+      intptr_t const id;
+      intptr_t const target;
    };
 
 public:
@@ -88,7 +88,7 @@ public:
             uring_command{.next = nullptr, .id = commandId, .target = commandTarget,}
          ),
       };
-      [[maybe_unused]] std::scoped_lock uringCommandsGuard{m_uringCommandsLock,};
+      [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
       uringCommand.next = std::launder(m_uringCommands);
       m_uringCommands = std::launder(std::addressof(uringCommand));
    }
@@ -100,7 +100,7 @@ private:
 
    [[nodiscard]] uring_command *pop_uring_commands()
    {
-      [[maybe_unused]] std::scoped_lock uringCommandsGuard{m_uringCommandsLock,};
+      [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
       auto *uringCommands{std::launder(m_uringCommands),};
       m_uringCommands = nullptr;
       return uringCommands;

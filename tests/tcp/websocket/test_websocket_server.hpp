@@ -66,17 +66,21 @@ public:
    MOCK_METHOD(bool, should_keep_alive, (), ());
 
 private:
-   boost::asio::io_context m_ioContext;
+   boost::asio::io_context m_ioContext{1,};
    boost::asio::ip::tcp::acceptor m_acceptor;
-   boost::beast::flat_buffer m_inboundBuffer;
-   std::string m_outboundBuffer;
-   std::deque<test_websocket_stream> m_streams;
+   struct test_websocket_client final
+   {
+      test_websocket_stream stream;
+      boost::beast::flat_buffer inboundBuffer{1024,};
+      std::string outboundBuffer{};
+   };
+   std::deque<test_websocket_client> m_clients{};
    std::thread m_thread;
 
-   void async_read(test_websocket_stream &stream);
+   void async_read(test_websocket_client &stream);
    void async_socket_accept();
-   void async_websocket_accept(test_websocket_stream &stream);
-   void async_write(test_websocket_stream &stream);
+   void async_websocket_accept(test_websocket_client &stream);
+   void async_write(test_websocket_client &stream);
 
    void thread_handler();
 };

@@ -25,19 +25,18 @@
 
 #pragma once
 
-#include <cstdint> ///< for intptr_t
+#include <chrono> ///< for std::chrono::local_time, std::chrono::nanoseconds, std::chrono::sys_time, std::chrono::system_clock
 
 namespace io_threads
 {
 
-enum struct tcp_client_command : intptr_t
-{
-   unknown = 0,
-   deferred,
-   execute,
-   ready_to_connect,
-   ready_to_disconnect,
-   ready_to_send,
-};
+using time_duration = std::chrono::nanoseconds;
+#if (defined(__cpp_lib_chrono) && (__cpp_lib_chrono >= 201907L))
+using system_time [[maybe_unused]] = std::chrono::sys_time<time_duration>;
+using system_clock [[maybe_unused]] = system_time::clock;
+#else
+using system_clock [[maybe_unused]] = std::chrono::system_clock;
+using system_time [[maybe_unused]] = std::chrono::time_point<system_clock, time_duration>;
+#endif
 
 }

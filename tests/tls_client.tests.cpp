@@ -89,6 +89,19 @@ public:
       ready_to_connect();
    }
 
+   void expect_ready_to_connect_deferred(system_time const testNotBeforeTime)
+   {
+      m_internalState = std::make_unique<internal_state>();
+      ready_to_connect_deferred(testNotBeforeTime);
+   }
+
+   void expect_ready_to_connect_deferred(tcp_client_config const &testConfig, system_time const testNotBeforeTime)
+   {
+      m_internalState = std::make_unique<internal_state>();
+      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      ready_to_connect_deferred(testNotBeforeTime);
+   }
+
    void expect_ready_to_send(std::string const &message)
    {
       EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
@@ -110,10 +123,52 @@ public:
             }
          )
       ;
-      if (true == m_connected.load(std::memory_order_relaxed))
-      {
-         ready_to_send();
-      }
+      ready_to_send();
+   }
+
+   void expect_ready_to_send(std::function<void()> sendHandler)
+   {
+      ASSERT_TRUE(sendHandler);
+      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
+         .WillOnce(
+            [sendHandler] (auto const &, auto &bytesWritten)
+            {
+               sendHandler();
+               bytesWritten = 0;
+               return std::error_code{};
+            }
+         )
+      ;
+      ready_to_send();
+   }
+
+   void expect_ready_to_send_deferred(system_time const testNotBeforeTime)
+   {
+      ready_to_send_deferred(testNotBeforeTime);
+   }
+
+   void expect_ready_to_send_deferred(std::string const &message, system_time const testNotBeforeTime)
+   {
+      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
+         .WillRepeatedly(
+            [this, message] (auto const &dataChunk, auto &bytesWritten)
+            {
+               EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
+                  [this] (auto const &, auto &bytesWritten)
+                  {
+                     bytesWritten = 0;
+                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                     return std::error_code{};
+                  }
+               );
+               assert(message.size() <= dataChunk.bytesLength);
+               std::memcpy(dataChunk.bytes, message.data(), message.size());
+               bytesWritten = message.size();
+               return std::error_code{};
+            }
+         )
+      ;
+      ready_to_send_deferred(testNotBeforeTime);
    }
 
    template<typename recv_handler>
@@ -150,7 +205,7 @@ public:
       ;
    }
 
-   [[nodiscard]] auto wait_for(std::chrono::seconds const timeout) const
+   [[nodiscard]] auto wait_for(time_duration const timeout) const
    {
       assert(nullptr != m_internalState);
       return m_internalState->doneFuture.wait_for(timeout);

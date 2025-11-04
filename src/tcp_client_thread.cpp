@@ -23,8 +23,13 @@
    SOFTWARE.
 */
 
+#include "common/logger.hpp" ///< for io_threads::log_error
+#include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
+#include "common/tcp_deferred_task.hpp" ///< for io_threads::tcp_client::tcp_deferred_task
+#include "common/utility.hpp" ///< for io_threads::unreachable
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread, io_threads::tcp_client_thread_config
+#include "io_threads/time.hpp" ///< for io_threads::system_clock, io_threads::system_time
 #if (defined(__linux__))
 #  include "linux/tcp_client_thread_worker.hpp" ///< for io_threads::tcp_client::tcp_client_thread_worker
 #elif (defined(_WIN32) || defined(_WIN64))
@@ -105,6 +110,11 @@ public:
       m_worker->ready_to_connect(client);
    }
 
+   void ready_to_connect_deferred(tcp_client &client, system_time const notBeforeTime) const
+   {
+      m_worker->ready_to_connect_deferred(client, notBeforeTime);
+   }
+
    void ready_to_disconnect(tcp_client &client) const
    {
       m_worker->ready_to_disconnect(client);
@@ -113,6 +123,11 @@ public:
    void ready_to_send(tcp_client &client) const
    {
       m_worker->ready_to_send(client);
+   }
+
+   void ready_to_send_deferred(tcp_client &client, system_time const notBeforeTime) const
+   {
+      m_worker->ready_to_send_deferred(client, notBeforeTime);
    }
 
 private:
@@ -135,7 +150,7 @@ void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
    m_impl->execute(ioRoutine);
 }
 
-tcp_client_thread::tcp_client::tcp_client(tcp_client_thread tcpClientThread) :
+tcp_client_thread::tcp_client::tcp_client(tcp_client_thread tcpClientThread) noexcept :
    m_tcpClientThread{std::move(tcpClientThread),}
 {}
 
@@ -146,6 +161,11 @@ void tcp_client_thread::tcp_client::ready_to_connect()
    m_tcpClientThread.m_impl->ready_to_connect(*this);
 }
 
+void tcp_client_thread::tcp_client::ready_to_connect_deferred(system_time const notBeforeTime)
+{
+   m_tcpClientThread.m_impl->ready_to_connect_deferred(*this, notBeforeTime);
+}
+
 void tcp_client_thread::tcp_client::ready_to_disconnect()
 {
    m_tcpClientThread.m_impl->ready_to_disconnect(*this);
@@ -154,6 +174,162 @@ void tcp_client_thread::tcp_client::ready_to_disconnect()
 void tcp_client_thread::tcp_client::ready_to_send()
 {
    m_tcpClientThread.m_impl->ready_to_send(*this);
+}
+
+void tcp_client_thread::tcp_client::ready_to_send_deferred(system_time const notBeforeTime)
+{
+   m_tcpClientThread.m_impl->ready_to_send_deferred(*this, notBeforeTime);
+}
+
+void tcp_client_thread::tcp_client::tcp_client_thread_worker::cancel_deferred_task(tcp_client &tcpClient)
+{
+   if (nullptr == tcpClient.m_deferredTask)
+   {
+      return;
+   }
+   auto &deferredTask{*tcpClient.m_deferredTask,};
+   assert(std::addressof(tcpClient) == std::addressof(deferredTask.client));
+   deferredTask.client.m_deferredTask = nullptr;
+   if (auto *prevDeferredTask{deferredTask.prev,}; nullptr != prevDeferredTask)
+   {
+      assert(std::addressof(deferredTask) != m_deferredTaskHead);
+      assert(std::addressof(deferredTask) == prevDeferredTask->next);
+      deferredTask.prev = nullptr;
+      if (auto *nextDeferredTask{deferredTask.next,}; nullptr != nextDeferredTask)
+      {
+         assert(std::addressof(deferredTask) == nextDeferredTask->prev);
+         prevDeferredTask->next = nextDeferredTask;
+         deferredTask.next = nullptr;
+         nextDeferredTask->prev = prevDeferredTask;
+      }
+      else
+      {
+         assert(std::addressof(deferredTask) == m_deferredTaskTail);
+         prevDeferredTask->next = nullptr;
+         m_deferredTaskTail = prevDeferredTask;
+      }
+   }
+   else if (auto *nextDeferredTask{deferredTask.next,}; nullptr != nextDeferredTask)
+   {
+      assert(std::addressof(deferredTask) == m_deferredTaskHead);
+      assert(std::addressof(deferredTask) != m_deferredTaskTail);
+      assert(std::addressof(deferredTask) == nextDeferredTask->prev);
+      deferredTask.next = nullptr;
+      m_deferredTaskHead = nextDeferredTask;
+      nextDeferredTask->prev = nullptr;
+   }
+   else
+   {
+      assert(std::addressof(deferredTask) == m_deferredTaskHead);
+      assert(std::addressof(deferredTask) == m_deferredTaskTail);
+      m_deferredTaskHead = nullptr;
+      m_deferredTaskTail = nullptr;
+   }
+   m_deferredTaskMemory->push(deferredTask);
+}
+
+void tcp_client_thread::tcp_client::tcp_client_thread_worker::enqueue_deferred_task(tcp_deferred_task &deferredTask)
+{
+   assert(nullptr == deferredTask.prev);
+   assert(nullptr == deferredTask.next);
+   assert(nullptr == deferredTask.client.m_deferredTask);
+   assert((tcp_client_command::ready_to_connect == deferredTask.command) || (tcp_client_command::ready_to_send == deferredTask.command));
+   if (nullptr == m_deferredTaskHead)
+   {
+      assert(nullptr == m_deferredTaskTail);
+      m_deferredTaskHead = m_deferredTaskTail = std::addressof(deferredTask);
+   }
+   else if (deferredTask.notBeforeTime >= m_deferredTaskTail->notBeforeTime)
+   {
+      deferredTask.prev = m_deferredTaskTail;
+      m_deferredTaskTail->next = std::addressof(deferredTask);
+      m_deferredTaskTail = std::addressof(deferredTask);
+   }
+   else if (m_deferredTaskHead->notBeforeTime > deferredTask.notBeforeTime)
+   {
+      assert(nullptr != m_deferredTaskTail);
+      deferredTask.next = m_deferredTaskHead;
+      m_deferredTaskHead->prev = std::addressof(deferredTask);
+      m_deferredTaskHead = std::addressof(deferredTask);
+   }
+   else
+   {
+      assert(nullptr != m_deferredTaskTail);
+      for (
+         auto *currDeferredTask{m_deferredTaskHead->next,};
+         ;
+         currDeferredTask = currDeferredTask->next
+      )
+      {
+         if (currDeferredTask->notBeforeTime > deferredTask.notBeforeTime)
+         {
+            deferredTask.prev = currDeferredTask->prev;
+            deferredTask.prev->next = std::addressof(deferredTask);
+            deferredTask.next = currDeferredTask;
+            currDeferredTask->prev = std::addressof(deferredTask);
+            break;
+         }
+      }
+   }
+   deferredTask.client.m_deferredTask = std::addressof(deferredTask);
+}
+
+void tcp_client_thread::tcp_client::tcp_client_thread_worker::handle_deferred_task(tcp_deferred_task &deferredTask)
+{
+   assert(nullptr == deferredTask.prev);
+   assert(nullptr == deferredTask.next);
+   auto &client{deferredTask.client,};
+   assert(nullptr == client.m_deferredTask);
+   assert((tcp_client_command::ready_to_connect == deferredTask.command) || (tcp_client_command::ready_to_send == deferredTask.command));
+   auto const command{deferredTask.command,};
+   m_deferredTaskMemory->push(deferredTask);
+   switch (command)
+   {
+
+   case tcp_client_command::ready_to_connect:
+   {
+      handle_ready_to_connect(client);
+   }
+   break;
+
+   case tcp_client_command::ready_to_send:
+   {
+      handle_ready_to_send(client);
+   }
+   break;
+
+   [[unlikely]] default:
+   {
+      log_error(std::source_location::current(), "[tcp_client] unexpected deferred command: it must be a bug");
+      unreachable();
+   }
+   break;
+
+   }
+}
+
+void tcp_client_thread::tcp_client::tcp_client_thread_worker::process_deferred_tasks()
+{
+   auto *deferredTask{m_deferredTaskHead,};
+   while ((nullptr != deferredTask) && (system_clock::now() >= deferredTask->notBeforeTime))
+   {
+      assert(nullptr == deferredTask->prev);
+      if (auto *nextDeferredTask{deferredTask->next,}; nullptr != nextDeferredTask)
+      {
+         assert(deferredTask == nextDeferredTask->prev);
+         deferredTask->next = nullptr;
+         m_deferredTaskHead = nextDeferredTask;
+         nextDeferredTask->prev = nullptr;
+      }
+      else
+      {
+         assert(deferredTask == m_deferredTaskTail);
+         m_deferredTaskHead = m_deferredTaskTail = nullptr;
+      }
+      deferredTask->client.m_deferredTask = nullptr;
+      handle_deferred_task(*deferredTask);
+      deferredTask = m_deferredTaskHead;
+   }
 }
 
 }

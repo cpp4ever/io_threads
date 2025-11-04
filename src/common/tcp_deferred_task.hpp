@@ -25,19 +25,20 @@
 
 #pragma once
 
-#include <cstdint> ///< for intptr_t
+#include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
+#include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
+#include "io_threads/time.hpp" ///< for io_threads::system_time
 
 namespace io_threads
 {
 
-enum struct tcp_client_command : intptr_t
+struct tcp_client::tcp_deferred_task final
 {
-   unknown = 0,
-   deferred,
-   execute,
-   ready_to_connect,
-   ready_to_disconnect,
-   ready_to_send,
+   tcp_deferred_task *prev{nullptr,};
+   tcp_deferred_task *next{nullptr,};
+   tcp_client &client;
+   tcp_client_command const command;
+   system_time const notBeforeTime;
 };
 
 }

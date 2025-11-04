@@ -58,12 +58,7 @@ namespace io_threads::tests
 
 template<typename test_websocket_stream>
 test_websocket_server<test_websocket_stream>::test_websocket_server(boost::asio::ip::address const &testAddress) :
-   m_ioContext(1),
-   m_acceptor(m_ioContext, {testAddress, 0}),
-   m_inboundBuffer(1024),
-   m_outboundBuffer(),
-   m_streams(),
-   m_thread()
+   m_acceptor{m_ioContext, {testAddress, 0,},}
 {
    m_thread = std::thread{&test_websocket_server::thread_handler, this,};
 }
@@ -82,11 +77,11 @@ uint16_t test_websocket_server<test_websocket_stream>::local_port() const
 }
 
 template<typename test_websocket_stream>
-void test_websocket_server<test_websocket_stream>::async_read(test_websocket_stream &stream)
+void test_websocket_server<test_websocket_stream>::async_read(test_websocket_client &client)
 {
-   m_inboundBuffer.clear();
-   stream.async_read(
-      m_inboundBuffer,
+   client.inboundBuffer.clear();
+   client.stream.async_read(
+      client.inboundBuffer,
       [&] (auto testErrorCode, auto const)
       {
          if (
@@ -104,14 +99,14 @@ void test_websocket_server<test_websocket_stream>::async_read(test_websocket_str
             return;
          }
          EXPECT_ERROR_CODE(testErrorCode);
-         m_outboundBuffer.clear();
-         if ((false == testErrorCode.failed()) && (true == handle_message(m_inboundBuffer, m_outboundBuffer)))
+         client.outboundBuffer.clear();
+         if ((false == testErrorCode.failed()) && (true == handle_message(client.inboundBuffer, client.outboundBuffer)))
          {
-            async_write(stream);
+            async_write(client);
          }
          else
          {
-            boost::beast::get_lowest_layer(stream).close();
+            boost::beast::get_lowest_layer(client.stream).close();
          }
       }
    );
@@ -127,23 +122,28 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
          EXPECT_ERROR_CODE(testErrorCode);
          if ((false == testErrorCode.failed()) && (true == should_accept_socket()))
          {
-            auto &stream = m_streams.emplace_back(test_tcp_server_context<test_websocket_stream>::accept(std::move(testTcpSocket)));
+            auto &client = m_clients.emplace_back(
+               test_websocket_client
+               {
+                  .stream = test_tcp_server_context<test_websocket_stream>::accept(std::move(testTcpSocket)),
+               }
+            );
             if constexpr (std::is_same_v<test_websocket_stream, boost::beast::websocket::stream<boost::beast::tcp_stream>>)
             {
                if (true == should_pass_handshake())
                {
-                  async_websocket_accept(stream);
+                  async_websocket_accept(client);
                }
                else
                {
-                  boost::beast::get_lowest_layer(stream).close();
+                  boost::beast::get_lowest_layer(client.stream).close();
                }
             }
             else if constexpr (std::is_same_v<test_websocket_stream, boost::beast::websocket::stream<test_tls_stream>>)
             {
                constexpr auto handshakeTimeout = std::chrono::milliseconds{100};
-               boost::beast::get_lowest_layer(stream).expires_after(handshakeTimeout);
-               stream.next_layer().async_handshake(
+               boost::beast::get_lowest_layer(client.stream).expires_after(handshakeTimeout);
+               client.stream.next_layer().async_handshake(
 #if(defined(IO_THREADS_OPENSSL))
                   boost::asio::ssl::stream_base::server,
 #elif(defined(IO_THREADS_SCHANNEL))
@@ -154,11 +154,11 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
                      EXPECT_ERROR_CODE(testErrorCode);
                      if ((false == testErrorCode.failed()) && (true == should_pass_handshake()))
                      {
-                        async_websocket_accept(stream);
+                        async_websocket_accept(client);
                      }
                      else
                      {
-                        boost::beast::get_lowest_layer(stream).close();
+                        boost::beast::get_lowest_layer(client.stream).close();
                      }
                   }
                );
@@ -179,10 +179,10 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
 }
 
 template<typename test_websocket_stream>
-void test_websocket_server<test_websocket_stream>::async_websocket_accept(test_websocket_stream &stream)
+void test_websocket_server<test_websocket_stream>::async_websocket_accept(test_websocket_client &client)
 {
-   boost::beast::get_lowest_layer(stream).expires_never();
-   stream.set_option(
+   boost::beast::get_lowest_layer(client.stream).expires_never();
+   client.stream.set_option(
       boost::beast::websocket::permessage_deflate
       {
          .server_enable = true,
@@ -191,12 +191,12 @@ void test_websocket_server<test_websocket_stream>::async_websocket_accept(test_w
          .client_no_context_takeover = true,
       }
    );
-   stream.set_option(
+   client.stream.set_option(
       boost::beast::websocket::stream_base::timeout::suggested(
          boost::beast::role_type::server
       )
    );
-   stream.async_accept(
+   client.stream.async_accept(
       [&] (auto testErrorCode)
       {
          if (boost::beast::websocket::error::closed == testErrorCode)
@@ -206,32 +206,32 @@ void test_websocket_server<test_websocket_stream>::async_websocket_accept(test_w
          EXPECT_ERROR_CODE(testErrorCode);
          if ((false == testErrorCode.failed()) && (true == should_accept_websocket()))
          {
-            async_read(stream);
+            async_read(client);
          }
          else
          {
-            boost::beast::get_lowest_layer(stream).close();
+            boost::beast::get_lowest_layer(client.stream).close();
          }
       }
    );
 }
 
 template<typename test_websocket_stream>
-void test_websocket_server<test_websocket_stream>::async_write(test_websocket_stream &stream)
+void test_websocket_server<test_websocket_stream>::async_write(test_websocket_client &client)
 {
-   stream.text(stream.got_text());
-   stream.async_write(
-      boost::asio::buffer(static_cast<std::string const &>(m_outboundBuffer)),
+   client.stream.text(client.stream.got_text());
+   client.stream.async_write(
+      boost::asio::buffer(static_cast<std::string const &>(client.outboundBuffer)),
       [&] (auto testErrorCode, auto const)
       {
          EXPECT_ERROR_CODE(testErrorCode);
          if ((false == testErrorCode.failed()) && (true == should_keep_alive()))
          {
-            async_read(stream);
+            async_read(client);
          }
          else
          {
-            boost::beast::get_lowest_layer(stream).close();
+            boost::beast::get_lowest_layer(client.stream).close();
          }
       }
    );

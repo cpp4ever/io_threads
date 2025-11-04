@@ -33,6 +33,7 @@
 
 #include <errno.h> ///< for errno
 #include <liburing.h>
+#include <linux/time_types.h> ///< for __kernel_timespec
 #include <netinet/in.h> ///< for IPPROTO_TCP
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
 #include <signal.h> ///< for sigfillset, sigset_t
@@ -297,6 +298,8 @@ public:
             )
          );
       }
+      register_eventfd();
+      prep_read_eventfd();
       return tcpSocketDescriptors;
    }
 
@@ -399,51 +402,12 @@ public:
       m_tcpSocketOperationsMemoryPool.reset();
    }
 
-   void run(uring_listener &uringListener) override
-   {
-      assert(nullptr != m_ring);
-      register_eventfd();
-      prep_read_eventfd();
-      while (0 < m_tasksCount) [[likely]]
-      {
-         poll(uringListener);
-      }
-   }
-
-   void stop() override
-   {
-      assert(true == m_running);
-      m_running = false;
-   }
-
-   void wake() override
-   {
-      assert(-1 != m_eventfd);
-      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to raise eventfd: ({}) - {}", errno);
-         unreachable();
-      }
-   }
-
-private:
-   std::unique_ptr<io_uring> m_ring{std::make_unique<io_uring>(),};
-   std::unique_ptr<sigset_t> m_sigmask{std::make_unique<sigset_t>(),};
-   intptr_t m_tasksCount{0,};
-   int m_eventfd{-1,};
-   bool m_running{true,};
-   eventfd_t m_eventfdValue{0,};
-   std::unique_ptr<memory_pool> m_tcpSocketOperationsMemoryPool{nullptr,};
-   std::vector<iovec> m_registeredBuffers{};
-   std::unique_ptr<memory_pool> m_tcpSocketDescriptorsMemoryPool{nullptr,};
-   std::vector<int32_t> m_registeredSockets{};
-
-   void poll(uring_listener &uringListener)
+   [[nodiscard]] intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout) final
    {
       io_uring_cqe *completionQueueEntry{nullptr,};
       if (
-         auto const returnCode{io_uring_submit_and_wait_timeout(m_ring.get(), std::addressof(completionQueueEntry), 1, nullptr, m_sigmask.get()),};
-         0 > returnCode
+         auto const returnCode{io_uring_submit_and_wait_timeout(m_ring.get(), std::addressof(completionQueueEntry), 1, timeout, m_sigmask.get()),};
+         (0 > returnCode) && (ETIME != -returnCode)
       ) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to submit prepared tasks: ({}) - {}", -returnCode);
@@ -485,7 +449,36 @@ private:
          ++numberOfCompletionQueueEntriesRemoved;
       }
       io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
+      return m_tasksCount;
    }
+
+   void stop() override
+   {
+      assert(true == m_running);
+      m_running = false;
+   }
+
+   void wake() override
+   {
+      assert(-1 != m_eventfd);
+      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
+      {
+         log_system_error("[tcp_client] failed to raise eventfd: ({}) - {}", errno);
+         unreachable();
+      }
+   }
+
+private:
+   std::unique_ptr<io_uring> m_ring{std::make_unique<io_uring>(),};
+   std::unique_ptr<sigset_t> m_sigmask{std::make_unique<sigset_t>(),};
+   intptr_t m_tasksCount{0,};
+   int m_eventfd{-1,};
+   bool m_running{true,};
+   eventfd_t m_eventfdValue{0,};
+   std::unique_ptr<memory_pool> m_tcpSocketOperationsMemoryPool{nullptr,};
+   std::vector<iovec> m_registeredBuffers{};
+   std::unique_ptr<memory_pool> m_tcpSocketDescriptorsMemoryPool{nullptr,};
+   std::vector<int32_t> m_registeredSockets{};
 
    void prep_close_eventfd()
    {

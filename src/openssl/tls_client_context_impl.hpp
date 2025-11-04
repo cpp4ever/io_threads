@@ -338,10 +338,6 @@ public:
          {
             securityBuffer = m_securityBuffersMemoryPool.pop_memory_chunk();
          }
-         else if (tls_client_status::handshake_complete == tlsClientSession.status) [[unlikely]]
-         {
-            tlsClientSession.status = tls_client_status::ready;
-         }
          set_wbio(
             tlsClientSession,
             data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_chunk_size(),}
@@ -372,6 +368,10 @@ public:
          {
             tlsClientSession.securityBuffer = nullptr;
             m_securityBuffersMemoryPool.push_memory_chunk(securityBuffer);
+            if (tls_client_status::handshake_complete == tlsClientSession.status) [[unlikely]]
+            {
+               tlsClientSession.status = tls_client_status::ready;
+            }
          }
          else
          {

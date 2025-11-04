@@ -30,6 +30,7 @@
 #include <io_threads/system_network_interfaces.hpp>
 #include <io_threads/tcp_client_config.hpp>
 #include <io_threads/tcp_client_thread.hpp>
+#include <io_threads/time.hpp>
 
 #include <format>
 
@@ -46,30 +47,30 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          std::make_error_code(std::errc::connection_aborted),
          std::make_error_code(std::errc::connection_reset)
 #elif (defined(_WIN32) || defined(_WIN64))
-         std::error_code{WSAECONNABORTED, std::system_category()},
-         std::error_code{WSAECONNRESET, std::system_category()}
+         std::error_code{WSAECONNABORTED, std::system_category(),},
+         std::error_code{WSAECONNRESET, std::system_category(),}
 #endif
       ),
    };
    system_network_interfaces testNetworkInterfaces{};
-   auto const testLoopbackNetworkInterface = testNetworkInterfaces.loopback();
+   auto const &testLoopbackNetworkInterface{testNetworkInterfaces.loopback(),};
    ASSERT_TRUE(testLoopbackNetworkInterface.has_value());
-   auto testNetworkInterfaceIps = std::vector<std::string_view>{};
+   std::vector<std::string_view> testNetworkInterfaceIps{};
    if (true == testLoopbackNetworkInterface.value().ipv4().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv4().value()};
+      std::string_view const testNetworkInterfaceIp{testLoopbackNetworkInterface->ipv4().value(),};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    if (true == testLoopbackNetworkInterface.value().ipv6().has_value())
    {
-      auto const testNetworkInterfaceIp = std::string_view{testLoopbackNetworkInterface->ipv6().value()};
+      std::string_view const testNetworkInterfaceIp{testLoopbackNetworkInterface->ipv6().value(),};
       ASSERT_FALSE(testNetworkInterfaceIp.empty());
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    ASSERT_FALSE(testNetworkInterfaceIps.empty());
-   constexpr auto testTimeout = std::chrono::seconds{5};
-   constexpr auto testTcpKeepAlive = tcp_keep_alive
+   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
       .probeTimeout = testTimeout,
@@ -77,18 +78,20 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
    };
    for (auto const &testPeerHost : testNetworkInterfaceIps)
    {
-      testing::StrictMock<test_rest_server<test_stream>> testServer{boost::asio::ip::make_address(testPeerHost)};
+      testing::StrictMock<test_rest_server<test_stream>> testServer{boost::asio::ip::make_address(testPeerHost),};
       std::error_code testErrorCode{};
-      auto const testSocketAddress = make_socket_address(testPeerHost, testServer.local_port(), testErrorCode);
+      auto const testSocketAddress{make_socket_address(testPeerHost, testServer.local_port(), testErrorCode),};
       ASSERT_FALSE(testErrorCode) << testErrorCode.value() << ": " << testErrorCode.message();
       ASSERT_TRUE(testSocketAddress.has_value());
-      auto const testConfig =
-         tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value()}}
-         .with_keep_alive(testTcpKeepAlive)
-         .with_nodelay()
-         .with_user_timeout(testTimeout)
-      ;
-      auto const testContentType = std::string{"application/json"};
+      auto const testConfig
+      {
+         tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value(),},}
+            .with_keep_alive(testTcpKeepAlive)
+            .with_nodelay()
+            .with_user_timeout(testTimeout)
+         ,
+      };
+      std::string const testContentType{"application/json",};
       /// Disconnect on socket accept
       {
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(false));
@@ -114,10 +117,10 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
             .WillOnce(
                [testPeerHost] (auto const &testRequest, auto &)
                {
-                  auto testHeaders = std::map<std::string_view, std::string_view>
+                  std::map<std::string_view, std::string_view> testHeaders
                   {
-                     {"Accept", "*/*"},
-                     {"Host", testPeerHost},
+                     {"Accept", "*/*",},
+                     {"Host", testPeerHost,},
                   };
                   EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
                   return false;
@@ -131,17 +134,17 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
       }
       /// Do not keep alive
       {
-         constexpr auto testResponseBody = std::string_view{R"raw({"test":"response"})raw"};
+         constexpr std::string_view testResponseBody{R"raw({"test":"response"})raw",};
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
             .WillOnce(
                [testPeerHost, &testContentType, testResponseBody] (auto const &testRequest, auto &testResponse)
                {
-                  auto testHeaders = std::map<std::string_view, std::string_view>
+                  std::map<std::string_view, std::string_view> testHeaders
                   {
-                     {"Accept", "*/*"},
-                     {"Host", testPeerHost},
+                     {"Accept", "*/*",},
+                     {"Host", testPeerHost,},
                   };
                   EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
 
@@ -158,13 +161,16 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
             )
          ;
          EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(false));
-         auto const testHttpRequest = std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost);
-         auto const testHttpResponse = std::format(
-            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-            testContentType,
-            testResponseBody.size(),
-            testResponseBody
-         );
+         auto const testHttpRequest{std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost),};
+         auto const testHttpResponse
+         {
+            std::format(
+               "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+               testContentType,
+               testResponseBody.size(),
+               testResponseBody
+            ),
+         };
          testClient.expect_recv(
             testHttpResponse,
             [
@@ -218,10 +224,10 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                   .WillOnce(
                      [testPeerHost, &testContentType] (auto const &testRequest, auto &testResponse)
                      {
-                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        std::map<std::string_view, std::string_view> testHeaders
                         {
-                           {"Accept", "*/*"},
-                           {"Host", testPeerHost},
+                           {"Accept", "*/*",},
+                           {"Host", testPeerHost,},
                         };
                         EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
 
@@ -246,8 +252,8 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      }
                   )
                ;
-               auto const testHttpRequest = std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost);
-               auto const testHttpResponse = std::format("HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: 2\r\n\r\n{{}}", testContentType);
+               auto const testHttpRequest{std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost),};
+               auto const testHttpResponse{std::format("HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: 2\r\n\r\n{{}}", testContentType),};
                testClient.expect_recv(testHttpResponse, testDisconnect);
                testClient.expect_ready_to_send(testHttpRequest);
             },
@@ -269,9 +275,9 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                {
                   return;
                }
-               constexpr auto testTarget = std::string_view{"/test_method/delete?test_operation=delete"};
-               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"delete"})raw"};
-               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"deleted"})raw"};
+               constexpr std::string_view testTarget{"/test_method/delete?test_operation=delete",};
+               constexpr std::string_view testRequestBody{R"raw({"test_operation":"delete"})raw",};
+               constexpr std::string_view testResponseBody{R"raw({"test_result":"deleted"})raw",};
                EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
                   .WillOnce(
                      [
@@ -282,15 +288,15 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
                      {
-                        auto const testContentLength = std::to_string(testRequestBody.size());
-                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        auto const testContentLength{std::to_string(testRequestBody.size()),};
+                        std::map<std::string_view, std::string_view> testHeaders
                         {
                            {"Accept", "*/*"},
-                           {"Content-Length", testContentLength},
-                           {"Content-Type", testContentType},
-                           {"Host", testPeerHost},
-                           {"Test-Method", "DELETE"},
-                           {"Test-Operation", "DELETE"},
+                           {"Content-Length", testContentLength,},
+                           {"Content-Type", testContentType,},
+                           {"Host", testPeerHost,},
+                           {"Test-Method", "DELETE",},
+                           {"Test-Operation", "DELETE",},
                         };
                         EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::delete_, testTarget, testHeaders, testRequestBody);
 
@@ -315,20 +321,26 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      }
                   )
                ;
-               auto const testHttpRequest = std::format(
-                  "DELETE {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:DELETE\r\nTest-Operation:DELETE\r\n\r\n{}",
-                  testTarget,
-                  testPeerHost,
-                  testRequestBody.size(),
-                  testContentType,
-                  testRequestBody
-               );
-               auto const testHttpResponse = std::format(
-                  "HTTP/1.1 202 Accepted\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-                  testContentType,
-                  testResponseBody.size(),
-                  testResponseBody
-               );
+               auto const testHttpRequest
+               {
+                  std::format(
+                     "DELETE {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:DELETE\r\nTest-Operation:DELETE\r\n\r\n{}",
+                     testTarget,
+                     testPeerHost,
+                     testRequestBody.size(),
+                     testContentType,
+                     testRequestBody
+                  ),
+               };
+               auto const testHttpResponse
+               {
+                  std::format(
+                     "HTTP/1.1 202 Accepted\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                     testContentType,
+                     testResponseBody.size(),
+                     testResponseBody
+                  ),
+               };
                testClient.expect_recv(testHttpResponse, testInternalCleanupCheck);
                testClient.expect_ready_to_send(testHttpRequest);
             },
@@ -350,9 +362,9 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                {
                   return;
                }
-               constexpr auto testTarget = std::string_view{"/test_method/put?test_operation=update"};
-               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"update"})raw"};
-               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"updated"})raw"};
+               constexpr std::string_view testTarget{"/test_method/put?test_operation=update",};
+               constexpr std::string_view testRequestBody{R"raw({"test_operation":"update"})raw",};
+               constexpr std::string_view testResponseBody{R"raw({"test_result":"updated"})raw",};
                EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
                   .WillOnce(
                      [
@@ -363,15 +375,15 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
                      {
-                        auto const testContentLength = std::to_string(testRequestBody.size());
-                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        auto const testContentLength{std::to_string(testRequestBody.size()),};
+                        std::map<std::string_view, std::string_view> testHeaders
                         {
-                           {"Accept", "*/*"},
-                           {"Host", testPeerHost},
-                           {"Content-Length", testContentLength},
-                           {"Content-Type", testContentType},
-                           {"Test-Method", "PUT"},
-                           {"Test-Operation", "UPDATE"},
+                           {"Accept", "*/*",},
+                           {"Host", testPeerHost,},
+                           {"Content-Length", testContentLength,},
+                           {"Content-Type", testContentType,},
+                           {"Test-Method", "PUT",},
+                           {"Test-Operation", "UPDATE",},
                         };
                         EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::put, testTarget, testHeaders, testRequestBody);
 
@@ -396,20 +408,26 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      }
                   )
                ;
-               auto const testHttpRequest = std::format(
-                  "PUT {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:PUT\r\nTest-Operation:UPDATE\r\n\r\n{}",
-                  testTarget,
-                  testPeerHost,
-                  testRequestBody.size(),
-                  testContentType,
-                  testRequestBody
-               );
-               auto const testHttpResponse = std::format(
-                  "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-                  testContentType,
-                  testResponseBody.size(),
-                  testResponseBody
-               );
+               auto const testHttpRequest
+               {
+                  std::format(
+                     "PUT {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:PUT\r\nTest-Operation:UPDATE\r\n\r\n{}",
+                     testTarget,
+                     testPeerHost,
+                     testRequestBody.size(),
+                     testContentType,
+                     testRequestBody
+                  ),
+               };
+               auto const testHttpResponse
+               {
+                  std::format(
+                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                     testContentType,
+                     testResponseBody.size(),
+                     testResponseBody
+                  ),
+               };
                testClient.expect_recv(testHttpResponse, testDeleteRequest);
                testClient.expect_ready_to_send(testHttpRequest);
             },
@@ -431,8 +449,8 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                {
                   return;
                }
-               constexpr auto testTarget = std::string_view{"/test_method/get?test_operation=read"};
-               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"read"})raw"};
+               constexpr std::string_view testTarget{"/test_method/get?test_operation=read",};
+               constexpr std::string_view testResponseBody{R"raw({"test_result":"read"})raw",};
                EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
                   .WillOnce(
                      [
@@ -442,12 +460,12 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
                      {
-                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        std::map<std::string_view, std::string_view> testHeaders
                         {
-                           {"Accept", "*/*"},
-                           {"Host", testPeerHost},
-                           {"Test-Method", "GET"},
-                           {"Test-Operation", "READ"},
+                           {"Accept", "*/*",},
+                           {"Host", testPeerHost,},
+                           {"Test-Method", "GET",},
+                           {"Test-Operation", "READ",},
                         };
                         EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, testTarget, testHeaders, "");
 
@@ -472,18 +490,24 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      }
                   )
                ;
-               auto const testHttpRequest = std::format(
-                  "GET {} HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\nTest-Method:GET\r\nTest-Operation:READ\r\n\r\n{}",
-                  testTarget,
-                  testPeerHost,
-                  testContentType
-               );
-               auto const testHttpResponse = std::format(
-                  "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-                  testContentType,
-                  testResponseBody.size(),
-                  testResponseBody
-               );
+               auto const testHttpRequest
+               {
+                  std::format(
+                     "GET {} HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\nTest-Method:GET\r\nTest-Operation:READ\r\n\r\n{}",
+                     testTarget,
+                     testPeerHost,
+                     testContentType
+                  ),
+               };
+               auto const testHttpResponse
+               {
+                  std::format(
+                     "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                     testContentType,
+                     testResponseBody.size(),
+                     testResponseBody
+                  ),
+               };
                testClient.expect_recv(testHttpResponse, testUpdateRequest);
                testClient.expect_ready_to_send(testHttpRequest);
             },
@@ -492,9 +516,9 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          {
             [testThread, &testServer, &testClient, &testReadRequest, testPeerHost, &testContentType]()
             {
-               constexpr auto testTarget = std::string_view{"/test_method/post?test_operation=create"};
-               constexpr auto testRequestBody = std::string_view{R"raw({"test_operation":"create"})raw"};
-               constexpr auto testResponseBody = std::string_view{R"raw({"test_result":"created"})raw"};
+               constexpr std::string_view testTarget{"/test_method/post?test_operation=create",};
+               constexpr std::string_view testRequestBody{R"raw({"test_operation":"create"})raw",};
+               constexpr std::string_view testResponseBody{R"raw({"test_result":"created"})raw",};
                EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
                   .WillOnce(
                      [
@@ -505,15 +529,15 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                            testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
                      {
-                        auto const testContentLength = std::to_string(testRequestBody.size());
-                        auto testHeaders = std::map<std::string_view, std::string_view>
+                        auto const testContentLength{std::to_string(testRequestBody.size()),};
+                        std::map<std::string_view, std::string_view> testHeaders
                         {
-                           {"Accept", "*/*"},
-                           {"Content-Length", testContentLength},
-                           {"Content-Type", testContentType},
-                           {"Host", testPeerHost},
-                           {"Test-Method", "POST"},
-                           {"Test-Operation", "CREATE"},
+                           {"Accept", "*/*",},
+                           {"Content-Length", testContentLength,},
+                           {"Content-Type", testContentType,},
+                           {"Host", testPeerHost,},
+                           {"Test-Method", "POST",},
+                           {"Test-Operation", "CREATE",},
                         };
                         EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::post, testTarget, testHeaders, testRequestBody);
 
@@ -538,20 +562,26 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      }
                   )
                ;
-               auto const testHttpRequest = std::format(
-                  "POST {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:POST\r\nTest-Operation:CREATE\r\n\r\n{}",
-                  testTarget,
-                  testPeerHost,
-                  testRequestBody.size(),
-                  testContentType,
-                  testRequestBody
-               );
-               auto const testHttpResponse = std::format(
-                  "HTTP/1.1 201 Created\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
-                  testContentType,
-                  testResponseBody.size(),
-                  testResponseBody
-               );
+               auto const testHttpRequest
+               {
+                  std::format(
+                     "POST {} HTTP/1.1\r\nHost:{}\r\nContent-Length:{}\r\nContent-Type:{}\r\nAccept:*/*\r\nTest-Method:POST\r\nTest-Operation:CREATE\r\n\r\n{}",
+                     testTarget,
+                     testPeerHost,
+                     testRequestBody.size(),
+                     testContentType,
+                     testRequestBody
+                  ),
+               };
+               auto const testHttpResponse
+               {
+                  std::format(
+                     "HTTP/1.1 201 Created\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+                     testContentType,
+                     testResponseBody.size(),
+                     testResponseBody
+                  ),
+               };
                testClient.expect_recv(testHttpResponse, testReadRequest);
                testClient.expect_ready_to_send(testHttpRequest);
             },
@@ -564,6 +594,124 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          EXPECT_EQ(2, testDeleteRequestStepLock.load(std::memory_order_acquire));
          EXPECT_EQ(2, testUpdateRequestStepLock.load(std::memory_order_acquire));
          EXPECT_EQ(2, testReadRequestStepLock.load(std::memory_order_acquire));
+      }
+      /// Deferred connect
+      {
+         constexpr std::string_view testResponseBody{R"raw({"test":"deferred connect"})raw",};
+         EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
+         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
+         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
+         ASSERT_EQ(std::future_status::timeout, testClient.wait_for(std::chrono::milliseconds{10,}));
+         auto const testConnectTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+            .WillOnce(
+               [testPeerHost, &testContentType, testResponseBody, testConnectTime] (auto const &testRequest, auto &testResponse)
+               {
+                  EXPECT_GT(system_clock::now(), testConnectTime);
+                  std::map<std::string_view, std::string_view> testHeaders
+                  {
+                     {"Accept", "*/*",},
+                     {"Host", testPeerHost,},
+                  };
+                  EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
+
+                  testResponse.clear();
+                  testResponse.result(boost::beast::http::status::ok);
+                  testResponse.version(testRequest.version());
+                  testResponse.keep_alive(true);
+                  testResponse.set(boost::beast::http::field::content_type, testContentType);
+                  testResponse.body() = testResponseBody;
+                  testResponse.prepare_payload();
+                  testResponse.content_length(testResponse.body().size());
+                  return true;
+               }
+            )
+         ;
+         EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(false));
+         auto const testHttpRequest{std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost),};
+         auto const testHttpResponse
+         {
+            std::format(
+               "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+               testContentType,
+               testResponseBody.size(),
+               testResponseBody
+            ),
+         };
+         testClient.expect_recv(
+            testHttpResponse,
+            [&testClient] ()
+            {
+               testClient.expect_disconnect();
+            }
+         );
+         testClient.expect_ready_to_send(testHttpRequest);
+         testClient.executor().execute(
+            [&testClient, &testConfig, testConnectTime] ()
+            {
+               testClient.expect_ready_to_connect_deferred(testConfig, testConnectTime);
+            }
+         );
+         ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
+      }
+      /// Deferred send
+      {
+         constexpr std::string_view testResponseBody{R"raw({"test":"deferred send"})raw",};
+         EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
+         EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
+         testClient.expect_ready_to_send_deferred(system_clock::now() + std::chrono::milliseconds{10,});
+         auto const testSendTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
+            .WillOnce(
+               [testPeerHost, &testContentType, testResponseBody, testSendTime] (auto const &testRequest, auto &testResponse)
+               {
+                  EXPECT_GT(system_clock::now(), testSendTime);
+                  std::map<std::string_view, std::string_view> testHeaders
+                  {
+                     {"Accept", "*/*",},
+                     {"Host", testPeerHost,},
+                  };
+                  EXPECT_HTTP_REQUEST(testRequest, boost::beast::http::verb::get, "/", testHeaders, "");
+
+                  testResponse.clear();
+                  testResponse.result(boost::beast::http::status::ok);
+                  testResponse.version(testRequest.version());
+                  testResponse.keep_alive(true);
+                  testResponse.set(boost::beast::http::field::content_type, testContentType);
+                  testResponse.body() = testResponseBody;
+                  testResponse.prepare_payload();
+                  testResponse.content_length(testResponse.body().size());
+                  return true;
+               }
+            )
+         ;
+         EXPECT_CALL(testServer, should_keep_alive()).WillOnce(testing::Return(false));
+         auto const testHttpRequest{std::format("GET / HTTP/1.1\r\nHost:{}\r\nAccept:*/*\r\n\r\n", testPeerHost),};
+         auto const testHttpResponse
+         {
+            std::format(
+               "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+               testContentType,
+               testResponseBody.size(),
+               testResponseBody
+            ),
+         };
+         testClient.expect_recv(
+            testHttpResponse,
+            [&testClient] ()
+            {
+               testClient.expect_disconnect();
+            }
+         );
+         testClient.expect_ready_to_send(
+            [&testClient, &testHttpRequest, testSendTime] ()
+            {
+               testClient.expect_ready_to_send_deferred(testHttpRequest, testSendTime);
+            }
+         );
+         testClient.expect_ready_to_connect(testConfig);
+         ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
       }
    }
 }
