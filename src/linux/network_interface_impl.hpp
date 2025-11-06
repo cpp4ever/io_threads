@@ -33,12 +33,11 @@
 #include <ifaddrs.h>
 #include <net/if.h> ///< for IFF_LOOPBACK
 
-#include <cstddef> ///< for size_t, std::bit_cast
-#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
-#include <new> ///< for operator delete, operator new, std::align_val_t, std::launder
+#include <bit> ///< for std::bit_cast
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
 #include <optional> ///< for std::nullopt, std::optional
 #include <source_location> ///< for std::source_location
-#include <string> ///< for std::string, std::wstring
+#include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
 #include <utility> ///< for std::move
 #include <vector> ///< for std::vector

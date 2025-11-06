@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include <errno.h> ///< for errno
 #include <netdb.h> ///< for EAI_SYSTEM, gai_strerror
 
+#include <cerrno> ///< for errno
 #include <system_error> ///< for std::error_category, std::error_code, std::generic_category
 
 namespace io_threads

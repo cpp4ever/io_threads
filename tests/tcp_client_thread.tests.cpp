@@ -35,38 +35,38 @@ namespace io_threads::tests
 namespace
 {
 
-tcp_client_thread create_test_tcp_client_thread()
-{
-   constexpr uint16_t testThreadCpuAffinity{0,};
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   return tcp_client_thread
-   {
-      tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,}
-         .with_poll_cpu_affinity(testThreadCpuAffinity)
-         .with_io_cpu_affinity(testThreadCpuAffinity)
-      ,
-   };
-}
-
 using tcp_client = testsuite;
 
 }
 
 TEST_F(tcp_client, tcp_client_thread)
 {
-   auto const testTcpClientThread1{create_test_tcp_client_thread(),};
+   constexpr cpu_id testThreadCpuAffinity{0,};
+   constexpr size_t testSocketListCapacity{1,};
+   constexpr size_t testIoBufferCapacity{1,};
+   tcp_client_thread const testTcpClientThread1
+   {
+      thread_config{testSocketListCapacity, testIoBufferCapacity,}
+         .with_worker_cpu_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(cpu_affinity_config{testThreadCpuAffinity, testThreadCpuAffinity,})
+      ,
+   };
    std::thread::id testThread1Id{};
    {
       bool testOk{false,};
       testTcpClientThread1.execute([&testThread1Id, &testOk] () { testThread1Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   auto testTcpClientThread2{create_test_tcp_client_thread(),};
-   std::thread::id testThread2Id{};
+   tcp_client_thread const testTcpClientThread2
+   {
+      thread_config{testSocketListCapacity, testIoBufferCapacity,}
+         .with_worker_cpu_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(testTcpClientThread1.share_io_threads())
+      ,
+   };
    {
       bool testOk{false,};
-      testTcpClientThread2.execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
+      testTcpClientThread2.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id != std::this_thread::get_id(),}; });
       ASSERT_TRUE(testOk);
    }
    tcp_client_thread testTcpClientThread3{testTcpClientThread1,};

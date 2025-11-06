@@ -54,7 +54,8 @@
 #include <iphlpapi.h>
 #include <ws2ipdef.h> ///< for SOCKADDR_INET
 
-#include <cstddef> ///< for size_t, std::bit_cast
+#include <bit> ///< for std::bit_cast
+#include <cstddef> ///< for size_t
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
 #include <new> ///< for operator delete, operator new, std::align_val_t, std::launder
 #include <optional> ///< for std::nullopt, std::optional

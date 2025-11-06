@@ -35,44 +35,44 @@ namespace io_threads::tests
 namespace
 {
 
-file_writer_thread create_test_file_writer_thread()
-{
-   constexpr uint16_t testThreadCpuAffinity{0,};
-   constexpr size_t testFileListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   return file_writer_thread
-   {
-      file_writer_thread_config{testFileListCapacity, testIoBufferCapacity,}
-         .with_poll_cpu_affinity(testThreadCpuAffinity)
-         .with_io_cpu_affinity(testThreadCpuAffinity)
-      ,
-   };
-}
-
 using file_writer = testsuite;
 
 }
 
 TEST_F(file_writer, file_writer_thread)
 {
-   auto const testFileWriterThread1{create_test_file_writer_thread(),};
+   constexpr cpu_id testThreadCpuAffinity{0,};
+   constexpr size_t testFileListCapacity{1,};
+   constexpr size_t testIoBufferCapacity{1,};
+   file_writer_thread const testFileWriterThread1
+   {
+      thread_config{testFileListCapacity, testIoBufferCapacity,}
+         .with_worker_cpu_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(cpu_affinity_config{testThreadCpuAffinity, testThreadCpuAffinity,})
+      ,
+   };
    std::thread::id testThread1Id{};
    {
       bool testOk{false,};
       testFileWriterThread1.execute([&testThread1Id, &testOk] () { testThread1Id = std::this_thread::get_id(); testOk = true; });
       ASSERT_TRUE(testOk);
    }
-   auto testFileWriterThread2{create_test_file_writer_thread(),};
-   std::thread::id testThread2Id{};
+   file_writer_thread const testFileWriterThread2
+   {
+      thread_config{testFileListCapacity, testIoBufferCapacity,}
+         .with_worker_cpu_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(testFileWriterThread1.share_io_threads())
+      ,
+   };
    {
       bool testOk{false,};
-      testFileWriterThread2.execute([&testThread2Id, &testOk] () { testThread2Id = std::this_thread::get_id(); testOk = true; });
+      testFileWriterThread2.execute([testThread1Id, &testOk] () { testOk = (testThread1Id != std::this_thread::get_id()); });
       ASSERT_TRUE(testOk);
    }
-   file_writer_thread testFileWriterThread3{testFileWriterThread1,};
+   file_writer_thread const testFileWriterThread3{testFileWriterThread1,};
    {
       bool testOk{false,};
-      testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = bool{testThread1Id == std::this_thread::get_id(),}; });
+      testFileWriterThread3.execute([testThread1Id, &testOk] () { testOk = (testThread1Id == std::this_thread::get_id()); });
       EXPECT_TRUE(testOk);
    }
 }

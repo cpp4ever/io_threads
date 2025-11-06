@@ -25,13 +25,15 @@
 
 #pragma once
 
+#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config_variant
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
+#include <sys/types.h> ///< for mode_t
+
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< fro uint16_t, uint32_t
+#include <cstdint> ///< for int32_t, uint32_t
 #include <memory> ///< for std::unique_ptr
-#include <optional> ///< for std::optional
 
 namespace io_threads
 {
@@ -61,7 +63,9 @@ public:
    virtual void stop() = 0;
    virtual void wake() = 0;
 
-   [[nodiscard]] static std::unique_ptr<file_writer_uring> construct(std::optional<uint16_t> ioCpuAffinity, size_t ioRingQueueCapacity);
+   [[nodiscard]] virtual shared_cpu_affinity_config share_io_threads() const noexcept = 0;
+
+   [[nodiscard]] static std::unique_ptr<file_writer_uring> construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t ioRingQueueCapacity);
 
 protected:
    [[nodiscard]] file_writer_uring() noexcept = default;

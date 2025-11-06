@@ -28,7 +28,8 @@
 #include "common/tcp_deferred_task.hpp" ///< for io_threads::tcp_client::tcp_deferred_task
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread, io_threads::tcp_client_thread_config
+#include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
+#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
 #include "io_threads/time.hpp" ///< for io_threads::system_clock, io_threads::system_time
 #if (defined(__linux__))
 #  include "linux/tcp_client_thread_worker.hpp" ///< for io_threads::tcp_client::tcp_client_thread_worker
@@ -37,42 +38,15 @@
 #endif
 
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
-#include <cstdint> ///< for uint16_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::future, std::promise
 #include <memory> ///< for std::addressof, std::make_shared
+#include <source_location> ///< for std::source_location
 #include <thread> ///< for std::jthread
 #include <utility> ///< for std::move
 
 namespace io_threads
 {
-
-tcp_client_thread_config::tcp_client_thread_config(size_t const socketListCapacity, size_t const ioBufferCapacity) noexcept :
-   m_socketListCapacity{socketListCapacity,},
-   m_ioBufferCapacity{ioBufferCapacity,}
-{
-   assert(0 < m_socketListCapacity);
-   assert(0 < m_ioBufferCapacity);
-}
-
-tcp_client_thread_config tcp_client_thread_config::with_io_cpu_affinity(uint16_t const value) const noexcept
-{
-   tcp_client_thread_config tcpClientThreadConfig{*this,};
-   tcpClientThreadConfig.m_ioCpuAffinity.emplace(value);
-   return tcpClientThreadConfig;
-}
-
-tcp_client_thread_config tcp_client_thread_config::with_poll_cpu_affinity(uint16_t const value) const noexcept
-{
-   tcp_client_thread_config tcpClientThreadConfig{*this,};
-   tcpClientThreadConfig.m_pollCpuAffinity.emplace(value);
-   if (false == tcpClientThreadConfig.m_ioCpuAffinity.has_value())
-   {
-      tcpClientThreadConfig.m_ioCpuAffinity.emplace(value);
-   }
-   return tcpClientThreadConfig;
-}
 
 class tcp_client_thread::tcp_client_thread_impl final
 {
@@ -81,11 +55,11 @@ public:
    tcp_client_thread_impl(tcp_client_thread_impl &&) = delete;
    tcp_client_thread_impl(tcp_client_thread_impl const &) = delete;
 
-   [[nodiscard]] explicit tcp_client_thread_impl(tcp_client_thread_config const &tcpClientThreadConfig)
+   [[nodiscard]] explicit tcp_client_thread_impl(thread_config const &threadConfig)
    {
       std::promise<std::shared_ptr<tcp_client::tcp_client_thread_worker>> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
-      m_thread = tcp_client::tcp_client_thread_worker::start(tcpClientThreadConfig, workerPromise);
+      m_thread = tcp_client::tcp_client_thread_worker::start(threadConfig, workerPromise);
       m_worker = workerFuture.get();
    }
 
@@ -130,6 +104,13 @@ public:
       m_worker->ready_to_send_deferred(client, notBeforeTime);
    }
 
+#if (defined(__linux__))
+   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   {
+      return m_worker->share_io_threads();
+   }
+#endif
+
 private:
    std::shared_ptr<tcp_client::tcp_client_thread_worker> m_worker{nullptr,};
    std::jthread m_thread{};
@@ -138,8 +119,8 @@ private:
 tcp_client_thread::tcp_client_thread(tcp_client_thread &&rhs) noexcept = default;
 tcp_client_thread::tcp_client_thread(tcp_client_thread const &rhs) noexcept = default;
 
-tcp_client_thread::tcp_client_thread(tcp_client_thread_config const &tcpClientThreadConfig) :
-   m_impl{std::make_shared<tcp_client_thread_impl>(tcpClientThreadConfig),}
+tcp_client_thread::tcp_client_thread(thread_config const &threadConfig) :
+   m_impl{std::make_shared<tcp_client_thread_impl>(threadConfig),}
 {}
 
 tcp_client_thread::~tcp_client_thread() = default;
@@ -149,6 +130,13 @@ void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
    assert(true == (bool{ioRoutine,}));
    m_impl->execute(ioRoutine);
 }
+
+#if (defined(__linux__))
+shared_cpu_affinity_config tcp_client_thread::share_io_threads() const noexcept
+{
+   return m_impl->share_io_threads();
+}
+#endif
 
 tcp_client_thread::tcp_client::tcp_client(tcp_client_thread tcpClientThread) noexcept :
    m_tcpClientThread{std::move(tcpClientThread),}

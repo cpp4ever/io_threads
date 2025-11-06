@@ -30,8 +30,10 @@
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
+#include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_option
+#include "io_threads/thread_config.hpp" ///< for io_threads::thread_config
 /// for
 ///   io_threads::completion_port,
 ///   io_threads::from_completion_key,
@@ -74,12 +76,12 @@
 
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
-#include <cstdint> ///< for intptr_t, uint16_t
+#include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for intptr_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t
+#include <new> ///< for std::align_val_t, std::launder
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code
@@ -186,28 +188,25 @@ public:
    }
 
    [[nodiscard]] static std::jthread start(
-      file_writer_thread_config const &fileWriterThreadConfig,
+      thread_config const &threadConfig,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [fileWriterThreadConfig, &workerPromise] (std::stop_token const stopToken)
+         [threadConfig, &workerPromise] (std::stop_token const stopToken)
          {
             if (
                true
-               && (true == fileWriterThreadConfig.poll_cpu_affinity().has_value())
-               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << fileWriterThreadConfig.poll_cpu_affinity().value()))
+               && (true == threadConfig.worker_cpu_affinity().has_value())
+               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << to_underlying(threadConfig.worker_cpu_affinity().value())))
             ) [[unlikely]]
             {
                check_winapi_error("[file_writer] failed to pin thread to cpu core: ({}) - {}");
             }
             auto const threadWorker
             {
-               std::make_shared<file_writer_thread_worker>(
-                  fileWriterThreadConfig.file_list_capacity(),
-                  fileWriterThreadConfig.io_buffer_capacity()
-               ),
+               std::make_shared<file_writer_thread_worker>(threadConfig.descriptor_list_capacity(), threadConfig.io_buffer_capacity()),
             };
             workerPromise.set_value(threadWorker);
             while (false == stopToken.stop_requested()) [[likely]]

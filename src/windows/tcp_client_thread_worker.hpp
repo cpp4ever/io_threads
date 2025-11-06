@@ -36,7 +36,7 @@
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
 #include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config, io_threads::tcp_keep_alive
-#include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread_config
+#include "io_threads/thread_config.hpp" ///< for io_threads::thread_config
 #include "io_threads/time.hpp" ///< for io_threads::time_duration, io_threads::system_clock, io_threads::system_time
 /// for
 ///   io_threads::completion_port,
@@ -55,6 +55,7 @@
 ///   AF_INET,
 ///   AF_INET6,
 ///   bind,
+///   CHAR,
 ///   CopyMemory,
 ///   closesocket,
 ///   DWORD,
@@ -63,6 +64,7 @@
 ///   GetCurrentThread,
 ///   GROUP,
 ///   GUID,
+///   HANDLE,
 ///   INVALID_SOCKET,
 ///   IPPROTO_TCP,
 ///   LPOVERLAPPED,
@@ -84,7 +86,6 @@
 ///   SOCKET_ERROR,
 ///   SOL_SOCKET,
 ///   TCP_FAIL_CONNECT_ON_ICMP_ERROR,
-///   TCP_ICMP_ERROR_INFO,
 ///   TCP_INITIAL_RTO_PARAMETERS,
 ///   tcp_keepalive,
 ///   TCP_KEEPCNT,
@@ -110,7 +111,7 @@
 ///   WSAID_CONNECTEX,
 ///   WSAID_DISCONNECTEX
 #include <MSWSock.h>
-#include <ws2ipdef.h> ///< for SOCKADDR_IN6, SOCKADDR_INET
+#include <ws2ipdef.h> ///< for SOCKADDR_IN6, SOCKADDR_INET, TCP_ICMP_ERROR_INFO
 #include <WS2tcpip.h> ///< for ICMP_ERROR_INFO, WSAGetIcmpErrorInfo, WSASetFailConnectOnIcmpError
 
 #include <algorithm> ///< for std::max
@@ -118,13 +119,14 @@
 #include <cassert> ///< for assert
 #include <chrono> ///< for std::chrono::milliseconds
 #include <cstddef> ///< for size_t, std::byte
-#include <cstdint> ///< for intptr_t, uint16_t
+#include <cstdint> ///< for intptr_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t
+#include <new> ///< for std::align_val_t, std::launder
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
+#include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code, std::system_category
 #include <thread> ///< for std::jthread, std::this_thread
 
@@ -299,29 +301,26 @@ public:
    }
 
    [[nodiscard]] static std::jthread start(
-      tcp_client_thread_config const &tcpClientThreadConfig,
+      thread_config const &threadConfig,
       std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
    )
    {
       [[maybe_unused]] static winsock_scope const winsockScope{};
       return std::jthread
       {
-         [tcpClientThreadConfig, &workerPromise] (std::stop_token const stopToken)
+         [threadConfig, &workerPromise] (std::stop_token const stopToken)
          {
             if (
                true
-               && (true == tcpClientThreadConfig.poll_cpu_affinity().has_value())
-               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << tcpClientThreadConfig.poll_cpu_affinity().value()))
+               && (true == threadConfig.worker_cpu_affinity().has_value())
+               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << to_underlying(threadConfig.worker_cpu_affinity().value())))
             ) [[unlikely]]
             {
                check_winapi_error("[tcp_client] failed to pin thread to cpu core: ({}) - {}");
             }
             auto const threadWorker
             {
-               std::make_shared<tcp_client_thread_worker>(
-                  tcpClientThreadConfig.socket_list_capacity(),
-                  tcpClientThreadConfig.io_buffer_capacity()
-               ),
+               std::make_shared<tcp_client_thread_worker>(threadConfig.descriptor_list_capacity(), threadConfig.io_buffer_capacity()),
             };
             workerPromise.set_value(threadWorker);
             while (false == stopToken.stop_requested()) [[likely]]

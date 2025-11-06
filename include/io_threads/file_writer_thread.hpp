@@ -25,55 +25,14 @@
 
 #pragma once
 
-#include <cstddef> ///< for size_t
-#include <cstdint> ///< for uint16_t
+#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
+
 #include <functional> ///< for std::function
 #include <memory> ///< for std::shared_ptr
-#include <optional> ///< for std::nullopt, std::optional
+#include <optional> ///< for std::nullopt
 
 namespace io_threads
 {
-
-class file_writer_thread_config final
-{
-public:
-   file_writer_thread_config() = delete;
-   [[maybe_unused, nodiscard]] file_writer_thread_config(file_writer_thread_config &&rhs) noexcept = default;
-   [[maybe_unused, nodiscard]] file_writer_thread_config(file_writer_thread_config const &rhs) noexcept = default;
-   [[nodiscard]] file_writer_thread_config(size_t fileListCapacity, size_t ioBufferCapacity) noexcept;
-
-   [[maybe_unused]] file_writer_thread_config &operator = (file_writer_thread_config &&rhs) noexcept = default;
-   [[maybe_unused]] file_writer_thread_config &operator = (file_writer_thread_config const &rhs) noexcept = default;
-
-   [[maybe_unused, nodiscard]] size_t file_list_capacity() const noexcept
-   {
-      return m_fileListCapacity;
-   }
-
-   [[maybe_unused, nodiscard]] size_t io_buffer_capacity() const noexcept
-   {
-      return m_ioBufferCapacity;
-   }
-
-   [[maybe_unused, nodiscard]] std::optional<uint16_t> io_cpu_affinity() const noexcept
-   {
-      return m_ioCpuAffinity;
-   }
-
-   [[maybe_unused, nodiscard]] std::optional<uint16_t> poll_cpu_affinity() const noexcept
-   {
-      return m_pollCpuAffinity;
-   }
-
-   [[nodiscard]] file_writer_thread_config with_io_cpu_affinity(uint16_t const value) const noexcept;
-   [[nodiscard]] file_writer_thread_config with_poll_cpu_affinity(uint16_t const value) const noexcept;
-
-private:
-   size_t m_fileListCapacity;
-   size_t m_ioBufferCapacity;
-   std::optional<uint16_t> m_pollCpuAffinity{std::nullopt,};
-   std::optional<uint16_t> m_ioCpuAffinity{std::nullopt,};
-};
 
 class file_writer_thread final
 {
@@ -83,13 +42,22 @@ public:
    file_writer_thread() = delete;
    [[nodiscard]] file_writer_thread(file_writer_thread &&rhs) noexcept;
    [[nodiscard]] file_writer_thread(file_writer_thread const &rhs) noexcept;
-   [[nodiscard]] explicit file_writer_thread(file_writer_thread_config const &fileWriterThreadConfig);
+   [[nodiscard]] explicit file_writer_thread(thread_config const &threadConfig);
    ~file_writer_thread();
 
    file_writer_thread &operator = (file_writer_thread &&) = delete;
    file_writer_thread &operator = (file_writer_thread const &) = delete;
 
    void execute(std::function<void()> const &ioRoutine) const;
+
+#if (defined(__linux__))
+   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept;
+#else
+   [[maybe_unused, nodiscard]] constexpr shared_cpu_affinity_config share_io_threads() const noexcept
+   {
+      return std::nullopt;
+   }
+#endif
 
 private:
    class file_writer_thread_impl;

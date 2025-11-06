@@ -39,7 +39,6 @@ enum struct tcp_socket_operation_type : uint8_t
    none,
    socket,
    setopt_so_bindtodevice,
-   setopt_so_incoming_cpu,
    setopt_so_keepalive,
    setopt_ip_tos,
    setopt_tcp_keepcnt,
@@ -63,7 +62,6 @@ enum struct tcp_socket_operation_type : uint8_t
    case tcp_socket_operation_type::none: break;
    case tcp_socket_operation_type::socket: return "[tcp_client] failed to create TCP socket: ({}) - {}";
    case tcp_socket_operation_type::setopt_so_bindtodevice: return "[tcp_client] failed to set SO_BINDTODEVICE socket option: ({}) - {}";
-   case tcp_socket_operation_type::setopt_so_incoming_cpu: return "[tcp_client] failed to set SO_INCOMING_CPU socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_so_keepalive: return "[tcp_client] failed to set SO_KEEPALIVE socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_ip_tos: return "[tcp_client] failed to set IP_TOS socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_tcp_keepcnt: return "[tcp_client] failed to set TCP_KEEPCNT socket option: ({}) - {}";

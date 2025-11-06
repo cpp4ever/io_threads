@@ -225,14 +225,7 @@ TEST_F(tcp_client, connect_timeout)
 {
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{1,};
-   constexpr uint16_t testThreadCpuAffinity{0,};
-   tcp_client_thread const testThread
-   {
-      tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,}
-         .with_poll_cpu_affinity(testThreadCpuAffinity)
-         .with_io_cpu_affinity(testThreadCpuAffinity)
-      ,
-   };
+   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
    test_tcp_client testClient{testThread,};
    constexpr uint16_t testPort{81,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -242,14 +235,7 @@ TEST_F(tcp_client, http)
 {
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{256,};
-   constexpr uint16_t testThreadCpuAffinity{0,};
-   tcp_client_thread const testThread
-   {
-      tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,}
-         .with_poll_cpu_affinity(testThreadCpuAffinity)
-         .with_io_cpu_affinity(testThreadCpuAffinity)
-      ,
-   };
+   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
    test_tcp_client testClient{testThread,};
    test_rest_client<boost::beast::tcp_stream>(testThread, testClient);
 }

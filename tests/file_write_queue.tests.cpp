@@ -122,7 +122,7 @@ TEST_F(file_writer, file_write_queue)
    {
       constexpr size_t testFileListCapacity{1000,};
       constexpr size_t testIoBufferCapacity{2 * 1024,}; ///< 2 KiB
-      file_writer_thread const testThread{file_writer_thread_config{testFileListCapacity, testIoBufferCapacity,},};
+      file_writer_thread const testThread{thread_config{testFileListCapacity, testIoBufferCapacity,},};
       std::vector<file_writer_test_data> testFileWriters;
       testFileWriters.reserve(testFileListCapacity);
       constexpr size_t testMinStringLength = 1024; ///< 1 KiB

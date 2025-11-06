@@ -26,29 +26,74 @@
 #if (defined(__linux__))
 #include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
-#include "common/utility.hpp" ///< for io_threads::unreachable
+#include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
+#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config, io_threads::cpu_affinity_config_variant, io_threads::shared_cpu_affinity_config
 #include "linux/tcp_client_uring.hpp" ///< for io_threads::tcp_client_uring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 #include "linux/tcp_socket_operation.hpp" ///< for io_threads::tcp_socket_operation
+#include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
-#include <errno.h> ///< for errno
+/// for
+///   io_uring,
+///   io_uring_cq_advance,
+///   io_uring_cqe,
+///   io_uring_cqe_get_data,
+///   io_uring_for_each_cqe,
+///   io_uring_get_sqe,
+///   io_uring_params,
+///   io_uring_prep_close_direct,
+///   io_uring_prep_cmd_sock,
+///   io_uring_prep_connect,
+///   io_uring_prep_read_fixed,
+///   io_uring_prep_send_zc_fixed,
+///   io_uring_prep_socket,
+///   io_uring_prep_socket_direct,
+///   io_uring_prep_shutdown,
+///   io_uring_queue_exit,
+///   io_uring_queue_init_params,
+///   io_uring_register_buffers,
+///   io_uring_register_files,
+///   io_uring_register_files_update,
+///   io_uring_register_iowq_aff,
+///   io_uring_register_iowq_max_workers,
+///   io_uring_register_ring_fd,
+///   io_uring_ring_dontfork,
+///   io_uring_sqe_set_data,
+///   io_uring_submit_and_wait_timeout,
+///   io_uring_unregister_buffers,
+///   io_uring_unregister_files,
+///   io_uring_unregister_iowq_aff,
+///   io_uring_unregister_ring_fd,
+///   IO_URING_VERSION_MAJOR,
+///   IO_URING_VERSION_MINOR,
+///   IORING_CQE_F_MORE,
+///   IORING_SETUP_ATTACH_WQ,
+///   IORING_SETUP_NO_SQARRAY,
+///   IORING_SETUP_SINGLE_ISSUER,
+///   IORING_SETUP_SQ_AFF,
+///   IORING_SETUP_SQPOLL,
+///   IOSQE_FIXED_FILE
 #include <liburing.h>
 #include <linux/time_types.h> ///< for __kernel_timespec
 #include <netinet/in.h> ///< for IPPROTO_TCP
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
 #include <signal.h> ///< for sigfillset, sigset_t
 #include <sys/eventfd.h> ///< for EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
-#include <sys/socket.h> ///< for sa_family_t, SOCK_NONBLOCK, SOCK_STREAM
+#include <sys/socket.h> ///< for AF_INET, AF_INET6, MSG_DONTWAIT, MSG_NOSIGNAL, sa_family_t, SOCK_NONBLOCK, SOCK_STREAM
 #include <sys/uio.h> ///< for iovec
 
+#include <array> ///< for std::array
+#include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
+#include <cerrno> ///< for errno, ETIME
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< fro uint16_t, uint32_t
+#include <cstdint> ///< for int32_t, intptr_t, uint32_t
+#include <cstring> ///< for std::memset
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t, std::launder
-#include <optional> ///< for std::optional
+#include <optional> ///< for std::nullopt_t
 #include <source_location> ///< for std::source_location
-#include <stop_token> ///< for std::stop_token
+#include <variant> ///< for std::visit
 #include <vector> ///< for std::vector
 
 namespace io_threads
@@ -56,17 +101,86 @@ namespace io_threads
 
 class tcp_client_uring_impl final : public tcp_client_uring
 {
+private:
+   template<typename... types> struct overloaded : types... { using types::operator()...; };
+
 public:
    tcp_client_uring_impl() = delete;
    tcp_client_uring_impl(tcp_client_uring_impl &&) = delete;
    tcp_client_uring_impl(tcp_client_uring_impl const &) = delete;
 
-   [[nodiscard]] tcp_client_uring_impl(std::optional<uint16_t> const ioCpuAffinity, size_t const ioRingQueueCapacity)
+   [[nodiscard]] tcp_client_uring_impl(cpu_affinity_config_variant const &ioThreadsAffinity, size_t const ioRingQueueCapacity)
    {
       assert(0 < ioRingQueueCapacity);
       assert(nullptr != m_ring);
+      io_uring_params ioRingParams;
+      std::memset(std::addressof(ioRingParams), 0, sizeof(ioRingParams));
+      ioRingParams.sq_entries = ioRingQueueCapacity;
+      ioRingParams.cq_entries = ioRingQueueCapacity * 2;
+      ioRingParams.flags =
+         uint32_t{0,}
+#if (defined(IORING_SETUP_CQSIZE))
+         | IORING_SETUP_CQSIZE
+#endif
+#if (defined(IORING_SETUP_NO_SQARRAY))
+         | IORING_SETUP_NO_SQARRAY;
+#endif
+#if (defined(IORING_SETUP_SINGLE_ISSUER))
+         | IORING_SETUP_SINGLE_ISSUER
+#endif
+      ;
+      std::visit(
+         overloaded
+         {
+            [&ioRingParams] (std::nullopt_t const)
+            {
+               ioRingParams.features |=
+                  uint32_t{0,}
+#if (defined(IORING_FEAT_SINGLE_MMAP))
+                  | IORING_FEAT_SINGLE_MMAP
+#endif
+               ;
+            },
+
+            [&ioRingParams] (cpu_affinity_config const &cpuAffinityConfig)
+            {
+               ioRingParams.flags |=
+                  uint32_t{0,}
+#if (defined(IORING_SETUP_SQPOLL))
+                  | IORING_SETUP_SQPOLL
+#endif
+#if (defined(IORING_SETUP_SQ_AFF))
+                  | IORING_SETUP_SQ_AFF
+#endif
+               ;
+#if (defined(IORING_SETUP_SQ_AFF))
+               ioRingParams.sq_thread_cpu = to_underlying(cpuAffinityConfig.kernel_thread_cpu_id());
+#endif
+#if (defined(IORING_SETUP_SQPOLL))
+               ioRingParams.sq_thread_idle = 100;
+#endif
+            },
+
+            [&ioRingParams] (shared_cpu_affinity_config const &cpuAffinityConfig)
+            {
+               ioRingParams.flags |=
+                  uint32_t{0,}
+#if (defined(IORING_SETUP_SQPOLL))
+                  | IORING_SETUP_SQPOLL
+#endif
+#if (defined(IORING_SETUP_ATTACH_WQ))
+                  | IORING_SETUP_ATTACH_WQ
+#endif
+               ;
+#if (defined(IORING_SETUP_ATTACH_WQ))
+               ioRingParams.wq_fd = cpuAffinityConfig.io_ring();
+#endif
+            },
+         },
+         ioThreadsAffinity
+      );
       if (
-         auto const returnCode{io_uring_queue_init(ioRingQueueCapacity, m_ring.get(), IORING_SETUP_SINGLE_ISSUER),};
+         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity, m_ring.get(), std::addressof(ioRingParams)),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -77,16 +191,26 @@ public:
       {
          log_system_error("[tcp_client] failed to register ring descriptor: ({}) - {}", -returnCode);
       }
-      if (true == ioCpuAffinity.has_value())
-      {
-         cpu_set_t iowqAffinityMask;
-         CPU_ZERO(std::addressof(iowqAffinityMask));
-         CPU_SET(ioCpuAffinity.value(), std::addressof(iowqAffinityMask));
-         if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
+      std::visit(
+         overloaded
          {
-            log_system_error("[tcp_client] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
-         }
-      }
+            [] (std::nullopt_t const) {},
+
+            [this] (cpu_affinity_config const &cpuAffinityConfig)
+            {
+               cpu_set_t iowqAffinityMask;
+               CPU_ZERO(std::addressof(iowqAffinityMask));
+               CPU_SET(to_underlying(cpuAffinityConfig.async_workers_cpu_id()), std::addressof(iowqAffinityMask));
+               if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
+               {
+                  log_system_error("[tcp_client] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
+               }
+            },
+
+            [] (shared_cpu_affinity_config const &) {},
+         },
+         ioThreadsAffinity
+      );
       std::array<uint32_t, 2> iowqMaxWorkers = {static_cast<uint32_t>(ioRingQueueCapacity), static_cast<uint32_t>(ioRingQueueCapacity),};
       if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
@@ -468,9 +592,14 @@ public:
       }
    }
 
+   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept override
+   {
+      return shared_cpu_affinity_config{m_ring->ring_fd,};
+   }
+
 private:
-   std::unique_ptr<io_uring> m_ring{std::make_unique<io_uring>(),};
-   std::unique_ptr<sigset_t> m_sigmask{std::make_unique<sigset_t>(),};
+   std::unique_ptr<io_uring> const m_ring{std::make_unique<io_uring>(),};
+   std::unique_ptr<sigset_t> const m_sigmask{std::make_unique<sigset_t>(),};
    intptr_t m_tasksCount{0,};
    int m_eventfd{-1,};
    bool m_running{true,};
@@ -528,9 +657,9 @@ private:
    }
 };
 
-std::unique_ptr<tcp_client_uring> tcp_client_uring::construct(std::optional<uint16_t> const ioCpuAffinity, size_t const ioRingQueueCapacity)
+std::unique_ptr<tcp_client_uring> tcp_client_uring::construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t const ioRingQueueCapacity)
 {
-   return std::make_unique<tcp_client_uring_impl>(ioCpuAffinity, ioRingQueueCapacity);
+   return std::make_unique<tcp_client_uring_impl>(ioThreadsAffinity, ioRingQueueCapacity);
 }
 
 }

@@ -34,7 +34,7 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread_config
+#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
 #include "io_threads/time.hpp" ///< for io_threads::system_clock, io_threads::system_time
 #include "linux/tcp_client_uring.hpp" ///< for io_threads::tcp_client_uring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor, io_threads::tcp_socket_status
@@ -44,22 +44,25 @@
 #include "linux/uring_command_queue.hpp" ///< for io_threads::uring_command_queue
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
-#include <liburing.h> ///< IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
+#include <liburing.h> ///< for IORING_CQE_F_MORE, IORING_CQE_F_NOTIF, IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
 #include <linux/time_types.h> ///< for __kernel_timespec
-#include <netinet/tcp.h>
+#include <netinet/ip.h> ///< for IP_TOS, IPPROTO_IP
+#include <netinet/tcp.h> ///< for IPPROTO_TCP, TCP_NODELAY, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_SYNCNT, TCP_USER_TIMEOUT
+#include <sys/socket.h> ///< for setsockopt, SHUT_RDWR, SO_BINDTODEVICE, SO_KEEPALIVE, SOL_SOCKET
+#include <unistd.h> ///< for close
 
 #include <algorithm> ///< for std::max
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
+#include <cerrno> ///< for errno
 #include <chrono> ///< for std::chrono::duration_cast, std::chrono::nanoseconds, std::chrono::seconds
-#include <cstddef> ///< for size_t, std::byte
-#include <cstdint> ///< for intptr_t, uint16_t
+#include <cstddef> ///< for size_t
+#include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memcpy, std::memmove, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::destroy_at, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t
-#include <optional> ///< for std::optional
+#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
+#include <new> ///< for std::align_val_t, std::launder
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code, std::generic_category
@@ -76,15 +79,13 @@ public:
    tcp_client_thread_worker(tcp_client_thread_worker const &) = delete;
 
    [[nodiscard]] tcp_client_thread_worker(
-      std::optional<uint16_t> const soIncomingCpu,
       std::unique_ptr<tcp_client_uring> tcpClientUring,
       size_t const socketListCapacity,
       size_t const ioBufferCapacity
    ) :
       m_tcpClientUring{std::move(tcpClientUring),},
       m_uringCommandQueue{socketListCapacity,},
-      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),},
-      m_soIncomingCpu{soIncomingCpu.has_value() ? static_cast<int>(soIncomingCpu.value()) : static_cast<int>(-1),}
+      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),}
    {
       m_tcpSocketOperations = m_tcpClientUring->register_tcp_socket_operations(
          socketListCapacity * 2,
@@ -197,6 +198,11 @@ public:
       }
    }
 
+   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   {
+      return m_tcpClientUring->share_io_threads();
+   }
+
    void stop()
    {
       m_uringCommandQueue.push(to_underlying(tcp_client_command::unknown), 0);
@@ -204,17 +210,17 @@ public:
    }
 
    [[nodiscard]] static std::jthread start(
-      tcp_client_thread_config const &tcpClientThreadConfig,
+      thread_config const &threadConfig,
       std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [tcpClientThreadConfig, &workerPromise] (std::stop_token const)
+         [threadConfig, &workerPromise] (std::stop_token const)
          {
-            if (true == tcpClientThreadConfig.poll_cpu_affinity().has_value())
+            if (true == threadConfig.worker_cpu_affinity().has_value())
             {
-               if (auto const returnCode{set_thread_affinity(tcpClientThreadConfig.poll_cpu_affinity().value()),}; 0 != returnCode)
+               if (auto const returnCode{set_thread_affinity(threadConfig.worker_cpu_affinity().value()),}; 0 != returnCode)
                {
                   log_system_error("[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                   unreachable();
@@ -223,18 +229,17 @@ public:
             auto const threadWorker
             {
                std::make_shared<tcp_client_thread_worker>(
-                  tcpClientThreadConfig.io_cpu_affinity(),
-                  tcp_client_uring::construct(tcpClientThreadConfig.io_cpu_affinity(), tcpClientThreadConfig.socket_list_capacity() * 2 + 1),
-                  tcpClientThreadConfig.socket_list_capacity(),
-                  tcpClientThreadConfig.io_buffer_capacity()
+                  tcp_client_uring::construct(threadConfig.io_threads_affinity(), threadConfig.descriptor_list_capacity() * 2 + 1),
+                  threadConfig.descriptor_list_capacity(),
+                  threadConfig.io_buffer_capacity()
                ),
             };
             workerPromise.set_value(threadWorker);
+            __kernel_timespec ioTimeout{};
             intptr_t tasksCount{0,};
             do
             {
                threadWorker->process_deferred_tasks();
-               __kernel_timespec *timeout{nullptr,};
                if (auto const *deferredTask{threadWorker->m_deferredTaskHead,}; nullptr != deferredTask)
                {
                   std::chrono::nanoseconds const timeoutNanoseconds
@@ -242,11 +247,14 @@ public:
                      std::max<std::chrono::nanoseconds>(std::chrono::nanoseconds{0,}, deferredTask->notBeforeTime - system_clock::now())
                   };
                   auto const timeoutSeconds{std::chrono::duration_cast<std::chrono::seconds>(timeoutNanoseconds),};
-                  threadWorker->m_timeout.tv_sec = timeoutSeconds.count();
-                  threadWorker->m_timeout.tv_nsec = (timeoutNanoseconds - timeoutSeconds).count();
-                  timeout = std::addressof(threadWorker->m_timeout);
+                  ioTimeout.tv_sec = timeoutSeconds.count();
+                  ioTimeout.tv_nsec = (timeoutNanoseconds - timeoutSeconds).count();
+                  tasksCount = threadWorker->m_tcpClientUring->poll(*threadWorker, std::addressof(ioTimeout));
                }
-               tasksCount = threadWorker->m_tcpClientUring->poll(*threadWorker, timeout);
+               else
+               {
+                  tasksCount = threadWorker->m_tcpClientUring->poll(*threadWorker, nullptr);
+               }
             } while (tasksCount > 0);
             threadWorker->m_tcpClientUring->unregister_tcp_socket_descriptors(threadWorker->m_tcpSocketDescriptors);
             threadWorker->m_tcpSocketDescriptors = nullptr;
@@ -260,13 +268,11 @@ private:
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
    tcp_deferred_task *m_deferredTaskHead{nullptr,};
    tcp_deferred_task *m_deferredTaskTail{nullptr,};
-   __kernel_timespec m_timeout{};
    std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
    uring_command_queue m_uringCommandQueue;
    tcp_socket_operation *m_tcpSocketOperations{nullptr,};
    tcp_socket_descriptor *m_tcpSocketDescriptors{nullptr,};
    std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
-   int const m_soIncomingCpu;
    int const m_tcpSynCnt{1,};
 
    void cancel_deferred_task(tcp_client &tcpClient);
@@ -408,16 +414,6 @@ private:
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_bindtodevice:
       {
-         if (0 < m_soIncomingCpu)
-         {
-            tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_incoming_cpu;
-            m_tcpClientUring->prep_setsockopt(tcpSocketOperation, SOL_SOCKET, SO_INCOMING_CPU, m_soIncomingCpu);
-         }
-      }
-      break;
-
-      case tcp_socket_operation_type::setopt_so_incoming_cpu:
-      {
          assert(0 <= tcpSocketOptions.soKeepAlive);
          assert(1 >= tcpSocketOptions.soKeepAlive);
          if (0 != tcpSocketOptions.soKeepAlive)
@@ -507,17 +503,6 @@ private:
          ) [[unlikely]]
          {
             tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_bindtodevice;
-            handle_socket_error(tcpSocketOperation, errno);
-            close(result);
-            break;
-         }
-         if (
-            true
-            && (0 < m_soIncomingCpu)
-            && (-1 == setsockopt(result, SOL_SOCKET, SO_INCOMING_CPU, std::addressof(m_soIncomingCpu), sizeof(m_soIncomingCpu)))
-         ) [[unlikely]]
-         {
-            tcpSocketOperation.type = tcp_socket_operation_type::setopt_so_incoming_cpu;
             handle_socket_error(tcpSocketOperation, errno);
             close(result);
             break;
@@ -875,7 +860,6 @@ private:
 
       case tcp_socket_operation_type::socket: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_bindtodevice: [[fallthrough]];
-      case tcp_socket_operation_type::setopt_so_incoming_cpu: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_keepalive: [[fallthrough]];
       case tcp_socket_operation_type::setopt_ip_tos: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepcnt: [[fallthrough]];
@@ -1014,7 +998,6 @@ private:
       [[unlikely]] case tcp_socket_operation_type::none: break;
       case tcp_socket_operation_type::socket: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_bindtodevice: [[fallthrough]];
-      case tcp_socket_operation_type::setopt_so_incoming_cpu: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_keepalive: [[fallthrough]];
       case tcp_socket_operation_type::setopt_ip_tos: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepcnt: [[fallthrough]];
@@ -1171,7 +1154,6 @@ private:
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::socket != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_so_bindtodevice != tcpSocketOperation.type);
-      assert(tcp_socket_operation_type::setopt_so_incoming_cpu != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_so_keepalive != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_ip_tos != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_keepcnt != tcpSocketOperation.type);

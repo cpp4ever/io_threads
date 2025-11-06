@@ -27,19 +27,19 @@
 
 #include "common/file_writer_command.hpp" ///< for io_threads::file_writer_command
 #include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
-#include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/thread_task.hpp" ///< for io_threads::thread_task
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
+#include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_option
-#include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status
+#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
+#include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status, io_threads::registered_buffer
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
 #include "linux/thread_affinity.hpp" ///< for io_threads::set_thread_affinity
 #include "linux/uring_command_queue.hpp" ///< for io_threads::uring_command_queue
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 /// for
-///   AT_FDCWD,
 ///   O_APPEND,
 ///   O_CREAT,
 ///   O_EXCL,
@@ -50,20 +50,22 @@
 ///   S_IRWXU
 #include <fcntl.h>
 
+#include <algorithm> ///< for std::max
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <climits> ///< for PATH_MAX
-#include <cstddef> ///< for size_t
-#include <cstdint> ///< for int32_t, intptr_t, uint16_t, uint32_t
+#include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memcpy
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
-#include <new> ///< for std::align_val_t, std::launder
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr, std::unique_ptr
+#include <new> ///< for std::launder
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code, std::generic_category
 #include <thread> ///< for std::jthread, std::this_thread
+#include <utility> ///< for std::move
 
 namespace io_threads
 {
@@ -108,7 +110,7 @@ public:
          {
             .routine{ioRoutine},
          };
-         m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
+         m_uringCommandQueue.push(to_underlying(file_writer_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
          m_fileWriterUring->wake();
          ioTask.completionFuture.wait();
       }
@@ -116,40 +118,45 @@ public:
 
    void ready_to_close(file_writer &fileWriter)
    {
-      m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_close), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+      m_uringCommandQueue.push(to_underlying(file_writer_command::ready_to_close), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       m_fileWriterUring->wake();
    }
 
    void ready_to_open(file_writer &fileWriter)
    {
-      m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_open), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+      m_uringCommandQueue.push(to_underlying(file_writer_command::ready_to_open), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       m_fileWriterUring->wake();
    }
 
    void ready_to_write(file_writer &fileWriter)
    {
-      m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::ready_to_write), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
+      m_uringCommandQueue.push(to_underlying(file_writer_command::ready_to_write), std::bit_cast<intptr_t>(std::addressof(fileWriter)));
       m_fileWriterUring->wake();
+   }
+
+   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   {
+      return m_fileWriterUring->share_io_threads();
    }
 
    void stop()
    {
-      m_uringCommandQueue.push(static_cast<intptr_t>(file_writer_command::unknown), 0);
+      m_uringCommandQueue.push(to_underlying(file_writer_command::unknown), 0);
       m_fileWriterUring->wake();
    }
 
    [[nodiscard]] static std::jthread start(
-      file_writer_thread_config const &fileWriterThreadConfig,
+      thread_config const &threadConfig,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [fileWriterThreadConfig, &workerPromise] (std::stop_token const)
+         [threadConfig, &workerPromise] (std::stop_token const)
          {
-            if (true == fileWriterThreadConfig.poll_cpu_affinity().has_value())
+            if (true == threadConfig.worker_cpu_affinity().has_value())
             {
-               if (auto const returnCode{set_thread_affinity(fileWriterThreadConfig.poll_cpu_affinity().value()),}; 0 != returnCode)
+               if (auto const returnCode{set_thread_affinity(threadConfig.worker_cpu_affinity().value()),}; 0 != returnCode)
                {
                   log_system_error("[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
                   unreachable();
@@ -158,9 +165,9 @@ public:
             auto const threadWorker
             {
                std::make_shared<file_writer_thread_worker>(
-                  file_writer_uring::construct(fileWriterThreadConfig.io_cpu_affinity(), fileWriterThreadConfig.file_list_capacity() + 1),
-                  fileWriterThreadConfig.file_list_capacity(),
-                  fileWriterThreadConfig.io_buffer_capacity()
+                  file_writer_uring::construct(threadConfig.io_threads_affinity(), threadConfig.descriptor_list_capacity() + 1),
+                  threadConfig.descriptor_list_capacity(),
+                  threadConfig.io_buffer_capacity()
                ),
             };
             workerPromise.set_value(threadWorker);

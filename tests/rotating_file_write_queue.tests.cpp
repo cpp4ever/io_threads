@@ -134,7 +134,7 @@ TEST_F(file_writer, rotating_file_write_queue)
    {
       constexpr size_t testFileListCapacity{1,};
       constexpr size_t testIoBufferCapacity{2 * 1024,}; ///< 2 KiB
-      file_writer_thread const testFileWriterThread{file_writer_thread_config{testFileListCapacity, testIoBufferCapacity,},};
+      file_writer_thread const testFileWriterThread{thread_config{testFileListCapacity, testIoBufferCapacity,},};
       rotating_file_write_queue_mock testFileWriterQueue{testFileWriterThread,};
       constexpr size_t testMinStringLength = 1024; ///< 1 KiB
       constexpr size_t testMaxStringLength = 5 * 1024; ///< 5 KiB

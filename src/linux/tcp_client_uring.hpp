@@ -25,18 +25,18 @@
 
 #pragma once
 
+#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config_variant
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 #include "linux/tcp_socket_operation.hpp" ///< for io_threads::tcp_socket_operation
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 #include <liburing/io_uring_version.h> ///< for IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
 #include <linux/time_types.h> ///< for __kernel_timespec
-#include <sys/socket.h> ///< for sa_family_t
+#include <sys/socket.h> ///< for sa_family_t, sockaddr
 
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< fro int32_t, uint16_t, uint32_t
+#include <cstdint> ///< for int32_t, uint32_t
 #include <memory> ///< for std::unique_ptr
-#include <optional> ///< for std::optional
 
 namespace io_threads
 {
@@ -87,7 +87,9 @@ public:
    virtual void stop() = 0;
    virtual void wake() = 0;
 
-   [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(std::optional<uint16_t> ioCpuAffinity, size_t ioRingQueueCapacity);
+   [[nodiscard]] virtual shared_cpu_affinity_config share_io_threads() const noexcept = 0;
+
+   [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t ioRingQueueCapacity);
 
 protected:
    [[nodiscard]] tcp_client_uring() noexcept = default;

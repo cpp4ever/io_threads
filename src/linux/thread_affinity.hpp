@@ -25,20 +25,23 @@
 
 #pragma once
 
-#include <errno.h> ///< for errno
+#include "common/utility.hpp" ///< for io_threads::to_underlying
+#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_id
+
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO, sched_setaffinity
 
+#include <cerrno> ///< for errno
 #include <cstdint> ///< for uint16_t
 #include <memory> ///< for std::addressof
 
 namespace io_threads
 {
 
-[[nodiscard]] inline int set_thread_affinity(uint16_t const threadCpuAffinity)
+[[nodiscard]] inline int set_thread_affinity(cpu_id const threadCpuAffinity)
 {
    cpu_set_t affinityMask;
    CPU_ZERO(std::addressof(affinityMask));
-   CPU_SET(threadCpuAffinity, std::addressof(affinityMask));
+   CPU_SET(to_underlying(threadCpuAffinity), std::addressof(affinityMask));
    return (0 == sched_setaffinity(0, sizeof(affinityMask), std::addressof(affinityMask))) ? 0 : errno;
 }
 

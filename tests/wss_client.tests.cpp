@@ -245,7 +245,7 @@ TEST_F(wss_client, connect_timeout)
 {
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{1,};
-   tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
    x509_store const testX509Store{x509_store_config{},};
    constexpr size_t testTlsSessionListCapacity{testSocketListCapacity,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
@@ -261,7 +261,7 @@ TEST_F(wss_client, wss)
 {
    constexpr size_t testSocketListCapacity{1,};
    constexpr size_t testIoBufferCapacity{4 * 1024,};
-   tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
@@ -475,7 +475,7 @@ TEST_F(wss_client, ping_pong)
    constexpr auto testHeartbeatTimeouts{std::to_array({11, 13, 17, 19, 23, 29, 31, 37, 41, 43,}),};
    constexpr auto testSocketListCapacity{testHeartbeatTimeouts.size(),};
    constexpr size_t testIoBufferCapacity{4 * 1024,};
-   tcp_client_thread const testThread{tcp_client_thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
