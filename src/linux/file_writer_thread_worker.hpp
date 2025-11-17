@@ -32,7 +32,7 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_option
-#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_ring, io_threads::thread_config
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::file_status, io_threads::registered_buffer
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
 #include "linux/thread_affinity.hpp" ///< for io_threads::set_thread_affinity
@@ -54,7 +54,7 @@
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <climits> ///< for PATH_MAX
-#include <cstddef> ///< for size_t, std::byte
+#include <cstddef> ///< for std::byte
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memcpy
 #include <functional> ///< for std::function
@@ -79,15 +79,15 @@ public:
 
    [[nodiscard]] file_writer_thread_worker(
       std::unique_ptr<file_writer_uring> fileWriterUring,
-      size_t const fileListCapacity,
-      size_t const ioBufferCapacity
+      uint32_t const fileListCapacity,
+      uint32_t const ioBufferSize
    ) :
       m_uringCommandQueue{fileListCapacity,},
       m_fileWriterUring{std::move(fileWriterUring),}
    {
       m_registeredBuffers = m_fileWriterUring->register_buffers(
          fileListCapacity,
-         std::max(registered_buffer::calc_total_size(PATH_MAX + 1), registered_buffer::calc_total_size(ioBufferCapacity))
+         std::max(registered_buffer::calc_total_size(PATH_MAX + 1), registered_buffer::calc_total_size(ioBufferSize))
       );
       assert(nullptr != m_registeredBuffers);
       m_fileDescriptors = m_fileWriterUring->register_file_descriptors(fileListCapacity);
@@ -134,7 +134,7 @@ public:
       m_fileWriterUring->wake();
    }
 
-   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   [[nodiscard]] io_ring share_io_threads() const noexcept
    {
       return m_fileWriterUring->share_io_threads();
    }
@@ -147,16 +147,18 @@ public:
 
    [[nodiscard]] static std::jthread start(
       thread_config const &threadConfig,
+      uint32_t const fileListCapacity,
+      uint32_t const ioBufferSize,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [threadConfig, &workerPromise] (std::stop_token const)
+         [&threadConfig, fileListCapacity, ioBufferSize, &workerPromise] (std::stop_token const)
          {
-            if (true == threadConfig.worker_cpu_affinity().has_value())
+            if (true == threadConfig.worker_affinity().has_value())
             {
-               if (auto const returnCode{set_thread_affinity(threadConfig.worker_cpu_affinity().value()),}; 0 != returnCode)
+               if (auto const returnCode{set_thread_affinity(threadConfig.worker_affinity().value()),}; 0 != returnCode)
                {
                   log_system_error("[file_writer] failed to pin thread to cpu core: ({}) - {}", returnCode);
                   unreachable();
@@ -165,9 +167,13 @@ public:
             auto const threadWorker
             {
                std::make_shared<file_writer_thread_worker>(
-                  file_writer_uring::construct(threadConfig.io_threads_affinity(), threadConfig.descriptor_list_capacity() + 1),
-                  threadConfig.descriptor_list_capacity(),
-                  threadConfig.io_buffer_capacity()
+                  file_writer_uring::construct(
+                     threadConfig.async_workers_affinity(),
+                     threadConfig.kernel_thread_affinity(),
+                     fileListCapacity + 1
+                  ),
+                  fileListCapacity,
+                  ioBufferSize
                ),
             };
             workerPromise.set_value(threadWorker);

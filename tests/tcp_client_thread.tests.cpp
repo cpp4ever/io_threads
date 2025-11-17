@@ -42,14 +42,18 @@ using tcp_client = testsuite;
 TEST_F(tcp_client, tcp_client_thread)
 {
    constexpr cpu_id testThreadCpuAffinity{0,};
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{1,};
+   constexpr uint32_t testSendBufferSize{1,};
    tcp_client_thread const testTcpClientThread1
    {
-      thread_config{testSocketListCapacity, testIoBufferCapacity,}
-         .with_worker_cpu_affinity(testThreadCpuAffinity)
-         .with_io_threads_affinity(cpu_affinity_config{testThreadCpuAffinity, testThreadCpuAffinity,})
+      thread_config{}
+         .with_worker_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(testThreadCpuAffinity, testThreadCpuAffinity)
       ,
+      testSocketListCapacity,
+      testRecvBufferSize,
+      testSendBufferSize,
    };
    std::thread::id testThread1Id{};
    {
@@ -59,10 +63,13 @@ TEST_F(tcp_client, tcp_client_thread)
    }
    tcp_client_thread const testTcpClientThread2
    {
-      thread_config{testSocketListCapacity, testIoBufferCapacity,}
-         .with_worker_cpu_affinity(testThreadCpuAffinity)
+      thread_config{}
+         .with_worker_affinity(testThreadCpuAffinity)
          .with_io_threads_affinity(testTcpClientThread1.share_io_threads())
       ,
+      testSocketListCapacity,
+      testRecvBufferSize,
+      testSendBufferSize,
    };
    {
       bool testOk{false,};

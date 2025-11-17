@@ -26,8 +26,9 @@
 #pragma once
 
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
+#include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
 
-#include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::shared_ptr
 
 namespace io_threads
@@ -41,7 +42,7 @@ public:
    wss_client_context() = delete;
    [[nodiscard]] wss_client_context(wss_client_context &&rhs) noexcept;
    [[nodiscard]] wss_client_context(wss_client_context const &rhs) noexcept;
-   [[nodiscard]] wss_client_context(tls_client_context tlsClientContext, size_t wssSessionListCapacity, size_t wssBufferCatacity);
+   [[nodiscard]] wss_client_context(tls_client_context tlsClientContext, uint32_t sessionListCapacity, uint32_t inboundBufferSize, uint32_t outboundBufferSize);
    ~wss_client_context();
 
    wss_client_context &operator = (wss_client_context &&) = delete;

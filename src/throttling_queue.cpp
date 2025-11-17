@@ -23,7 +23,7 @@
    SOFTWARE.
 */
 
-#include "io_threads/time.hpp" ///< for io_threads::system_time, io_threads::time_duration
+#include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 #include "io_threads/throttling_queue.hpp" ///< for io_threads::throttling_queue
 
 #include <algorithm> ///< for std::max
@@ -36,13 +36,13 @@ namespace io_threads
 
 throttling_queue::throttling_queue(time_duration const rollingTimeWindow, size_t const quota) :
    m_rollingTimeWindow{rollingTimeWindow,},
-   m_timeslots{quota, system_time{time_duration::zero(),},}
+   m_timeslots{quota, steady_time{time_duration::zero(),},}
 {
    assert(rollingTimeWindow > time_duration::zero());
    assert(quota > 0);
 }
 
-system_time throttling_queue::enqueue(system_time const now)
+steady_time throttling_queue::enqueue(steady_time const now)
 {
    [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
    auto timeslot{m_timeslots.begin(),};

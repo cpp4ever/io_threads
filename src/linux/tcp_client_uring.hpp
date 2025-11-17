@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config_variant
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::io_ring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 #include "linux/tcp_socket_operation.hpp" ///< for io_threads::tcp_socket_operation
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
@@ -34,7 +34,6 @@
 #include <linux/time_types.h> ///< for __kernel_timespec
 #include <sys/socket.h> ///< for sa_family_t, sockaddr
 
-#include <cstddef> ///< for size_t
 #include <cstdint> ///< for int32_t, uint32_t
 #include <memory> ///< for std::unique_ptr
 
@@ -53,8 +52,8 @@ public:
 
    virtual void prep_close(tcp_socket_operation &tcpSocketOperation) = 0;
    virtual void prep_connect(tcp_socket_operation &tcpSocketOperation, sockaddr const &socketAddress) = 0;
-   virtual void prep_recv(tcp_socket_operation &tcpSocketOperation) = 0;
-   virtual void prep_send(tcp_socket_operation &tcpSocketOperation, size_t bytesLength) = 0;
+   virtual void prep_recv(tcp_socket_operation &tcpRecvOperation) = 0;
+   virtual void prep_send(tcp_socket_operation &tcpSendOperation, uint32_t bytesLength) = 0;
 #if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
    virtual void prep_setsockopt(
       tcp_socket_operation &tcpSocketOperation,
@@ -75,21 +74,27 @@ public:
 
    virtual void register_tcp_socket(tcp_socket_descriptor &tcpSocketDescriptor, int32_t tcpSocket) = 0;
    [[nodiscard]] virtual tcp_socket_descriptor *register_tcp_socket_descriptors(uint32_t socketListCapacity) = 0;
-   [[nodiscard]] virtual tcp_socket_operation *register_tcp_socket_operations(
-      uint32_t socketOperationListCapacity,
-      size_t registeredBufferCapacity
+   virtual void register_tcp_socket_operations(
+      tcp_socket_operation *&tcpRecvOperations,
+      tcp_socket_operation *&tcpSendOperations,
+      uint32_t socketListCapacity,
+      uint32_t recvBufferSize,
+      uint32_t sendBufferSize
    ) = 0;
-   [[nodiscard]] virtual size_t registered_buffer_capacity(tcp_socket_operation &tcpSocketOperation) const = 0;
-   virtual void unregister_tcp_socket_descriptors(tcp_socket_descriptor *tcpSocketDescriptors) = 0;
-   virtual void unregister_tcp_socket_operations(tcp_socket_operation *tcpSocketOperations) = 0;
+   virtual void unregister_tcp_socket_descriptors(tcp_socket_descriptor *&tcpSocketDescriptors) = 0;
+   virtual void unregister_tcp_socket_operations(tcp_socket_operation *&tcpRecvOperations, tcp_socket_operation *&tcpSendOperations) = 0;
 
    [[nodiscard]] virtual intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout) = 0;
    virtual void stop() = 0;
    virtual void wake() = 0;
 
-   [[nodiscard]] virtual shared_cpu_affinity_config share_io_threads() const noexcept = 0;
+   [[nodiscard]] virtual io_ring share_io_threads() const noexcept = 0;
 
-   [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t ioRingQueueCapacity);
+   [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(
+      io_affinity const &asyncWorkersAffinity,
+      io_affinity const &kernelThreadAffinity,
+      uint32_t ioRingQueueCapacity
+   );
 
 protected:
    [[nodiscard]] tcp_client_uring() noexcept = default;

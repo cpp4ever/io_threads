@@ -64,26 +64,36 @@ public:
    }
 
    template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_error(error_code_matcher errorCodeMatcher)
    {
-      EXPECT_CALL(*this, io_closed(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, io_closed(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_ready_to_open()).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_closed(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, io_closed(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_open()).Times(0);
+                     assert(nullptr != m_internalState);
+                     m_internalState->done.set_value();
+                  }
+               )
+            ;
+         }
+      );
    }
 
-   void expect_ready_to_open(file_writer_config const &testConfig)
+   void expect_ready_to_open(file_writer_config testConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_open()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_open()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_open();
    }
 
@@ -124,8 +134,8 @@ TEST_F(file_writer, not_found)
    std::filesystem::remove_all(testDirectory);
    {
       constexpr size_t testFileListCapacity{1,};
-      constexpr size_t testIoBufferCapacity{1,};
-      file_writer_thread const testThread{thread_config{testFileListCapacity, testIoBufferCapacity,},};
+      constexpr size_t testIoBufferSize{1,};
+      file_writer_thread const testThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
       test_file_writer testFileWriter{testThread,};
       testFileWriter.expect_error(testNotFoundErrorCode);
       auto const testFilePath{testDirectory / random_string(10).append(".test"),};

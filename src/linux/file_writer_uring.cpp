@@ -27,7 +27,7 @@
 #include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
-#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config, io_threads::cpu_affinity_config_variant, io_threads::shared_cpu_affinity_config
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::cpu_id, io_threads::io_ring
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
@@ -63,6 +63,7 @@
 ///   io_uring_unregister_ring_fd,
 ///   IORING_CQE_F_MORE,
 ///   IORING_SETUP_ATTACH_WQ,
+///   IORING_SETUP_CQSIZE,
 ///   IORING_SETUP_NO_SQARRAY,
 ///   IORING_SETUP_SINGLE_ISSUER,
 ///   IORING_SETUP_SQ_AFF,
@@ -80,12 +81,11 @@
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cerrno> ///< for errno
-#include <cstddef> ///< for size_t
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memset
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t, std::launder
-#include <optional> ///< for std::nullopt_t
+#include <optional> ///< for std::nullopt_t, std::optional
 #include <source_location> ///< for std::source_location
 #include <variant> ///< for std::visit
 #include <vector> ///< for std::vector
@@ -103,7 +103,7 @@ public:
    file_writer_uring_impl(file_writer_uring_impl &&) = delete;
    file_writer_uring_impl(file_writer_uring_impl const &) = delete;
 
-   [[nodiscard]] file_writer_uring_impl(cpu_affinity_config_variant const &ioThreadsAffinity, size_t const ioRingQueueCapacity)
+   [[nodiscard]] file_writer_uring_impl(io_affinity const &asyncWorkersAffinity, io_affinity const &kernelThreadAffinity, uint32_t const ioRingQueueCapacity)
    {
       assert(0 < ioRingQueueCapacity);
       assert(nullptr != m_ring);
@@ -111,67 +111,44 @@ public:
       std::memset(std::addressof(ioRingParams), 0, sizeof(ioRingParams));
       ioRingParams.sq_entries = ioRingQueueCapacity;
       ioRingParams.cq_entries = ioRingQueueCapacity * 2;
-      ioRingParams.flags =
-         uint32_t{0,}
-#if (defined(IORING_SETUP_CQSIZE))
-         | IORING_SETUP_CQSIZE
-#endif
+      ioRingParams.flags = IORING_SETUP_CQSIZE | IORING_SETUP_SINGLE_ISSUER;
 #if (defined(IORING_SETUP_NO_SQARRAY))
-         | IORING_SETUP_NO_SQARRAY;
+      ioRingParams.flags |= IORING_SETUP_NO_SQARRAY;
 #endif
-#if (defined(IORING_SETUP_SINGLE_ISSUER))
-         | IORING_SETUP_SINGLE_ISSUER
-#endif
-      ;
       std::visit(
          overloaded
          {
-            [&ioRingParams] (std::nullopt_t const)
-            {
-               ioRingParams.features |=
-                  uint32_t{0,}
-#if (defined(IORING_FEAT_SINGLE_MMAP))
-                  | IORING_FEAT_SINGLE_MMAP
-#endif
-               ;
-            },
+            [] (std::nullopt_t const) {},
 
-            [&ioRingParams] (cpu_affinity_config const &cpuAffinityConfig)
-            {
-               ioRingParams.flags |=
-                  uint32_t{0,}
-#if (defined(IORING_SETUP_SQPOLL))
-                  | IORING_SETUP_SQPOLL
-#endif
-#if (defined(IORING_SETUP_SQ_AFF))
-                  | IORING_SETUP_SQ_AFF
-#endif
-               ;
-#if (defined(IORING_SETUP_SQ_AFF))
-               ioRingParams.sq_thread_cpu = to_underlying(cpuAffinityConfig.kernel_thread_cpu_id());
-#endif
-#if (defined(IORING_SETUP_SQPOLL))
-               ioRingParams.sq_thread_idle = 100;
-#endif
-            },
+            [] (cpu_id const) {},
 
-            [&ioRingParams] (shared_cpu_affinity_config const &cpuAffinityConfig)
+            [&ioRingParams] (io_ring const ioRing)
             {
-               ioRingParams.flags |=
-                  uint32_t{0,}
-#if (defined(IORING_SETUP_SQPOLL))
-                  | IORING_SETUP_SQPOLL
-#endif
-#if (defined(IORING_SETUP_ATTACH_WQ))
-                  | IORING_SETUP_ATTACH_WQ
-#endif
-               ;
-#if (defined(IORING_SETUP_ATTACH_WQ))
-               ioRingParams.wq_fd = cpuAffinityConfig.io_ring();
-#endif
+               ioRingParams.flags |= IORING_SETUP_ATTACH_WQ;
+               ioRingParams.wq_fd = to_underlying(ioRing);
             },
          },
-         ioThreadsAffinity
+         asyncWorkersAffinity
+      );
+      std::visit(
+         overloaded
+         {
+            [] (std::nullopt_t const) {},
+
+            [&ioRingParams] (cpu_id const kernelThreadCpuId)
+            {
+               ioRingParams.flags |= IORING_SETUP_SQPOLL | IORING_SETUP_SQ_AFF;
+               ioRingParams.sq_thread_cpu = to_underlying(kernelThreadCpuId);
+               ioRingParams.sq_thread_idle = 100;
+            },
+
+            [&ioRingParams] (io_ring const ioRing)
+            {
+               ioRingParams.flags |= IORING_SETUP_SQPOLL | IORING_SETUP_ATTACH_WQ;
+               ioRingParams.wq_fd = to_underlying(ioRing);
+            },
+         },
+         kernelThreadAffinity
       );
       if (
          auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity, m_ring.get(), std::addressof(ioRingParams)),};
@@ -190,22 +167,22 @@ public:
          {
             [] (std::nullopt_t const) {},
 
-            [this] (cpu_affinity_config const &cpuAffinityConfig)
+            [this] (cpu_id const asyncWorkersCpuId)
             {
                cpu_set_t iowqAffinityMask;
                CPU_ZERO(std::addressof(iowqAffinityMask));
-               CPU_SET(to_underlying(cpuAffinityConfig.async_workers_cpu_id()), std::addressof(iowqAffinityMask));
+               CPU_SET(to_underlying(asyncWorkersCpuId), std::addressof(iowqAffinityMask));
                if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
                {
                   log_system_error("[file_writer] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
                }
             },
 
-            [] (shared_cpu_affinity_config const &) {},
+            [] (io_ring const) {},
          },
-         ioThreadsAffinity
+         asyncWorkersAffinity
       );
-      std::array<uint32_t, 2> iowqMaxWorkers = {static_cast<uint32_t>(ioRingQueueCapacity), static_cast<uint32_t>(ioRingQueueCapacity),};
+      std::array<uint32_t, 2> iowqMaxWorkers = {ioRingQueueCapacity, uint32_t{1,},};
       if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[file_writer] failed to register IO workers limits: ({}) - {}", -returnCode);
@@ -304,17 +281,17 @@ public:
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
    }
 
-   [[nodiscard]] registered_buffer *register_buffers(uint32_t const fileListCapacity, size_t const registeredBufferCapacity) override
+   [[nodiscard]] registered_buffer *register_buffers(uint32_t const fileListCapacity, uint32_t const registeredBufferSize) override
    {
       assert(0 < fileListCapacity);
-      assert(sizeof(registered_buffer) <= registeredBufferCapacity);
+      assert(sizeof(registered_buffer) <= registeredBufferSize);
       assert(nullptr != m_ring);
       assert(nullptr == m_registeredBuffersMemoryPool);
       assert(true == m_registeredBuffers.empty());
       m_registeredBuffersMemoryPool = std::make_unique<memory_pool>(
          fileListCapacity,
          std::align_val_t{alignof(registered_buffer),},
-         registeredBufferCapacity
+         registeredBufferSize
       );
       m_registeredBuffers.reserve(fileListCapacity + 1);
       registered_buffer *registeredBuffers{nullptr,};
@@ -376,7 +353,7 @@ public:
       return fileDescriptors;
    }
 
-   [[nodiscard]] size_t registered_buffer_capacity(registered_buffer &) const override
+   [[nodiscard]] uint32_t registered_buffer_capacity(registered_buffer &) const override
    {
       assert(nullptr != m_registeredBuffersMemoryPool);
       return registered_buffer::calc_bytes_capacity(m_registeredBuffersMemoryPool->memory_chunk_size());
@@ -456,9 +433,9 @@ public:
       }
    }
 
-   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept override
+   [[nodiscard]] io_ring share_io_threads() const noexcept override
    {
-      return shared_cpu_affinity_config{m_ring->ring_fd,};
+      return io_ring{m_ring->ring_fd,};
    }
 
 private:
@@ -570,9 +547,13 @@ private:
    }
 };
 
-std::unique_ptr<file_writer_uring> file_writer_uring::construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t const ioRingQueueCapacity)
+std::unique_ptr<file_writer_uring> file_writer_uring::construct(
+   io_affinity const &asyncWorkersAffinity,
+   io_affinity const &kernelThreadAffinity,
+   uint32_t const ioRingQueueCapacity
+)
 {
-   return std::make_unique<file_writer_uring_impl>(ioThreadsAffinity, ioRingQueueCapacity);
+   return std::make_unique<file_writer_uring_impl>(asyncWorkersAffinity, kernelThreadAffinity, ioRingQueueCapacity);
 }
 
 }

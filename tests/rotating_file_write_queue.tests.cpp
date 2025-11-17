@@ -65,39 +65,59 @@ public:
    }
 
    template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_error(error_code_matcher errorCodeMatcher)
    {
-      EXPECT_CALL(*this, io_queue_stopped(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, get_timestamp(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_queue_started()).Times(0);
-               EXPECT_CALL(*this, io_queue_stopped(testing::_)).Times(0);
-               EXPECT_CALL(*this, make_config(testing::_)).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_queue_stopped(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, get_timestamp(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_queue_started()).Times(0);
+                     EXPECT_CALL(*this, io_queue_stopped(testing::_)).Times(0);
+                     EXPECT_CALL(*this, make_config(testing::_)).Times(0);
+                     assert(nullptr != m_internalState);
+                     m_internalState->done.set_value();
+                  }
+               )
+            ;
+         }
+      );
    }
 
-   void expect_get_timestamp(timestamp_type const timestamp)
+   void expect_get_timestamp(system_time const timestamp)
    {
-      EXPECT_CALL(*this, get_timestamp(testing::_)).WillOnce(testing::Return(timestamp));
+      executor().execute(
+         [this, timestamp] ()
+         {
+            EXPECT_CALL(*this, get_timestamp(testing::_)).WillOnce(testing::Return(timestamp));
+         }
+      );
    }
 
-   void expect_first_file(timestamp_type const timestamp, file_writer_config const &testConfig)
+   void expect_first_file(system_time const timestamp, file_writer_config testConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_queue_started()).Times(1);
-      EXPECT_CALL(*this, make_config(timestamp)).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, timestamp, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_queue_started()).Times(1);
+            EXPECT_CALL(*this, make_config(timestamp)).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
    }
 
-   void expect_next_file(timestamp_type const timestamp, file_writer_config const &testConfig)
+   void expect_next_file(system_time const timestamp, file_writer_config testConfig)
    {
-      EXPECT_CALL(*this, make_config(timestamp)).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, timestamp, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, make_config(timestamp)).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
    }
 
    [[nodiscard]] auto wait_for(std::chrono::seconds const timeout) const
@@ -109,10 +129,10 @@ public:
 private:
    std::unique_ptr<internal_state> m_internalState{nullptr,};
 
-   MOCK_METHOD(timestamp_type, get_timestamp, (std::string_view const &), (final));
+   MOCK_METHOD(system_time, get_timestamp, (std::string_view const &), (final));
    MOCK_METHOD(void, io_queue_started, (), (final));
    MOCK_METHOD(void, io_queue_stopped, (std::error_code const &), (final));
-   MOCK_METHOD(file_writer_config, make_config, (timestamp_type), (final));
+   MOCK_METHOD(file_writer_config, make_config, (system_time), (final));
 };
 
 }
@@ -128,22 +148,22 @@ using file_writer = testsuite;
 
 TEST_F(file_writer, rotating_file_write_queue)
 {
-   auto const testDirectory = std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10));
+   auto const testDirectory{std::filesystem::temp_directory_path() / std::string{"io_thread_test_"}.append(random_string(10)),};
    std::filesystem::remove_all(testDirectory);
    std::filesystem::create_directories(testDirectory);
    {
       constexpr size_t testFileListCapacity{1,};
-      constexpr size_t testIoBufferCapacity{2 * 1024,}; ///< 2 KiB
-      file_writer_thread const testFileWriterThread{thread_config{testFileListCapacity, testIoBufferCapacity,},};
+      constexpr size_t testIoBufferSize{2 * 1024,}; ///< 2 KiB
+      file_writer_thread const testFileWriterThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
       rotating_file_write_queue_mock testFileWriterQueue{testFileWriterThread,};
       constexpr size_t testMinStringLength = 1024; ///< 1 KiB
       constexpr size_t testMaxStringLength = 5 * 1024; ///< 5 KiB
-      auto const testFormatFileName = [] (rotating_file_write_queue_mock::timestamp_type const timestamp) -> std::string
+      auto const testFormatFileName = [] (system_time const timestamp) -> std::string
       {
          constexpr std::string_view testFilenameFormat{"{:%F}.test",};
          return std::vformat(testFilenameFormat, std::make_format_args(timestamp));
       };
-      rotating_file_write_queue_mock::timestamp_type testInitialTimestamp{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now()),};
+      system_time const testInitialTimestamp{std::chrono::floor<std::chrono::days>(system_clock::now()),};
       testFileWriterQueue.expect_first_file(
          testInitialTimestamp,
          file_writer_config{testDirectory / testFormatFileName(testInitialTimestamp), file_writer_option::create_new,}

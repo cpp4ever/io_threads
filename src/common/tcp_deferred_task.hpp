@@ -27,7 +27,7 @@
 
 #include "common/tcp_client_command.hpp" ///< for io_threads::tcp_client_command
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/time.hpp" ///< for io_threads::system_time
+#include "io_threads/time.hpp" ///< for io_threads::steady_time
 
 namespace io_threads
 {
@@ -38,7 +38,7 @@ struct tcp_client::tcp_deferred_task final
    tcp_deferred_task *next{nullptr,};
    tcp_client &client;
    tcp_client_command const command;
-   system_time const notBeforeTime;
+   steady_time const notBeforeTime;
 };
 
 }

@@ -26,18 +26,19 @@
 #pragma once
 
 #include <array> ///< for std::array
-#include <cstddef> ///< for size_t, std::byte
+#include <cstddef> ///< for std::byte
+#include <cstdint> ///< for uint32_t
 
 namespace io_threads
 {
 
 struct sec_websocket_accept final
 {
-   static constexpr size_t sizeof_sha1_digest{20};
-   static constexpr size_t sizeof_base64_of_sha1_digest{4 * (sizeof_sha1_digest + 2) / 3 + 1};
+   static constexpr uint32_t sizeof_sha1_digest{20,};
+   static constexpr uint32_t sizeof_base64_of_sha1_digest{4 * (sizeof_sha1_digest + 2) / 3 + 1,};
 
-   std::array<std::byte, sizeof_base64_of_sha1_digest> bytes{std::byte{0}};
-   size_t bytesLength{0};
+   std::array<std::byte, sizeof_base64_of_sha1_digest> bytes{std::byte{0,},};
+   uint32_t bytesLength{0,};
 };
 
 struct sec_websocket_key;

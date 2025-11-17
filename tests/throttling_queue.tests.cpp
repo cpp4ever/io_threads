@@ -46,7 +46,7 @@ TEST_F(throttler, throttling_queue)
          auto const testQueueCapacity{testLimit * 2,};
          constexpr std::chrono::seconds testRollingTimeWindow{1,};
          throttling_queue testThrottler{testRollingTimeWindow, static_cast<size_t>(testLimit),};
-         auto const testTime{system_clock::now(),};
+         auto const testTime{steady_clock::now(),};
          for (auto testIteration{0,}; testQueueCapacity > testIteration; ++testIteration)
          {
             EXPECT_EQ(testTime + testRollingTimeWindow * ((testIteration >= testLimit) ? 1 : 0), testThrottler.enqueue(testTime));

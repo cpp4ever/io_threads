@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "io_threads/time.hpp" ///< for io_threads::system_time, io_threads::time_duration
+#include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 
 #include <cstddef> ///< for size_t
 #include <mutex> ///< for std::mutex
@@ -40,7 +40,7 @@ private:
    struct timeslot
    {
       timeslot *next{nullptr,};
-      system_time expirationTime;
+      steady_time expirationTime;
    };
 
    class busy_timeslots final
@@ -62,7 +62,7 @@ private:
          return m_size;
       }
 
-      [[nodiscard]] system_time next_expiration_time() const;
+      [[nodiscard]] steady_time next_expiration_time() const;
 
    private:
       timeslot *m_head{nullptr,};
@@ -89,7 +89,7 @@ public:
       concurrent_timeslot &operator = (concurrent_timeslot const &) = delete;
 
       void cancel();
-      void submit(system_time now);
+      void submit(steady_time now);
 
    private:
       concurrency_throttler *m_throttler{nullptr,};
@@ -105,8 +105,8 @@ public:
    concurrency_throttler &operator = (concurrency_throttler &&) = delete;
    concurrency_throttler &operator = (concurrency_throttler const &) = delete;
 
-   [[nodiscard]] concurrent_timeslot try_reserve(system_time now);
-   [[nodiscard]] concurrent_timeslot try_reserve(system_time now, system_time &nextSlotTime);
+   [[nodiscard]] concurrent_timeslot try_reserve(steady_time now);
+   [[nodiscard]] concurrent_timeslot try_reserve(steady_time now, steady_time &nextSlotTime);
 
 private:
    time_duration const m_rollingTimeWindow;
@@ -115,7 +115,7 @@ private:
    busy_timeslots m_busyTimeslots{};
    std::vector<timeslot> m_allTimeslots;
 
-   void check_expired(system_time now);
+   void check_expired(steady_time now);
 };
 
 using concurrent_timeslot [[maybe_unused]] = concurrency_throttler::concurrent_timeslot;

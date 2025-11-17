@@ -81,8 +81,6 @@ jobs:
       working-directory: ${{runner.workspace}}/build
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
-        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
-        echo "UBSAN_OPTIONS=silence_unsigned_overflow=1" >> $GITHUB_ENV
         cmake \
           -DCMAKE_BUILD_TYPE=${{matrix.build_type}} \
           -DCMAKE_C_COMPILER=${{matrix.cc}} \
@@ -100,4 +98,4 @@ jobs:
     - name: Test
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config ${{matrix.build_type}} --output-on-failure
+        ctest --build-config ${{matrix.build_type}} --verbose

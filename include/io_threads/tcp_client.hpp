@@ -28,7 +28,7 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/tcp_client_config.hpp" ///< for io_threads::tcp_client_config
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
-#include "io_threads/time.hpp" ///< for io_threads::system_time
+#include "io_threads/time.hpp" ///< for io_threads::steady_time
 
 #include <cstddef> ///< for size_t
 #include <system_error> ///< for std::error_code
@@ -62,10 +62,10 @@ protected:
    virtual void io_disconnected(std::error_code const &errorCode) = 0;
 
    void ready_to_connect();
-   void ready_to_connect_deferred(system_time notBeforeTime);
+   void ready_to_connect_deferred(steady_time notBeforeTime);
    void ready_to_disconnect();
    void ready_to_send();
-   void ready_to_send_deferred(system_time notBeforeTime);
+   void ready_to_send_deferred(steady_time notBeforeTime);
 
 private:
    tcp_socket_descriptor *m_socketDescriptor{nullptr,};

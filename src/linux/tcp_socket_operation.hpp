@@ -26,10 +26,14 @@
 #pragma once
 
 #include "common/logger.hpp" ///< for io_threads::format_string, io_threads::log_system_error
+#include "common/utility.hpp" ///< for io_threads::unreachable
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint32_t, uint8_t
+#include <source_location> ///< for std::source_location
+#include <string> ///< for std::string
+#include <system_error> ///< for std::error_code
 
 namespace io_threads
 {
@@ -55,10 +59,11 @@ enum struct tcp_socket_operation_type : uint8_t
    close,
 };
 
-[[nodiscard]] constexpr format_string<int, std::string> tcp_socket_error_message(tcp_socket_operation_type const tcpSocketOperationType)
+[[nodiscard]] constexpr format_string<int, std::string> tcp_error_message(tcp_socket_operation_type const tcpSocketOperationType)
 {
    switch (tcpSocketOperationType)
    {
+
    case tcp_socket_operation_type::none: break;
    case tcp_socket_operation_type::socket: return "[tcp_client] failed to create TCP socket: ({}) - {}";
    case tcp_socket_operation_type::setopt_so_bindtodevice: return "[tcp_client] failed to set SO_BINDTODEVICE socket option: ({}) - {}";
@@ -76,6 +81,7 @@ enum struct tcp_socket_operation_type : uint8_t
    case tcp_socket_operation_type::disconnect: return "[tcp_client] failed to send to TCP socket: ({}) - {}";
    case tcp_socket_operation_type::shutdown: return "[tcp_client] failed to shutdown TCP socket: ({}) - {}";
    case tcp_socket_operation_type::close: return "[tcp_client] failed to close TCP socket: ({}) - {}";
+
    }
    unreachable();
 }
@@ -86,26 +92,25 @@ inline void log_socket_error(
    std::source_location const &sourceLocation = std::source_location::current()
 )
 {
-   log_system_error(tcp_socket_error_message(tcpSocketOperationType), errorCode, sourceLocation);
+   log_system_error(tcp_error_message(tcpSocketOperationType), errorCode, sourceLocation);
 }
 
 struct tcp_socket_operation final
 {
-   tcp_socket_operation *next{nullptr,};
-   tcp_socket_descriptor *descriptor{nullptr,};
+   union
+   {
+      tcp_socket_operation *next;
+      tcp_socket_descriptor *descriptor;
+   };
+   tcp_socket_operation_type type;
    uint32_t const bufferIndex;
+   uint32_t const bufferSize;
    uint32_t bufferOffset{0,};
-   tcp_socket_operation_type type{tcp_socket_operation_type::none,};
    std::byte bufferBytes[1]{std::byte{0,},};
 
-   [[nodiscard]] static size_t buffer_bytes_capacity(size_t const totalSize) noexcept
+   [[nodiscard]] static constexpr uint32_t total_size(uint32_t const bufferSize) noexcept
    {
-      return totalSize - offsetof(tcp_socket_operation, bufferBytes);
-   }
-
-   [[nodiscard]] static size_t total_size(size_t const bytesCapacity) noexcept
-   {
-      return bytesCapacity + offsetof(tcp_socket_operation, bufferBytes);
+      return std::max<uint32_t>(sizeof(tcp_socket_operation), bufferSize + offsetof(tcp_socket_operation, bufferBytes));
    }
 };
 

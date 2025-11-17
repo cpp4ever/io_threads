@@ -23,49 +23,67 @@
    SOFTWARE.
 */
 
-/// for
-///   io_threads::cpu_affinity_config,
-///   io_threads::cpu_id,
-///   io_threads::shared_cpu_affinity_config,
-///   io_threads::thread_config
-#include "io_threads/thread_config.hpp"
+#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_id, io_threads::io_ring, io_threads::thread_config
 
-#include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
+#include <optional> ///< for std::nullopt, std::nullopt_t, std::optional
 
 namespace io_threads
 {
 
-thread_config::thread_config(size_t const descriptorListCapacity, size_t const ioBufferCapacity) noexcept :
-   m_descriptorListCapacity{descriptorListCapacity,},
-   m_ioBufferCapacity{ioBufferCapacity,}
-{
-   assert(0 < m_descriptorListCapacity);
-   assert(0 < m_ioBufferCapacity);
-}
-
-thread_config thread_config::with_io_threads_affinity([[maybe_unused]] cpu_affinity_config const cpuAffinity) const noexcept
+#if (defined(__linux__))
+thread_config thread_config::with_io_threads_affinity(io_ring const sharedIoThreads) const noexcept
 {
    thread_config threadConfig{*this,};
-#if (defined(__linux__))
-   threadConfig.m_ioThreadsAffinity.emplace<cpu_affinity_config>(cpuAffinity);
-#endif
+   threadConfig.m_asyncWorkersAffinity.emplace<io_ring>(sharedIoThreads);
+   threadConfig.m_kernelThreadAffinity.emplace<io_ring>(sharedIoThreads);
    return threadConfig;
 }
 
-thread_config thread_config::with_io_threads_affinity([[maybe_unused]] shared_cpu_affinity_config const cpuAffinity) const noexcept
+thread_config thread_config::with_io_threads_affinity(cpu_id asyncWorkersAffinity, std::optional<cpu_id> kernelThreadAffinity) const noexcept
 {
    thread_config threadConfig{*this,};
-#if (defined(__linux__))
-   threadConfig.m_ioThreadsAffinity.emplace<shared_cpu_affinity_config>(cpuAffinity);
-#endif
+   threadConfig.m_asyncWorkersAffinity.emplace<cpu_id>(asyncWorkersAffinity);
+   if (true == kernelThreadAffinity.has_value())
+   {
+      threadConfig.m_kernelThreadAffinity.emplace<cpu_id>(kernelThreadAffinity.value());
+   }
+   else
+   {
+      threadConfig.m_kernelThreadAffinity.emplace<std::nullopt_t>(std::nullopt);
+   }
    return threadConfig;
 }
 
-thread_config thread_config::with_worker_cpu_affinity(cpu_id const value) const noexcept
+thread_config thread_config::with_io_threads_affinity(io_ring sharedAsyncWorkers, std::optional<cpu_id> kernelThreadAffinity) const noexcept
 {
    thread_config threadConfig{*this,};
-   threadConfig.m_workerCpuAffinity.emplace(value);
+   threadConfig.m_asyncWorkersAffinity.emplace<io_ring>(sharedAsyncWorkers);
+   if (true == kernelThreadAffinity.has_value())
+   {
+      threadConfig.m_kernelThreadAffinity.emplace<cpu_id>(kernelThreadAffinity.value());
+   }
+   else
+   {
+      threadConfig.m_kernelThreadAffinity.emplace<std::nullopt_t>(std::nullopt);
+   }
+   return threadConfig;
+}
+#else
+thread_config thread_config::with_io_threads_affinity(std::nullopt_t const) const noexcept
+{
+   return *this;
+}
+
+thread_config thread_config::with_io_threads_affinity(std::optional<cpu_id> const, std::optional<cpu_id> const) const noexcept
+{
+   return *this;
+}
+#endif
+
+thread_config thread_config::with_worker_affinity(cpu_id const value) const noexcept
+{
+   thread_config threadConfig{*this,};
+   threadConfig.m_workerAffinity.emplace(value);
    return threadConfig;
 }
 

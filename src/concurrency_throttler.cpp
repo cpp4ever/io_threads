@@ -24,7 +24,7 @@
 */
 
 #include "io_threads/concurrency_throttler.hpp" ///< for io_threads::concurrency_throttler
-#include "io_threads/time.hpp" ///< for io_threads::system_time, io_threads::time_duration
+#include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
@@ -75,7 +75,7 @@ concurrency_throttler::timeslot &concurrency_throttler::busy_timeslots::pop()
    return item;
 }
 
-system_time concurrency_throttler::busy_timeslots::next_expiration_time() const
+steady_time concurrency_throttler::busy_timeslots::next_expiration_time() const
 {
    assert(nullptr != m_head);
    return m_head->expirationTime;
@@ -126,7 +126,7 @@ void concurrency_throttler::concurrent_timeslot::cancel()
    m_slot = nullptr;
 }
 
-void concurrency_throttler::concurrent_timeslot::submit(system_time const now)
+void concurrency_throttler::concurrent_timeslot::submit(steady_time const now)
 {
    assert(nullptr != m_throttler);
    assert(nullptr != m_slot);
@@ -152,7 +152,7 @@ concurrency_throttler::concurrency_throttler(time_duration const rollingTimeWind
 
 concurrency_throttler::~concurrency_throttler()
 {
-   auto numberOfTimeslots{m_busyTimeslots.size(),};
+   [[maybe_unused]] auto numberOfTimeslots{m_busyTimeslots.size(),};
    while (m_busyTimeslots.size() > 0)
    {
       [[maybe_unused]] auto &slot{m_busyTimeslots.pop(),};
@@ -165,7 +165,7 @@ concurrency_throttler::~concurrency_throttler()
    assert(m_allTimeslots.size() == numberOfTimeslots);
 }
 
-concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(system_time const now)
+concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(steady_time const now)
 {
    [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
    check_expired(now);
@@ -176,7 +176,7 @@ concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(sy
    return concurrent_timeslot{*this,};
 }
 
-concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(system_time const now, system_time &nextSlotTime)
+concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(steady_time const now, steady_time &nextSlotTime)
 {
    [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
    check_expired(now);
@@ -188,7 +188,7 @@ concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(sy
    return concurrent_timeslot{*this,};
 }
 
-void concurrency_throttler::check_expired(system_time const now)
+void concurrency_throttler::check_expired(steady_time const now)
 {
    while ((m_busyTimeslots.size() > 0) && (now >= m_busyTimeslots.next_expiration_time()))
    {

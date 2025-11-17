@@ -25,18 +25,21 @@
 
 #pragma once
 
-#include <chrono> ///< for std::chrono::local_time, std::chrono::nanoseconds, std::chrono::sys_time, std::chrono::system_clock
+#include <chrono> ///< for std::chrono::nanoseconds, std::chrono::steady_clock, std::chrono::sys_time, std::chrono::system_clock, std::chrono::time_point
 
 namespace io_threads
 {
 
 using time_duration = std::chrono::nanoseconds;
 #if (defined(__cpp_lib_chrono) && (__cpp_lib_chrono >= 201907L))
-using system_time [[maybe_unused]] = std::chrono::sys_time<time_duration>;
+using system_time = std::chrono::sys_time<time_duration>;
 using system_clock [[maybe_unused]] = system_time::clock;
 #else
-using system_clock [[maybe_unused]] = std::chrono::system_clock;
+using system_clock = std::chrono::system_clock;
 using system_time [[maybe_unused]] = std::chrono::time_point<system_clock, time_duration>;
 #endif
+using steady_clock = std::chrono::steady_clock;
+static_assert(true == steady_clock::is_steady);
+using steady_time [[maybe_unused]] = steady_clock::time_point;
 
 }

@@ -55,7 +55,6 @@ jobs:
       if: ${{matrix.os == 'ubuntu-latest'}}
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)" >> $GITHUB_ENV
-        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $GITHUB_ENV
         echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $GITHUB_ENV
         sudo apt-get update
         sudo apt-get install clang-18 cmake libc++-18-dev libc++abi-18-dev libssl-dev liburing-dev ninja-build
@@ -73,7 +72,6 @@ jobs:
       if: ${{matrix.os == 'windows-latest'}}
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
-        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
         echo "SOURCE_DATE_EPOCH=$(git -C ${{github.workspace}} show -s --format=%ct ${{github.sha}})" >> $env:GITHUB_ENV
         choco install llvm ninja openssl
         ${{matrix.cc}} --version
@@ -99,7 +97,7 @@ jobs:
     - name: Run
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config Debug --output-on-failure
+        ctest --build-config Debug --verbose
 
     - name: Collect
       working-directory: ${{github.workspace}}

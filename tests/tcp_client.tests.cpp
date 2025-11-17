@@ -59,133 +59,174 @@ public:
    }
 
    template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_error(error_code_matcher errorCodeMatcher)
    {
-      EXPECT_CALL(*this, io_disconnected(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               m_connected.store(false, std::memory_order_relaxed);
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, io_data_received(testing::_, testing::_)).Times(0);
-               EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
-               EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_disconnected(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, io_data_received(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
+                     if (nullptr != m_internalState)
+                     {
+                        m_connected.store(false, std::memory_order_relaxed);
+                        m_internalState->done.set_value();
+                     }
+                     else
+                     {
+                        EXPECT_FALSE(m_connected.load(std::memory_order_relaxed));
+                     }
+                  }
+               )
+            ;
+         }
+      );
    }
 
-   void expect_ready_to_connect(tcp_client_config const &testConfig)
+   void expect_ready_to_connect(tcp_client_config testConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_connect();
    }
 
-   void expect_ready_to_connect_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_connect_deferred(tcp_client_config const &testConfig, system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(tcp_client_config testConfig, steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_send(std::string const &message)
+   void expect_ready_to_send(std::string message)
    {
-      EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
-         .WillOnce(
-            [this, message] (auto const &dataChunk, auto &bytesWritten)
-            {
-               EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const &, auto &bytesWritten)
+      executor().execute(
+         [this, message = std::move(message)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
+               .WillOnce(
+                  [this, message = std::move(message)] (auto const &dataChunk, auto &bytesWritten)
                   {
-                     bytesWritten = 0;
-                     EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).WillRepeatedly(
+                        [this] (auto const &, auto &bytesWritten)
+                        {
+                           bytesWritten = 0;
+                           EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
+                           return std::error_code{};
+                        }
+                     );
+                     assert(message.size() <= dataChunk.bytesLength);
+                     std::memcpy(dataChunk.bytes, message.data(), message.size());
+                     bytesWritten = message.size();
                      return std::error_code{};
                   }
-               );
-               assert(message.size() <= dataChunk.bytesLength);
-               std::memcpy(dataChunk.bytes, message.data(), message.size());
-               bytesWritten = message.size();
-               return std::error_code{};
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
    void expect_ready_to_send(std::function<void()> sendHandler)
    {
       ASSERT_TRUE(sendHandler);
-      EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
-         .WillOnce(
-            [sendHandler] (auto const &, auto &bytesWritten)
-            {
-               sendHandler();
-               bytesWritten = 0;
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, sendHandler = std::move(sendHandler)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
+               .WillOnce(
+                  [sendHandler = std::move(sendHandler)] (auto const &, auto &bytesWritten)
+                  {
+                     sendHandler();
+                     bytesWritten = 0;
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
-   void expect_ready_to_send_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(steady_time const testNotBeforeTime)
    {
       ready_to_send_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_send_deferred(std::string const &message, system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(std::string message, steady_time const testNotBeforeTime)
    {
-      EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
-         .WillOnce(
-            [this, message] (auto const &dataChunk, auto &bytesWritten)
-            {
-               EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const &, auto &bytesWritten)
+      executor().execute(
+         [this, message = std::move(message)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_))
+               .WillOnce(
+                  [this, message = std::move(message)] (auto const &dataChunk, auto &bytesWritten)
                   {
-                     bytesWritten = 0;
-                     EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).WillRepeatedly(
+                        [this] (auto const &, auto &bytesWritten)
+                        {
+                           bytesWritten = 0;
+                           EXPECT_CALL(*this, io_data_to_send(testing::_, testing::_)).Times(0);
+                           return std::error_code{};
+                        }
+                     );
+                     assert(message.size() <= dataChunk.bytesLength);
+                     std::memcpy(dataChunk.bytes, message.data(), message.size());
+                     bytesWritten = message.size();
                      return std::error_code{};
                   }
-               );
-               assert(message.size() <= dataChunk.bytesLength);
-               std::memcpy(dataChunk.bytes, message.data(), message.size());
-               bytesWritten = message.size();
-               return std::error_code{};
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send_deferred(testNotBeforeTime);
    }
 
    template<typename recv_handler>
-   void expect_recv(std::string const &expectedMessage, recv_handler &&recvHandler)
+   void expect_recv(std::string expectedMessage, recv_handler recvHandler)
    {
-      EXPECT_CALL(*this, io_data_received(testing::_, testing::_))
-         .WillOnce(
-            [expectedMessage, recvHandler] (auto const &dataChunk, auto &bytesRead)
-            {
-               std::string_view const receivedMessage
-               {
-                  std::bit_cast<char const *>(dataChunk.bytes),
-                  dataChunk.bytesLength,
-               };
-               EXPECT_EQ(expectedMessage, receivedMessage);
-               bytesRead = dataChunk.bytesLength;
-               recvHandler();
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, expectedMessage = std::move(expectedMessage), recvHandler = std::move(recvHandler)] ()
+         {
+            EXPECT_CALL(*this, io_data_received(testing::_, testing::_))
+               .WillOnce(
+                  [expectedMessage = std::move(expectedMessage), recvHandler = std::move(recvHandler)] (auto const &dataChunk, auto &bytesRead)
+                  {
+                     std::string_view const receivedMessage
+                     {
+                        std::bit_cast<char const *>(dataChunk.bytes),
+                        dataChunk.bytesLength,
+                     };
+                     EXPECT_EQ(expectedMessage, receivedMessage);
+                     bytesRead = dataChunk.bytesLength;
+                     recvHandler();
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
    }
 
    [[nodiscard]] auto wait_for(time_duration const timeout) const
@@ -223,9 +264,10 @@ using tcp_client = testsuite;
 
 TEST_F(tcp_client, connect_timeout)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{1,};
+   constexpr uint32_t testSendBufferSize{1,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    test_tcp_client testClient{testThread,};
    constexpr uint16_t testPort{81,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -233,9 +275,10 @@ TEST_F(tcp_client, connect_timeout)
 
 TEST_F(tcp_client, http)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{256,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{256,};
+   constexpr uint32_t testSendBufferSize{256,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    test_tcp_client testClient{testThread,};
    test_rest_client<boost::beast::tcp_stream>(testThread, testClient);
 }

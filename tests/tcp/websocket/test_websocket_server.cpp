@@ -82,7 +82,7 @@ void test_websocket_server<test_websocket_stream>::async_read(test_websocket_cli
    client.inboundBuffer.clear();
    client.stream.async_read(
       client.inboundBuffer,
-      [&] (auto testErrorCode, auto const)
+      [this, &client] (auto testErrorCode, auto const)
       {
          if (
             false
@@ -149,7 +149,7 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
 #elif(defined(IO_THREADS_SCHANNEL))
                   wintls::handshake_type::server,
 #endif
-                  [&] (auto testErrorCode)
+                  [this, &client] (auto testErrorCode)
                   {
                      EXPECT_ERROR_CODE(testErrorCode);
                      if ((false == testErrorCode.failed()) && (true == should_pass_handshake()))
@@ -197,7 +197,7 @@ void test_websocket_server<test_websocket_stream>::async_websocket_accept(test_w
       )
    );
    client.stream.async_accept(
-      [&] (auto testErrorCode)
+      [this, &client] (auto testErrorCode)
       {
          if (boost::beast::websocket::error::closed == testErrorCode)
          {
@@ -222,7 +222,7 @@ void test_websocket_server<test_websocket_stream>::async_write(test_websocket_cl
    client.stream.text(client.stream.got_text());
    client.stream.async_write(
       boost::asio::buffer(static_cast<std::string const &>(client.outboundBuffer)),
-      [&] (auto testErrorCode, auto const)
+      [this, &client] (auto testErrorCode, auto const)
       {
          EXPECT_ERROR_CODE(testErrorCode);
          if ((false == testErrorCode.failed()) && (true == should_keep_alive()))

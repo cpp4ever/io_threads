@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "io_threads/time.hpp" ///< for io_threads::system_time, io_threads::time_duration
+#include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 
 #include <cstddef> ///< for size_t
 #include <mutex> ///< for std::mutex
@@ -45,12 +45,12 @@ public:
    throttling_queue &operator = (throttling_queue &&) = delete;
    throttling_queue &operator = (throttling_queue const &) = delete;
 
-   [[nodiscard]] system_time enqueue(system_time now);
+   [[nodiscard]] steady_time enqueue(steady_time now);
 
 private:
    time_duration const m_rollingTimeWindow;
    std::mutex m_lock{};
-   std::list<system_time> m_timeslots;
+   std::list<steady_time> m_timeslots;
 };
 
 }

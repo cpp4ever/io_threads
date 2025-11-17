@@ -194,7 +194,10 @@ public:
          /// Update the store cache with downloaded CRLs
          for (auto const &[url, x509Crl] : mapUrlToX509Crl)
          {
-            add_crl_to_store(m_x509Store.get(), x509Crl.get());
+            if (nullptr != x509Crl)
+            {
+               add_crl_to_store(m_x509Store.get(), x509Crl.get());
+            }
          }
       }
    }
@@ -398,7 +401,10 @@ private:
       {
          x509Crl = download_crl(url);
       }
-      push_x509_crl(x509CrlStack, x509Crl.get());
+      if (nullptr != x509Crl)
+      {
+         push_x509_crl(x509CrlStack, x509Crl.get());
+      }
    }
 
    [[nodiscard]] static std::unique_ptr<X509_CRL> download_crl(std::string const &url)

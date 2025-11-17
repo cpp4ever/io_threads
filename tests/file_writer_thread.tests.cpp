@@ -43,13 +43,15 @@ TEST_F(file_writer, file_writer_thread)
 {
    constexpr cpu_id testThreadCpuAffinity{0,};
    constexpr size_t testFileListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
+   constexpr size_t testIoBufferSize{1,};
    file_writer_thread const testFileWriterThread1
    {
-      thread_config{testFileListCapacity, testIoBufferCapacity,}
-         .with_worker_cpu_affinity(testThreadCpuAffinity)
-         .with_io_threads_affinity(cpu_affinity_config{testThreadCpuAffinity, testThreadCpuAffinity,})
+      thread_config{}
+         .with_worker_affinity(testThreadCpuAffinity)
+         .with_io_threads_affinity(testThreadCpuAffinity, testThreadCpuAffinity)
       ,
+      testFileListCapacity,
+      testIoBufferSize,
    };
    std::thread::id testThread1Id{};
    {
@@ -59,10 +61,12 @@ TEST_F(file_writer, file_writer_thread)
    }
    file_writer_thread const testFileWriterThread2
    {
-      thread_config{testFileListCapacity, testIoBufferCapacity,}
-         .with_worker_cpu_affinity(testThreadCpuAffinity)
+      thread_config{}
+         .with_worker_affinity(testThreadCpuAffinity)
          .with_io_threads_affinity(testFileWriterThread1.share_io_threads())
       ,
+      testFileListCapacity,
+      testIoBufferSize,
    };
    {
       bool testOk{false,};

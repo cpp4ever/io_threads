@@ -25,7 +25,7 @@
 
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_thread.hpp" ///< for io_threads::file_writer_thread
-#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_ring, io_threads::thread_config
 #if (defined(__linux__))
 #  include "linux/file_writer_thread_worker.hpp" ///< for io_threads::file_writer::file_writer_thread_worker
 #elif (defined(_WIN32) || defined(_WIN64))
@@ -33,6 +33,7 @@
 #endif
 
 #include <cassert> ///< for assert
+#include <cstdint> ///< for uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::future, std::promise
 #include <memory> ///< for std::make_shared, std::shared_ptr
@@ -49,11 +50,13 @@ public:
    file_writer_thread_impl(file_writer_thread_impl &&) = delete;
    file_writer_thread_impl(file_writer_thread_impl const &) = delete;
 
-   [[nodiscard]] explicit file_writer_thread_impl(thread_config const &threadConfig)
+   [[nodiscard]] explicit file_writer_thread_impl(thread_config const &threadConfig, uint32_t const fileListCapacity, uint32_t const ioBufferSize)
    {
+      assert(fileListCapacity > 0);
+      assert(ioBufferSize > 0);
       std::promise<std::shared_ptr<file_writer::file_writer_thread_worker>> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
-      m_thread = file_writer::file_writer_thread_worker::start(threadConfig, workerPromise);
+      m_thread = file_writer::file_writer_thread_worker::start(threadConfig, fileListCapacity, ioBufferSize, workerPromise);
       m_worker = workerFuture.get();
    }
 
@@ -89,7 +92,7 @@ public:
    }
 
 #if (defined(__linux__))
-   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   [[nodiscard]] io_ring share_io_threads() const noexcept
    {
       return m_worker->share_io_threads();
    }
@@ -103,8 +106,8 @@ private:
 file_writer_thread::file_writer_thread(file_writer_thread &&rhs) noexcept = default;
 file_writer_thread::file_writer_thread(file_writer_thread const &rhs) noexcept = default;
 
-file_writer_thread::file_writer_thread(thread_config const &threadConfig) :
-   m_impl{std::make_shared<file_writer_thread_impl>(threadConfig),}
+file_writer_thread::file_writer_thread(thread_config const &threadConfig, uint32_t const fileListCapacity, uint32_t const ioBufferSize) :
+   m_impl{std::make_shared<file_writer_thread_impl>(threadConfig, fileListCapacity, ioBufferSize),}
 {}
 
 file_writer_thread::~file_writer_thread() = default;
@@ -116,7 +119,7 @@ void file_writer_thread::execute(std::function<void()> const &ioRoutine) const
 }
 
 #if (defined(__linux__))
-shared_cpu_affinity_config file_writer_thread::share_io_threads() const noexcept
+io_ring file_writer_thread::share_io_threads() const noexcept
 {
    return m_impl->share_io_threads();
 }

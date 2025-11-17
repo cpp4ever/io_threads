@@ -77,7 +77,7 @@
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
-#include <cstdint> ///< for intptr_t
+#include <cstdint> ///< for intptr_t, uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
@@ -115,9 +115,9 @@ public:
    file_writer_thread_worker(file_writer_thread_worker &&) = delete;
    file_writer_thread_worker(file_writer_thread_worker const &) = delete;
 
-   [[nodiscard]] explicit file_writer_thread_worker(size_t const fileListCapacity, size_t const ioBufferCapacity) :
+   [[nodiscard]] explicit file_writer_thread_worker(uint32_t const fileListCapacity, uint32_t const ioBufferSize) :
       m_completionPortEntries{std::make_unique<completion_port::entries>(),},
-      m_ioBuffersMemoryPool{std::make_unique<memory_pool>(fileListCapacity, std::align_val_t{alignof(std::byte)}, ioBufferCapacity),},
+      m_ioBuffersMemoryPool{std::make_unique<memory_pool>(fileListCapacity, std::align_val_t{alignof(std::byte)}, ioBufferSize),},
       m_fileMemoryPool{std::make_unique<memory_pool>(fileListCapacity, std::align_val_t{alignof(file_descriptor)}, sizeof(file_descriptor)),}
    {
       constexpr WCHAR stringSecurityDescriptor[]
@@ -189,25 +189,24 @@ public:
 
    [[nodiscard]] static std::jthread start(
       thread_config const &threadConfig,
+      uint32_t const fileListCapacity,
+      uint32_t const ioBufferSize,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [threadConfig, &workerPromise] (std::stop_token const stopToken)
+         [threadConfig, fileListCapacity, ioBufferSize, &workerPromise] (std::stop_token const stopToken)
          {
             if (
                true
-               && (true == threadConfig.worker_cpu_affinity().has_value())
-               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << to_underlying(threadConfig.worker_cpu_affinity().value())))
+               && (true == threadConfig.worker_affinity().has_value())
+               && (0 == SetThreadAffinityMask(GetCurrentThread(), DWORD_PTR{1,} << to_underlying(threadConfig.worker_affinity().value())))
             ) [[unlikely]]
             {
                check_winapi_error("[file_writer] failed to pin thread to cpu core: ({}) - {}");
             }
-            auto const threadWorker
-            {
-               std::make_shared<file_writer_thread_worker>(threadConfig.descriptor_list_capacity(), threadConfig.io_buffer_capacity()),
-            };
+            auto const threadWorker{std::make_shared<file_writer_thread_worker>(fileListCapacity, ioBufferSize),};
             workerPromise.set_value(threadWorker);
             while (false == stopToken.stop_requested()) [[likely]]
             {

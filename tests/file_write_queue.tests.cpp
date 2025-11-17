@@ -64,27 +64,37 @@ public:
    }
 
    template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_error(error_code_matcher errorCodeMatcher)
    {
-      EXPECT_CALL(*this, io_closed(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               super::io_closed(errorCode);
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, io_closed(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_ready_to_open()).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_closed(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     super::io_closed(errorCode);
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, io_closed(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_open()).Times(0);
+                     assert(nullptr != m_internalState);
+                     m_internalState->done.set_value();
+                  }
+               )
+            ;
+         }
+      );
    }
 
-   void expect_ready_to_open(file_writer_config const &testConfig)
+   void expect_ready_to_open(file_writer_config testConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_open()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_open()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_open();
    }
 
@@ -121,8 +131,8 @@ TEST_F(file_writer, file_write_queue)
    std::filesystem::create_directories(testDirectory);
    {
       constexpr size_t testFileListCapacity{1000,};
-      constexpr size_t testIoBufferCapacity{2 * 1024,}; ///< 2 KiB
-      file_writer_thread const testThread{thread_config{testFileListCapacity, testIoBufferCapacity,},};
+      constexpr size_t testIoBufferSize{2 * 1024,}; ///< 2 KiB
+      file_writer_thread const testThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
       std::vector<file_writer_test_data> testFileWriters;
       testFileWriters.reserve(testFileListCapacity);
       constexpr size_t testMinStringLength = 1024; ///< 1 KiB

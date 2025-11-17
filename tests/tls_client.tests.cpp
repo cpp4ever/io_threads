@@ -62,147 +62,193 @@ public:
    }
 
    template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_error(error_code_matcher errorCodeMatcher)
    {
-      EXPECT_CALL(*this, io_disconnected(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               m_connected.store(false, std::memory_order_relaxed);
-               super::io_disconnected(errorCode);
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, io_data_decrypted(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
-               EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_disconnected(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     super::io_disconnected(errorCode);
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, io_data_decrypted(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
+                     if (nullptr != m_internalState)
+                     {
+                        m_connected.store(false, std::memory_order_relaxed);
+                        m_internalState->done.set_value();
+                     }
+                     else
+                     {
+                        EXPECT_FALSE(m_connected.load(std::memory_order_relaxed));
+                     }
+                  }
+               )
+            ;
+         }
+      );
    }
 
-   void expect_ready_to_connect(tcp_client_config const &testConfig)
+   void expect_ready_to_connect(tcp_client_config testConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_connect();
    }
 
-   void expect_ready_to_connect_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_connect_deferred(tcp_client_config const &testConfig, system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(tcp_client_config testConfig, steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_send(std::string const &message)
+   void expect_ready_to_send(std::string message)
    {
-      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
-         .WillRepeatedly(
-            [this, message] (auto const &dataChunk, auto &bytesWritten)
-            {
-               EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const &, auto &bytesWritten)
+      executor().execute(
+         [this, message = std::move(message)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
+               .WillRepeatedly(
+                  [this, message = std::move(message)] (auto const &dataChunk, auto &bytesWritten)
                   {
-                     bytesWritten = 0;
-                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
+                        [this] (auto const &, auto &bytesWritten)
+                        {
+                           bytesWritten = 0;
+                           EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                           return std::error_code{};
+                        }
+                     );
+                     assert(message.size() <= dataChunk.bytesLength);
+                     std::memcpy(dataChunk.bytes, message.data(), message.size());
+                     bytesWritten = message.size();
                      return std::error_code{};
                   }
-               );
-               assert(message.size() <= dataChunk.bytesLength);
-               std::memcpy(dataChunk.bytes, message.data(), message.size());
-               bytesWritten = message.size();
-               return std::error_code{};
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
    void expect_ready_to_send(std::function<void()> sendHandler)
    {
       ASSERT_TRUE(sendHandler);
-      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
-         .WillOnce(
-            [sendHandler] (auto const &, auto &bytesWritten)
-            {
-               sendHandler();
-               bytesWritten = 0;
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, sendHandler = std::move(sendHandler)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
+               .WillOnce(
+                  [sendHandler = std::move(sendHandler)] (auto const &, auto &bytesWritten)
+                  {
+                     sendHandler();
+                     bytesWritten = 0;
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
-   void expect_ready_to_send_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(steady_time const testNotBeforeTime)
    {
       ready_to_send_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_send_deferred(std::string const &message, system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(std::string message, steady_time const testNotBeforeTime)
    {
-      EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
-         .WillRepeatedly(
-            [this, message] (auto const &dataChunk, auto &bytesWritten)
-            {
-               EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
-                  [this] (auto const &, auto &bytesWritten)
+      executor().execute(
+         [this, message = std::move(message)] ()
+         {
+            EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_))
+               .WillRepeatedly(
+                  [this, message = std::move(message)] (auto const &dataChunk, auto &bytesWritten)
                   {
-                     bytesWritten = 0;
-                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).WillRepeatedly(
+                        [this] (auto const &, auto &bytesWritten)
+                        {
+                           bytesWritten = 0;
+                           EXPECT_CALL(*this, io_data_to_encrypt(testing::_, testing::_)).Times(0);
+                           return std::error_code{};
+                        }
+                     );
+                     assert(message.size() <= dataChunk.bytesLength);
+                     std::memcpy(dataChunk.bytes, message.data(), message.size());
+                     bytesWritten = message.size();
                      return std::error_code{};
                   }
-               );
-               assert(message.size() <= dataChunk.bytesLength);
-               std::memcpy(dataChunk.bytes, message.data(), message.size());
-               bytesWritten = message.size();
-               return std::error_code{};
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send_deferred(testNotBeforeTime);
    }
 
    template<typename recv_handler>
-   void expect_recv(recv_handler &&recvHandler)
+   void expect_recv(recv_handler recvHandler)
    {
-      EXPECT_CALL(*this, io_data_decrypted(testing::_))
-         .WillOnce(
-            [recvHandler] (auto const &dataChunk)
-            {
-               recvHandler(dataChunk);
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, recvHandler = std::move(recvHandler)] ()
+         {
+            EXPECT_CALL(*this, io_data_decrypted(testing::_))
+               .WillOnce(
+                  [recvHandler = std::move(recvHandler)] (auto const &dataChunk)
+                  {
+                     recvHandler(dataChunk);
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
    }
 
    template<typename recv_handler>
-   void expect_recv(std::string const &expectedMessage, recv_handler &&recvHandler)
+   void expect_recv(std::string expectedMessage, recv_handler &&recvHandler)
    {
-      EXPECT_CALL(*this, io_data_decrypted(testing::_))
-         .WillOnce(
-            [expectedMessage, recvHandler] (auto const &dataChunk)
-            {
-               std::string_view const receivedMessage
-               {
-                  std::bit_cast<char const *>(dataChunk.bytes),
-                  dataChunk.bytesLength,
-               };
-               EXPECT_EQ(expectedMessage, receivedMessage);
-               recvHandler();
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, expectedMessage = std::move(expectedMessage), recvHandler = std::move(recvHandler)] ()
+         {
+            EXPECT_CALL(*this, io_data_decrypted(testing::_))
+               .WillOnce(
+                  [expectedMessage = std::move(expectedMessage), recvHandler = std::move(recvHandler)] (auto const &dataChunk)
+                  {
+                     std::string_view const receivedMessage
+                     {
+                        std::bit_cast<char const *>(dataChunk.bytes),
+                        dataChunk.bytesLength,
+                     };
+                     EXPECT_EQ(expectedMessage, receivedMessage);
+                     recvHandler();
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
    }
 
    [[nodiscard]] auto wait_for(time_duration const timeout) const
@@ -235,12 +281,18 @@ using tls_client = testsuite;
 
 TEST_F(tls_client, connect_timeout)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{1,};
+   constexpr uint32_t testSendBufferSize{1,};
    x509_store const testX509Store{x509_store_config{},};
-   constexpr size_t testTlsSessionListCapacity{1,};
-   auto testTlsContext = tls_client_context{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
+   constexpr uint32_t testTlsSessionListCapacity{1,};
+   tls_client_context const testTlsContext
+   {
+      tcp_client_thread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
+      testX509Store,
+      test_domain,
+      testTlsSessionListCapacity,
+   };
    auto testClient = test_tls_client{testTlsContext,};
    constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -248,15 +300,16 @@ TEST_F(tls_client, connect_timeout)
 
 TEST_F(tls_client, https)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{4 * 1024,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{2 * 1024,};
+   constexpr uint32_t testSendBufferSize{2 * 1024,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
 #endif
-   constexpr size_t testTlsSessionListCapacity{1,};
+   constexpr uint32_t testTlsSessionListCapacity{1,};
    tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
    auto testClient = test_tls_client{testTlsContext,};
    test_rest_client<test_tls_stream>(testThread, testClient);
@@ -402,9 +455,10 @@ TEST_F(tls_client, badssl)
          }
       ),
    };
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{tls_packet_size_limit,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{tls_packet_size_limit,};
+   constexpr uint32_t testSendBufferSize{2 * 1024,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    std::vector<domain_address> testDomains;
    testDomains.reserve(testBadAddresses.size());
    for (auto const &testBadAddress : testBadAddresses)
@@ -412,8 +466,8 @@ TEST_F(tls_client, badssl)
       testDomains.push_back(domain_address{.hostname = std::string{testBadAddress.host,}, .port = testBadAddress.port,});
    }
    x509_store const testX509Store{x509_store_config{}, testDomains,};
-   constexpr size_t testTlsSessionListCapacity{1,};
-   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr uint32_t testTlsSessionListCapacity{1,};
+   constexpr std::chrono::seconds testTimeout{1,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testBadAddress : testBadAddresses)
    {
@@ -431,7 +485,7 @@ TEST_F(tls_client, badssl)
             .with_user_timeout(testTimeout)
       };
       testClient.expect_ready_to_connect(testClientConfig);
-      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout * 2)) << testBadAddress.host;
+      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout)) << testBadAddress.host;
    }
 }
 
@@ -468,9 +522,10 @@ TEST_F(tls_client, goodssl)
          }
       ),
    };
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{tls_packet_size_limit,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{tls_packet_size_limit,};
+   constexpr uint32_t testSendBufferSize{2 * 1024,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    std::vector<domain_address> testDomains;
    testDomains.reserve(testGoodAddresses.size());
    for (auto const &testGoodAddress : testGoodAddresses)
@@ -482,8 +537,8 @@ TEST_F(tls_client, goodssl)
       testDomains.push_back(domain_address{.hostname = std::string{testGoodAddress.host,}, .port = testGoodAddress.port,});
    }
    x509_store const testX509Store{x509_store_config{}, testDomains,};
-   constexpr size_t testTlsSessionListCapacity{1,};
-   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr uint32_t testTlsSessionListCapacity{1,};
+   constexpr std::chrono::seconds testTimeout{1,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testGoodAddress : testGoodAddresses)
    {
@@ -510,7 +565,7 @@ TEST_F(tls_client, goodssl)
          ,
       };
       testClient.expect_ready_to_connect(testClientConfig);
-      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout * 2)) << testGoodAddress.host;
+      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout)) << testGoodAddress.host;
    }
 }
 #endif

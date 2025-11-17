@@ -29,10 +29,12 @@
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 #include "io_threads/file_writer_config.hpp" ///< for io_threads::file_writer_config
 #include "io_threads/file_writer_thread.hpp" ///< for io_threads::file_writer_thread
+#include "io_threads/time.hpp" ///< for io_threads::system_time
 
 #include <cassert> ///< for assert
-#include <chrono> ///< for std::chrono::days, std::chrono::floor, std::chrono::nanoseconds, std::chrono::sys_time
+#include <chrono> ///< for std::chrono::days, std::chrono::floor
 #include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint8_t
 #include <memory> ///< for std::addressof, std::allocator, std::construct_at, std::destroy_at
 #include <mutex> ///< for std::mutex, std::scoped_lock
 #include <new> ///< for std::launder
@@ -47,10 +49,8 @@ template<typename type>
    requires((false == std::is_pointer_v<type>) && (false == std::is_reference_v<type>))
 struct rotating_file_write_task final
 {
-   using timestamp_type = std::chrono::sys_time<std::chrono::nanoseconds>;
-
    rotating_file_write_task *next{nullptr,};
-   timestamp_type timestamp{};
+   system_time timestamp{};
    type value;
 
    rotating_file_write_task() = delete;
@@ -115,8 +115,6 @@ private:
    };
 
 public:
-   using timestamp_type = typename rotating_file_write_task<type>::timestamp_type;
-
    rotating_file_write_queue() = delete;
    rotating_file_write_queue(rotating_file_write_queue &&) = delete;
    rotating_file_write_queue(rotating_file_write_queue const &) = delete;
@@ -165,13 +163,13 @@ public:
       m_unorderedTasks = std::launder(std::addressof(task));
       if (status::ready == m_status)
       {
-         assert(std::chrono::sys_time<std::chrono::days>{} != m_currentDay);
+         assert(std::chrono::days::zero() != m_currentDay);
          m_status = status::busy;
          ready_to_write();
       }
       else if (status::idle == m_status) [[unlikely]]
       {
-         assert(std::chrono::sys_time<std::chrono::days>{} == m_currentDay);
+         assert(std::chrono::days::zero() == m_currentDay);
          m_status = status::opening;
          ready_to_open();
          io_queue_started();
@@ -198,7 +196,7 @@ public:
 private:
    status m_status{status::idle,};
    bool m_stopRequested{false,};
-   std::chrono::sys_time<std::chrono::days> m_currentDay{};
+   std::chrono::days m_currentDay{std::chrono::days::zero(),};
    rotating_file_write_task<type> *m_unorderedTasks{nullptr,};
    std::mutex m_tasksLock{};
    task_allocator m_taskAllocator;
@@ -206,7 +204,7 @@ private:
    size_t m_lastTaskOffset{0,};
    type_serializer m_typeSerializer;
 
-   [[nodiscard]] virtual timestamp_type get_timestamp(type const &value) = 0;
+   [[nodiscard]] virtual system_time get_timestamp(type const &value) = 0;
 
    void io_closed(std::error_code const &errorCode) final
    {
@@ -239,7 +237,7 @@ private:
          m_status = status::idle;
          assert((true == bool{errorCode,}) || (true == m_stopRequested));
          m_stopRequested = false;
-         m_currentDay = std::chrono::sys_time<std::chrono::days>{};
+         m_currentDay = std::chrono::days::zero();
          tasks = std::launder(m_unorderedTasks);
          m_unorderedTasks = nullptr;
       } while (nullptr != tasks);
@@ -254,7 +252,7 @@ private:
       assert(status::opening == m_status);
       assert(nullptr != m_orderedTasks);
       m_status = status::busy;
-      m_currentDay = std::chrono::floor<std::chrono::days>(m_orderedTasks->timestamp);
+      m_currentDay = std::chrono::floor<std::chrono::days>(m_orderedTasks->timestamp).time_since_epoch();
    }
 
    virtual void io_queue_started() = 0;
@@ -280,7 +278,7 @@ private:
       {
          while (nullptr != m_orderedTasks)
          {
-            if (std::chrono::floor<std::chrono::days>(m_orderedTasks->timestamp) > m_currentDay) [[unlikely]]
+            if (std::chrono::floor<std::chrono::days>(m_orderedTasks->timestamp).time_since_epoch() > m_currentDay) [[unlikely]]
             {
                assert(0 == m_lastTaskOffset);
                if (auto const bytesWritten{m_typeSerializer.finish(),}; 0 < bytesWritten)
@@ -321,7 +319,7 @@ private:
       return bytesWritten;
    }
 
-   [[nodiscard]] virtual file_writer_config make_config(timestamp_type timestamp) = 0;
+   [[nodiscard]] virtual file_writer_config make_config(system_time timestamp) = 0;
 
    using super::ready_to_close;
    using super::ready_to_open;

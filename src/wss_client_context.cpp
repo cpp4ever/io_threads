@@ -28,7 +28,7 @@
 #include "io_threads/wss_client_context.hpp" ///< for io_threads::wss_client_context
 
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::make_unique
 #include <utility> ///< for std::move
 
@@ -38,16 +38,18 @@ namespace io_threads
 wss_client_context::wss_client_context(wss_client_context &&rhs) noexcept = default;
 wss_client_context::wss_client_context(wss_client_context const &rhs) noexcept = default;
 
-wss_client_context::wss_client_context(tls_client_context tlsClientContext, size_t const wssSessionListCapacity, size_t const wssBufferCatacity) :
+wss_client_context::wss_client_context(
+   tls_client_context tlsClientContext,
+   uint32_t const sessionListCapacity,
+   uint32_t const inboundBufferSize,
+   uint32_t const outboundBufferSize
+) :
    m_tlsClientContext{std::move(tlsClientContext),}
 {
    executor().execute(
-      [this, wssSessionListCapacity, wssBufferCatacity] ()
+      [this, sessionListCapacity, inboundBufferSize, outboundBufferSize] ()
       {
-         m_impl = std::make_unique<wss_client_context_impl>(
-            wssSessionListCapacity,
-            wssBufferCatacity
-         );
+         m_impl = std::make_unique<wss_client_context_impl>(sessionListCapacity, inboundBufferSize, outboundBufferSize);
       }
    );
    assert(nullptr != m_impl);

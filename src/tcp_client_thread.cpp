@@ -29,8 +29,8 @@
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
-#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
-#include "io_threads/time.hpp" ///< for io_threads::system_clock, io_threads::system_time
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_ring, io_threads::thread_config
+#include "io_threads/time.hpp" ///< for io_threads::steady_clock, io_threads::steady_time
 #if (defined(__linux__))
 #  include "linux/tcp_client_thread_worker.hpp" ///< for io_threads::tcp_client::tcp_client_thread_worker
 #elif (defined(_WIN32) || defined(_WIN64))
@@ -38,6 +38,7 @@
 #endif
 
 #include <cassert> ///< for assert
+#include <cstdint> ///< for uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::future, std::promise
 #include <memory> ///< for std::addressof, std::make_shared
@@ -55,11 +56,19 @@ public:
    tcp_client_thread_impl(tcp_client_thread_impl &&) = delete;
    tcp_client_thread_impl(tcp_client_thread_impl const &) = delete;
 
-   [[nodiscard]] explicit tcp_client_thread_impl(thread_config const &threadConfig)
+   [[nodiscard]] tcp_client_thread_impl(
+      thread_config const &threadConfig,
+      uint32_t const socketListCapacity,
+      uint32_t const recvBufferSize,
+      uint32_t const sendBufferSize
+   )
    {
+      assert(socketListCapacity > 0);
+      assert(recvBufferSize > 0);
+      assert(sendBufferSize > 0);
       std::promise<std::shared_ptr<tcp_client::tcp_client_thread_worker>> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
-      m_thread = tcp_client::tcp_client_thread_worker::start(threadConfig, workerPromise);
+      m_thread = tcp_client::tcp_client_thread_worker::start(threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, workerPromise);
       m_worker = workerFuture.get();
    }
 
@@ -84,7 +93,7 @@ public:
       m_worker->ready_to_connect(client);
    }
 
-   void ready_to_connect_deferred(tcp_client &client, system_time const notBeforeTime) const
+   void ready_to_connect_deferred(tcp_client &client, steady_time const notBeforeTime) const
    {
       m_worker->ready_to_connect_deferred(client, notBeforeTime);
    }
@@ -99,13 +108,13 @@ public:
       m_worker->ready_to_send(client);
    }
 
-   void ready_to_send_deferred(tcp_client &client, system_time const notBeforeTime) const
+   void ready_to_send_deferred(tcp_client &client, steady_time const notBeforeTime) const
    {
       m_worker->ready_to_send_deferred(client, notBeforeTime);
    }
 
 #if (defined(__linux__))
-   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   [[nodiscard]] io_ring share_io_threads() const noexcept
    {
       return m_worker->share_io_threads();
    }
@@ -119,8 +128,13 @@ private:
 tcp_client_thread::tcp_client_thread(tcp_client_thread &&rhs) noexcept = default;
 tcp_client_thread::tcp_client_thread(tcp_client_thread const &rhs) noexcept = default;
 
-tcp_client_thread::tcp_client_thread(thread_config const &threadConfig) :
-   m_impl{std::make_shared<tcp_client_thread_impl>(threadConfig),}
+tcp_client_thread::tcp_client_thread(
+   thread_config const &threadConfig,
+   uint32_t const socketListCapacity,
+   uint32_t const recvBufferSize,
+   uint32_t const sendBufferSize
+) :
+   m_impl{std::make_shared<tcp_client_thread_impl>(threadConfig, socketListCapacity, recvBufferSize, sendBufferSize),}
 {}
 
 tcp_client_thread::~tcp_client_thread() = default;
@@ -132,7 +146,7 @@ void tcp_client_thread::execute(std::function<void()> const &ioRoutine) const
 }
 
 #if (defined(__linux__))
-shared_cpu_affinity_config tcp_client_thread::share_io_threads() const noexcept
+io_ring tcp_client_thread::share_io_threads() const noexcept
 {
    return m_impl->share_io_threads();
 }
@@ -149,7 +163,7 @@ void tcp_client_thread::tcp_client::ready_to_connect()
    m_tcpClientThread.m_impl->ready_to_connect(*this);
 }
 
-void tcp_client_thread::tcp_client::ready_to_connect_deferred(system_time const notBeforeTime)
+void tcp_client_thread::tcp_client::ready_to_connect_deferred(steady_time const notBeforeTime)
 {
    m_tcpClientThread.m_impl->ready_to_connect_deferred(*this, notBeforeTime);
 }
@@ -164,7 +178,7 @@ void tcp_client_thread::tcp_client::ready_to_send()
    m_tcpClientThread.m_impl->ready_to_send(*this);
 }
 
-void tcp_client_thread::tcp_client::ready_to_send_deferred(system_time const notBeforeTime)
+void tcp_client_thread::tcp_client::ready_to_send_deferred(steady_time const notBeforeTime)
 {
    m_tcpClientThread.m_impl->ready_to_send_deferred(*this, notBeforeTime);
 }
@@ -258,6 +272,8 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::enqueue_deferred_t
             break;
          }
       }
+      assert(nullptr != deferredTask.prev);
+      assert(nullptr != deferredTask.next);
    }
    deferredTask.client.m_deferredTask = std::addressof(deferredTask);
 }
@@ -299,7 +315,7 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::handle_deferred_ta
 void tcp_client_thread::tcp_client::tcp_client_thread_worker::process_deferred_tasks()
 {
    auto *deferredTask{m_deferredTaskHead,};
-   while ((nullptr != deferredTask) && (system_clock::now() >= deferredTask->notBeforeTime))
+   while ((nullptr != deferredTask) && (steady_clock::now() >= deferredTask->notBeforeTime))
    {
       assert(nullptr == deferredTask->prev);
       if (auto *nextDeferredTask{deferredTask->next,}; nullptr != nextDeferredTask)

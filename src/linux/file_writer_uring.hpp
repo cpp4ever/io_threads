@@ -25,15 +25,15 @@
 
 #pragma once
 
-#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_affinity_config_variant
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::io_ring
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 #include <sys/types.h> ///< for mode_t
 
-#include <cstddef> ///< for size_t
 #include <cstdint> ///< for int32_t, uint32_t
 #include <memory> ///< for std::unique_ptr
+#include <optional> ///< for std::optional
 
 namespace io_threads
 {
@@ -53,9 +53,9 @@ public:
    virtual void prep_open(file_descriptor &fileDescriptor, int32_t flags, mode_t mode) = 0;
    virtual void prep_write(file_descriptor &fileDescriptor, uint32_t bytesLength) = 0;
 
-   [[nodiscard]] virtual registered_buffer *register_buffers(uint32_t fileListCapacity, size_t registeredBufferCapacity) = 0;
+   [[nodiscard]] virtual registered_buffer *register_buffers(uint32_t fileListCapacity, uint32_t registeredBufferSize) = 0;
    [[nodiscard]] virtual file_descriptor *register_file_descriptors(uint32_t fileListCapacity) = 0;
-   [[nodiscard]] virtual size_t registered_buffer_capacity(registered_buffer &registeredBuffer) const = 0;
+   [[nodiscard]] virtual uint32_t registered_buffer_capacity(registered_buffer &registeredBuffer) const = 0;
    virtual void unregister_buffers(registered_buffer *registeredBuffers) = 0;
    virtual void unregister_file_descriptors(file_descriptor *fileDescriptors) = 0;
 
@@ -63,9 +63,13 @@ public:
    virtual void stop() = 0;
    virtual void wake() = 0;
 
-   [[nodiscard]] virtual shared_cpu_affinity_config share_io_threads() const noexcept = 0;
+   [[nodiscard]] virtual io_ring share_io_threads() const noexcept = 0;
 
-   [[nodiscard]] static std::unique_ptr<file_writer_uring> construct(cpu_affinity_config_variant const &ioThreadsAffinity, size_t ioRingQueueCapacity);
+   [[nodiscard]] static std::unique_ptr<file_writer_uring> construct(
+      io_affinity const &asyncWorkersAffinity,
+      io_affinity const &kernelThreadAffinity,
+      uint32_t ioRingQueueCapacity
+   );
 
 protected:
    [[nodiscard]] file_writer_uring() noexcept = default;

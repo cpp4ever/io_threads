@@ -28,7 +28,7 @@
 #include "io_threads/tcp_client_thread.hpp" ///< for io_threads::tcp_client_thread
 #include "io_threads/x509_store.hpp" ///< for io_threads::x509_store
 
-#include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::shared_ptr
 #include <string_view> ///< for std::string_view
 
@@ -43,11 +43,13 @@ public:
    tls_client_context() = delete;
    [[nodiscard]] tls_client_context(tls_client_context &&rhs) noexcept;
    [[nodiscard]] tls_client_context(tls_client_context const &rhs) noexcept;
-   [[nodiscard]] tls_client_context(tcp_client_thread executor, x509_store const &x509Store, std::string_view const &domainName, size_t tlsSessionListCapacity);
+   [[nodiscard]] tls_client_context(tcp_client_thread executor, x509_store const &x509Store, std::string_view const &domainName, uint32_t tlsSessionListCapacity);
    ~tls_client_context();
 
    tls_client_context &operator = (tls_client_context &&) = delete;
    tls_client_context &operator = (tls_client_context const &)= delete;
+
+   [[nodiscard]] std::string_view domain_name() const noexcept;
 
    [[maybe_unused, nodiscard]] tcp_client_thread const &executor() const noexcept
    {

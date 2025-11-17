@@ -38,6 +38,7 @@ namespace io_threads::tests
 template<typename test_stream, typename test_client>
 void test_websocket_client(test_client &testClient)
 {
+   testClient.expect_disconnect(); ///< disconnect without connection
    auto const testConnectivityIssueErrorCodeMatcher
    {
       testing::AnyOf(
@@ -67,7 +68,7 @@ void test_websocket_client(test_client &testClient)
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    ASSERT_FALSE(testNetworkInterfaceIps.empty());
-   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr std::chrono::seconds testTimeout{1,};
    constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
@@ -212,7 +213,7 @@ void test_websocket_client(test_client &testClient)
             testResponse,
             [&testClient] ()
             {
-               testClient.expect_disconnect();
+               testClient.expect_close();
             }
          );
          testClient.expect_ready_to_send(testRequest);
@@ -227,15 +228,15 @@ void test_websocket_client(test_client &testClient)
          EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
          std::string const testRequest{R"raw({"test_request":"deferred_connect"})raw",};
          std::string const testResponse{R"raw({"test_response":"deferred_connect"})raw",};
-         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
-         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
+         testClient.expect_ready_to_connect_deferred(steady_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
+         testClient.expect_ready_to_connect_deferred(steady_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
          ASSERT_EQ(std::future_status::timeout, testClient.wait_for(std::chrono::milliseconds{10,}));
-         auto const testConnectTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         auto const testConnectTime{steady_clock::now() + std::chrono::milliseconds{100,},};
          EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
             .WillOnce(
                [testRequest, testResponse, testConnectTime] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
-                  EXPECT_GT(system_clock::now(), testConnectTime);
+                  EXPECT_GT(steady_clock::now(), testConnectTime);
                   std::string_view const testInboundMessage
                   {
                      static_cast<char const *>(testInboundBuffer.data().data()),
@@ -252,13 +253,13 @@ void test_websocket_client(test_client &testClient)
             testResponse,
             [&testClient] ()
             {
-               testClient.expect_disconnect();
+               testClient.expect_close();
             }
          );
          testClient.expect_ready_to_send(testRequest);
          testClient.expect_ready_to_handshake(testWebsocketConfig);
          testClient.executor().execute(
-            [&testClient, &testTcpConfig, testConnectTime] ()
+            [&testClient, testTcpConfig, testConnectTime] ()
             {
                testClient.expect_ready_to_connect_deferred(testTcpConfig, testConnectTime);
             }
@@ -272,13 +273,13 @@ void test_websocket_client(test_client &testClient)
          EXPECT_CALL(testServer, should_accept_websocket()).WillOnce(testing::Return(true));
          std::string const testRequest{R"raw({"test_request":"deferred_send"})raw",};
          std::string const testResponse{R"raw({"test_response":"deferred_send"})raw",};
-         testClient.expect_ready_to_send_deferred(system_clock::now() + std::chrono::milliseconds{10,});
-         auto const testSendTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         testClient.expect_ready_to_send_deferred(steady_clock::now() + std::chrono::milliseconds{10,});
+         auto const testSendTime{steady_clock::now() + std::chrono::milliseconds{100,},};
          EXPECT_CALL(testServer, handle_message(testing::_, testing::_))
             .WillOnce(
                [testRequest, testResponse, testSendTime] (auto const &testInboundBuffer, auto &testOutboundBuffer)
                {
-                  EXPECT_GT(system_clock::now(), testSendTime);
+                  EXPECT_GT(steady_clock::now(), testSendTime);
                   std::string_view const testInboundMessage
                   {
                      static_cast<char const *>(testInboundBuffer.data().data()),
@@ -295,11 +296,11 @@ void test_websocket_client(test_client &testClient)
             testResponse,
             [&testClient] ()
             {
-               testClient.expect_disconnect();
+               testClient.expect_close();
             }
          );
          testClient.expect_ready_to_send(
-            [&testClient, &testRequest, testSendTime] ()
+            [&testClient, testRequest, testSendTime] ()
             {
                testClient.expect_ready_to_send_deferred(testRequest, testSendTime);
             }

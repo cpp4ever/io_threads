@@ -29,17 +29,16 @@
 
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
-#include <cstdint> ///< for uint8_t
+#include <cstdint> ///< for uint32_t, uint8_t
 
 namespace io_threads
 {
 
 template<typename string_output, typename binary_input>
-[[nodiscard]] size_t base64_encode(string_output &stringOutput, binary_input const &binaryInput)
+[[nodiscard]] uint32_t base64_encode(string_output &stringOutput, binary_input const &binaryInput)
 {
    assert((4 * (std::size(binaryInput) + 2) / 3 + 1) <= std::size(stringOutput));
-   return static_cast<size_t>(
+   return static_cast<uint32_t>(
       EVP_EncodeBlock(
          std::bit_cast<uint8_t *>(std::data(stringOutput)),
          std::bit_cast<uint8_t const *>(std::data(binaryInput)),

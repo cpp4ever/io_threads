@@ -54,161 +54,219 @@ public:
    wss_client_mock &operator = (wss_client_mock &&) = delete;
    wss_client_mock &operator = (wss_client_mock const &) = delete;
 
-   void expect_disconnect()
+   void expect_close()
    {
-      EXPECT_CALL(*this, io_frame_to_send())
-         .WillOnce(
-            [this] ()
-            {
-               expect_error(std::error_code{});
-               ready_to_close(websocket_closure_reason::normal);
-               return websocket_frame{};
-            }
-         )
-      ;
+      executor().execute(
+         [this] ()
+         {
+            EXPECT_CALL(*this, io_frame_to_send())
+               .WillOnce(
+                  [this] ()
+                  {
+                     expect_error(std::error_code{});
+                     ready_to_close(websocket_closure_reason::normal);
+                     return websocket_frame{};
+                  }
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
-   template<typename error_code_matcher>
-   void expect_error(error_code_matcher &&errorCodeMatcher)
+   void expect_disconnect()
    {
-      EXPECT_CALL(*this, io_disconnected(testing::_))
-         .WillOnce(
-            [this, errorCodeMatcher] (auto const errorCode)
-            {
-               m_lastOutboundMessage.clear();
-               m_connected.store(false, std::memory_order_relaxed);
-               super::io_disconnected(errorCode);
-               EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
-               EXPECT_CALL(*this, io_frame_received(testing::_, testing::_)).Times(0);
-               EXPECT_CALL(*this, io_frame_to_send()).Times(0);
-               EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
-               EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
-               EXPECT_CALL(*this, io_ready_to_handshake()).Times(0);
-               assert(nullptr != m_internalState);
-               m_internalState->done.set_value();
-            }
-         )
-      ;
+      expect_error(std::error_code{});
+      ready_to_close(websocket_closure_reason::normal);
    }
 
-   void expect_ready_to_connect(tcp_client_config const &tcpClientConfig)
+   template<typename error_code_matcher>
+   void expect_error(error_code_matcher errorCodeMatcher)
+   {
+      executor().execute(
+         [this, errorCodeMatcher = std::move(errorCodeMatcher)] ()
+         {
+            EXPECT_CALL(*this, io_disconnected(testing::_))
+               .WillOnce(
+                  [this, errorCodeMatcher = std::move(errorCodeMatcher)] (auto const errorCode)
+                  {
+                     m_lastOutboundMessage.clear();
+                     m_connected.store(false, std::memory_order_relaxed);
+                     super::io_disconnected(errorCode);
+                     EXPECT_THAT(errorCode, errorCodeMatcher) << errorCode.value() << ": " << errorCode.message();
+                     EXPECT_CALL(*this, io_frame_received(testing::_, testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_frame_to_send()).Times(0);
+                     EXPECT_CALL(*this, io_disconnected(testing::_)).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_connect()).Times(0);
+                     EXPECT_CALL(*this, io_ready_to_handshake()).Times(0);
+                     if (nullptr != m_internalState)
+                     {
+                        m_connected.store(false, std::memory_order_relaxed);
+                        m_internalState->done.set_value();
+                     }
+                     else
+                     {
+                        EXPECT_FALSE(m_connected.load(std::memory_order_relaxed));
+                     }
+                  }
+               )
+            ;
+         }
+      );
+   }
+
+   void expect_ready_to_connect(tcp_client_config tcpClientConfig)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(tcpClientConfig));
+      executor().execute(
+         [this, tcpClientConfig = std::move(tcpClientConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(tcpClientConfig)));
+         }
+      );
       ready_to_connect();
    }
 
-   void expect_ready_to_connect_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_connect_deferred(tcp_client_config const &testConfig, system_time const testNotBeforeTime)
+   void expect_ready_to_connect_deferred(tcp_client_config testConfig, steady_time const testNotBeforeTime)
    {
       m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(testConfig));
+      executor().execute(
+         [this, testConfig = std::move(testConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(testConfig)));
+         }
+      );
       ready_to_connect_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_handshake(websocket_client_config const &websocketClientConfig)
+   void expect_ready_to_handshake(websocket_client_config websocketClientConfig)
    {
-      EXPECT_CALL(*this, io_ready_to_handshake()).WillOnce(testing::Return(websocketClientConfig));
+      executor().execute(
+         [this, websocketClientConfig = std::move(websocketClientConfig)] ()
+         {
+            EXPECT_CALL(*this, io_ready_to_handshake()).WillOnce(testing::Return(std::move(websocketClientConfig)));
+         }
+      );
    }
 
-   void expect_ready_to_send(std::string const &outboundMssage)
+   void expect_ready_to_send(std::string outboundMessage)
    {
-      EXPECT_CALL(*this, io_frame_to_send())
-         .WillRepeatedly(
-            [this, outboundMssage] ()
-            {
-               EXPECT_CALL(*this, io_frame_to_send()).WillRepeatedly(
-                  [this] ()
+      executor().execute(
+         [this, outboundMessage = std::move(outboundMessage)] ()
+         {
+            EXPECT_CALL(*this, io_frame_to_send())
+               .WillRepeatedly(
+                  [this, outboundMessage = std::move(outboundMessage)] ()
                   {
-                     EXPECT_CALL(*this, io_frame_to_send()).Times(0);
-                     return websocket_frame{};
+                     EXPECT_CALL(*this, io_frame_to_send()).WillRepeatedly(
+                        [this] ()
+                        {
+                           EXPECT_CALL(*this, io_frame_to_send()).Times(0);
+                           return websocket_frame{};
+                        }
+                     );
+                     m_lastOutboundMessage = std::move(outboundMessage);
+                     return websocket_frame
+                     {
+                        .bytes = std::bit_cast<std::byte *>(m_lastOutboundMessage.data()),
+                        .bytesLength = m_lastOutboundMessage.size(),
+                        .type = websocket_frame_type::text,
+                     };
                   }
-               );
-               m_lastOutboundMessage = outboundMssage;
-               return websocket_frame
-               {
-                  .bytes = std::bit_cast<std::byte *>(m_lastOutboundMessage.data()),
-                  .bytesLength = m_lastOutboundMessage.size(),
-                  .type = websocket_frame_type::text,
-               };
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
    void expect_ready_to_send(std::function<void()> sendHandler)
    {
       ASSERT_TRUE(sendHandler);
-      EXPECT_CALL(*this, io_frame_to_send())
-         .WillOnce(
-            [sendHandler] ()
-            {
-               sendHandler();
-               return websocket_frame{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, sendHandler = std::move(sendHandler)] ()
+         {
+            EXPECT_CALL(*this, io_frame_to_send())
+               .WillOnce(
+                  [sendHandler = std::move(sendHandler)] ()
+                  {
+                     sendHandler();
+                     return websocket_frame{};
+                  }
+               )
+            ;
+         }
+      );
       ready_to_send();
    }
 
-   void expect_ready_to_send_deferred(system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(steady_time const testNotBeforeTime)
    {
       ready_to_send_deferred(testNotBeforeTime);
    }
 
-   void expect_ready_to_send_deferred(std::string outboundMessage, system_time const testNotBeforeTime)
+   void expect_ready_to_send_deferred(std::string outboundMessage, steady_time const testNotBeforeTime)
    {
-      EXPECT_CALL(*this, io_frame_to_send())
-         .WillRepeatedly(
-            [this, outboundMessage = std::move(outboundMessage)] ()
-            {
-               EXPECT_CALL(*this, io_frame_to_send()).WillRepeatedly(
-                  [this] ()
+      executor().execute(
+         [this, outboundMessage = std::move(outboundMessage)] ()
+         {
+            EXPECT_CALL(*this, io_frame_to_send())
+               .WillRepeatedly(
+                  [this, outboundMessage = std::move(outboundMessage)] ()
                   {
-                     EXPECT_CALL(*this, io_frame_to_send()).Times(0);
-                     return websocket_frame{};
+                     EXPECT_CALL(*this, io_frame_to_send()).WillRepeatedly(
+                        [this] ()
+                        {
+                           EXPECT_CALL(*this, io_frame_to_send()).Times(0);
+                           return websocket_frame{};
+                        }
+                     );
+                     m_lastOutboundMessage = std::move(outboundMessage);
+                     return websocket_frame
+                     {
+                        .bytes = std::bit_cast<std::byte *>(m_lastOutboundMessage.data()),
+                        .bytesLength = m_lastOutboundMessage.size(),
+                        .type = websocket_frame_type::text,
+                     };
                   }
-               );
-               m_lastOutboundMessage = std::move(outboundMessage);
-               return websocket_frame
-               {
-                  .bytes = std::bit_cast<std::byte *>(m_lastOutboundMessage.data()),
-                  .bytesLength = m_lastOutboundMessage.size(),
-                  .type = websocket_frame_type::text,
-               };
-            }
-         )
-      ;
+               )
+            ;
+         }
+      );
       ready_to_send_deferred(testNotBeforeTime);
    }
 
    template<typename recv_handler>
-   void expect_recv(std::string const &expectedInboundMessage, recv_handler &&recvHandler)
+   void expect_recv(std::string expectedInboundMessage, recv_handler &&recvHandler)
    {
-      EXPECT_CALL(*this, io_frame_received(testing::_, testing::_))
-         .WillOnce(
-            [expectedInboundMessage, recvHandler] (auto const &dataFrame, auto const finalFrame)
-            {
-               EXPECT_EQ(websocket_frame_type::text, dataFrame.type);
-               EXPECT_TRUE(finalFrame);
-               std::string_view const inboundMessage
-               {
-                  std::bit_cast<char const *>(dataFrame.bytes),
-                  dataFrame.bytesLength,
-               };
-               EXPECT_EQ(expectedInboundMessage, inboundMessage);
-               recvHandler();
-               return std::error_code{};
-            }
-         )
-      ;
+      executor().execute(
+         [this, expectedInboundMessage = std::move(expectedInboundMessage), recvHandler = std::move(recvHandler)] ()
+         {
+            EXPECT_CALL(*this, io_frame_received(testing::_, testing::_))
+               .WillOnce(
+                  [expectedInboundMessage = std::move(expectedInboundMessage), recvHandler = std::move(recvHandler)] (auto const &dataFrame, auto const finalFrame)
+                  {
+                     EXPECT_EQ(websocket_frame_type::text, dataFrame.type);
+                     EXPECT_TRUE(finalFrame);
+                     std::string_view const inboundMessage
+                     {
+                        std::bit_cast<char const *>(dataFrame.bytes),
+                        dataFrame.bytesLength,
+                     };
+                     EXPECT_EQ(expectedInboundMessage, inboundMessage);
+                     recvHandler();
+                     return std::error_code{};
+                  }
+               )
+            ;
+         }
+      );
    }
 
    [[nodiscard]] auto wait_for(time_duration const timeout) const
@@ -243,15 +301,21 @@ using wss_client = testsuite;
 
 TEST_F(wss_client, connect_timeout)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{1,};
+   constexpr uint32_t testSendBufferSize{1,};
    x509_store const testX509Store{x509_store_config{},};
-   constexpr size_t testTlsSessionListCapacity{testSocketListCapacity,};
-   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
-   constexpr size_t testWssSessionListCapacity{testTlsSessionListCapacity,};
-   constexpr size_t testWssBufferCatacity{1,};
-   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferCatacity,};
+   constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
+   tls_client_context const testTlsContext
+   {
+      tcp_client_thread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
+      testX509Store,
+      test_domain,
+      testTlsSessionListCapacity,
+   };
+   constexpr uint32_t testWssSessionListCapacity{testTlsSessionListCapacity,};
+   constexpr uint32_t testWssBufferSize{1,};
+   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferSize, testWssBufferSize,};
    test_wss_client testClient{testWebsocketContext,};
    constexpr uint16_t testPort{444,};
    test_tcp_connect_timeout(testClient, testPort);
@@ -259,19 +323,25 @@ TEST_F(wss_client, connect_timeout)
 
 TEST_F(wss_client, wss)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{4 * 1024,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{2 * 1024,};
+   constexpr uint32_t testSendBufferSize{2 * 1024,};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
 #endif
-   constexpr size_t testTlsSessionListCapacity{testSocketListCapacity,};
-   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
-   constexpr size_t testWssSessionListCapacity{testTlsSessionListCapacity,};
-   constexpr size_t testWssBufferCatacity{256,};
-   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferCatacity,};
+   constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
+   tls_client_context const testTlsContext
+   {
+      tcp_client_thread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
+      testX509Store,
+      test_domain,
+      testTlsSessionListCapacity,
+   };
+   constexpr uint32_t testWssSessionListCapacity{testTlsSessionListCapacity,};
+   constexpr uint32_t testWssBufferSize{64,};
+   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferSize, testWssBufferSize,};
    test_wss_client testClient{testWebsocketContext,};
    test_websocket_client<boost::beast::websocket::stream<test_tls_stream, true>>(testClient);
 }
@@ -298,33 +368,34 @@ public:
    ping_client_mock &operator = (ping_client_mock &&) = delete;
    ping_client_mock &operator = (ping_client_mock const &) = delete;
 
-   void start(tcp_client_config const &tcpConfig, websocket_client_config const &websocketConfig, time_duration const pingTimeout, system_time const connectTime)
+   void start(tcp_client_config tcpConfig, websocket_client_config websocketConfig, time_duration const pingTimeout, steady_time const connectTime)
    {
-      m_pingTimeout = pingTimeout;
-      m_sentPing = 0;
-      m_recvedPing = 0;
-      wait_for_pong();
+      m_internalState = std::make_unique<internal_state>();
       EXPECT_CALL(*this, io_frame_to_send())
          .WillOnce(
-            [this, connectTime] ()
+            [this, pingTimeout, connectTime] ()
             {
-               EXPECT_GT(system_clock::now(), connectTime);
+               EXPECT_GT(steady_clock::now(), connectTime);
+               m_pingTimeout = pingTimeout;
+               m_sentPing = 0;
+               m_recvedPing.store(0, std::memory_order_release);
+               wait_for_pong();
                schedule_ping();
                return websocket_frame{};
             }
          )
       ;
       ready_to_send();
-      EXPECT_CALL(*this, io_ready_to_handshake()).WillOnce(testing::Return(websocketConfig));
-      m_internalState = std::make_unique<internal_state>();
-      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(tcpConfig));
+      EXPECT_CALL(*this, io_ready_to_handshake()).WillOnce(testing::Return(std::move(websocketConfig)));
+      EXPECT_CALL(*this, io_ready_to_connect()).WillOnce(testing::Return(std::move(tcpConfig)));
       ready_to_connect_deferred(connectTime);
    }
 
    [[nodiscard]] auto wait_for(time_duration const timeout) const
    {
       assert(nullptr != m_internalState);
-      return std::make_tuple(m_internalState->doneFuture.wait_for(timeout), m_recvedPing, expected_number_of_pings());
+      auto const futureStatus{m_internalState->doneFuture.wait_for(timeout),};
+      return std::make_tuple(futureStatus, m_recvedPing.load(std::memory_order_acquire), expected_number_of_pings());
    }
 
 private:
@@ -332,21 +403,21 @@ private:
    std::string m_lastOutboundMessage{"",};
    std::atomic_bool m_connected{false,};
    time_duration m_pingTimeout{time_duration::zero(),};
-   size_t m_sentPing{0,};
-   size_t m_recvedPing{0,};
-   system_time m_nextPingTime{time_duration::zero(),};
+   uint32_t m_sentPing{0,};
+   std::atomic_uint32_t m_recvedPing{0,};
+   steady_time m_nextPingTime{time_duration::zero(),};
 
-   [[nodiscard]] size_t expected_number_of_pings() const noexcept
+   [[nodiscard]] uint32_t expected_number_of_pings() const noexcept
    {
-      return static_cast<size_t>((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds{1,}) - connect_timeout) / m_pingTimeout - 1);
+      return static_cast<uint32_t>((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds{1,}) - connect_timeout) / m_pingTimeout - 1);
    }
 
    void handle_pong(std::string_view const inboundMessage)
    {
-      EXPECT_EQ(std::to_string(m_recvedPing), inboundMessage);
-      if (expected_number_of_pings() >= m_recvedPing)
+      EXPECT_EQ(std::to_string(m_recvedPing.load(std::memory_order_relaxed)), inboundMessage);
+      if (expected_number_of_pings() >= m_recvedPing.load(std::memory_order_relaxed))
       {
-         ++m_recvedPing;
+         m_recvedPing.fetch_add(1, std::memory_order_release);
          wait_for_pong();
       }
    }
@@ -367,7 +438,7 @@ private:
          .WillOnce(
             [this] ()
             {
-               EXPECT_GE(system_clock::now(), m_nextPingTime);
+               EXPECT_GE(steady_clock::now(), m_nextPingTime);
                EXPECT_CALL(*this, io_frame_to_send()).WillRepeatedly(
                   [this] ()
                   {
@@ -387,15 +458,15 @@ private:
             }
          )
       ;
-      m_nextPingTime = system_clock::now() + m_pingTimeout;
+      m_nextPingTime = steady_clock::now() + m_pingTimeout;
       ready_to_send_deferred(m_nextPingTime);
    }
 
    void wait_for_pong()
    {
-      if (expected_number_of_pings() == m_recvedPing)
+      if (expected_number_of_pings() == m_recvedPing.load(std::memory_order_relaxed))
       {
-         assert(m_sentPing == m_recvedPing);
+         EXPECT_EQ(m_sentPing, m_recvedPing.load(std::memory_order_relaxed));
          EXPECT_CALL(*this, io_disconnected(testing::_))
             .WillOnce(
                [this] (auto const errorCode)
@@ -473,19 +544,25 @@ TEST_F(wss_client, ping_pong)
       .probesCount = 0,
    };
    constexpr auto testHeartbeatTimeouts{std::to_array({11, 13, 17, 19, 23, 29, 31, 37, 41, 43,}),};
-   constexpr auto testSocketListCapacity{testHeartbeatTimeouts.size(),};
-   constexpr size_t testIoBufferCapacity{4 * 1024,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr auto testSocketListCapacity{static_cast<uint32_t>(testHeartbeatTimeouts.size()),};
+   constexpr uint32_t testRecvBufferSize{2 * 1024,};
+   constexpr uint32_t testSendBufferSize{2 * 1024,};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
 #endif
-   constexpr size_t testTlsSessionListCapacity{testSocketListCapacity,};
-   tls_client_context const testTlsContext{testThread, testX509Store, test_domain, testTlsSessionListCapacity,};
-   constexpr size_t testWssSessionListCapacity{testTlsSessionListCapacity,};
-   constexpr size_t testWssBufferCatacity{256,};
-   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferCatacity,};
+   constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
+   tls_client_context const testTlsContext
+   {
+      tcp_client_thread{thread_config{}.with_worker_affinity(cpu_id{0,}), testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
+      testX509Store,
+      test_domain,
+      testTlsSessionListCapacity,
+   };
+   constexpr uint32_t testWssSessionListCapacity{testTlsSessionListCapacity,};
+   constexpr uint32_t testWssBufferSize{5,};
+   wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferSize, testWssBufferSize,};
    std::array<std::unique_ptr<test_ping_client>, testWssSessionListCapacity> testClients{};
    for (auto &testClient : testClients)
    {
@@ -526,23 +603,23 @@ TEST_F(wss_client, ping_pong)
          ,
       };
       websocket_client_config const testWebsocketConfig{"/test?name=ping_pong",};
-      auto const testConnectTime{system_clock::now() + testConnectTimeout,};
-      for (size_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
+      auto const testConnectTime{steady_clock::now() + testConnectTimeout,};
+      for (uint32_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
       {
          testClients[testIndex]->start(testTcpConfig, testWebsocketConfig, std::chrono::milliseconds{testHeartbeatTimeouts[testIndex],}, testConnectTime);
       }
       std::array<std::future_status, testWssSessionListCapacity> testFutureStatuses{};
-      std::array<size_t, testWssSessionListCapacity> testResults{};
-      std::array<size_t, testWssSessionListCapacity> expectedResults{};
-      for (size_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
+      std::array<uint32_t, testWssSessionListCapacity> testResults{};
+      std::array<uint32_t, testWssSessionListCapacity> expectedResults{};
+      for (uint32_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
       {
          auto const [testFutureStatus, testResult, expectedResult]{testClients[testIndex]->wait_for(testTimeout)};
          testFutureStatuses[testIndex] = testFutureStatus;
          testResults[testIndex] = testResult;
          expectedResults[testIndex] = expectedResult;
       }
-      ASSERT_THAT(testFutureStatuses, testing::Each(std::future_status::ready));
-      ASSERT_THAT(testResults, testing::ElementsAreArray(expectedResults));
+      EXPECT_THAT(testFutureStatuses, testing::Each(std::future_status::ready));
+      EXPECT_THAT(testResults, testing::ElementsAreArray(expectedResults));
    }
 }
 

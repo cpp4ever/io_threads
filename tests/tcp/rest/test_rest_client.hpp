@@ -40,6 +40,7 @@ namespace io_threads::tests
 template<typename test_stream, typename test_client>
 void test_rest_client(tcp_client_thread const testThread, test_client &testClient)
 {
+   testClient.expect_disconnect(); ///< disconnect without connection
    auto const testConnectivityIssueErrorCodeMatcher
    {
       testing::AnyOf(
@@ -69,7 +70,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
       testNetworkInterfaceIps.push_back(testNetworkInterfaceIp);
    }
    ASSERT_FALSE(testNetworkInterfaceIps.empty());
-   constexpr std::chrono::seconds testTimeout{5,};
+   constexpr std::chrono::seconds testTimeout{1,};
    constexpr tcp_keep_alive testTcpKeepAlive
    {
       .idleTimeout = testTimeout,
@@ -139,7 +140,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
             .WillOnce(
-               [testPeerHost, &testContentType, testResponseBody] (auto const &testRequest, auto &testResponse)
+               [testPeerHost, testContentType, testResponseBody] (auto const &testRequest, auto &testResponse)
                {
                   std::map<std::string_view, std::string_view> testHeaders
                   {
@@ -175,7 +176,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
             testHttpResponse,
             [
                &testClient,
-               &testHttpRequest,
+               testHttpRequest,
                &testConnectivityIssueErrorCodeMatcher
             ] ()
             {
@@ -222,7 +223,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                }
                EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
                   .WillOnce(
-                     [testPeerHost, &testContentType] (auto const &testRequest, auto &testResponse)
+                     [testPeerHost, testContentType] (auto const &testRequest, auto &testResponse)
                      {
                         std::map<std::string_view, std::string_view> testHeaders
                         {
@@ -268,7 +269,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                &testClient,
                &testInternalCleanupCheck,
                testPeerHost,
-               &testContentType
+               testContentType
             ] ()
             {
                if (0 == testDeleteRequestStepLock.fetch_add(1, std::memory_order_release))
@@ -283,7 +284,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      [
                         testPeerHost,
                         testTarget,
-                        &testContentType,
+                        testContentType,
                         testRequestBody,
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
@@ -355,7 +356,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                &testClient,
                &testDeleteRequest,
                testPeerHost,
-               &testContentType
+               testContentType
             ] ()
             {
                if (0 == testUpdateRequestStepLock.fetch_add(1, std::memory_order_release))
@@ -370,7 +371,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      [
                         testPeerHost,
                         testTarget,
-                        &testContentType,
+                        testContentType,
                         testRequestBody,
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
@@ -442,7 +443,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                &testClient,
                &testUpdateRequest,
                testPeerHost,
-               &testContentType
+               testContentType
             ] ()
             {
                if (0 == testReadRequestStepLock.fetch_add(1, std::memory_order_release))
@@ -456,7 +457,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      [
                         testPeerHost,
                         testTarget,
-                        &testContentType,
+                        testContentType,
                         testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
                      {
@@ -514,7 +515,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          };
          auto const testCreateRequest
          {
-            [testThread, &testServer, &testClient, &testReadRequest, testPeerHost, &testContentType]()
+            [testThread, &testServer, &testClient, &testReadRequest, testPeerHost, testContentType]()
             {
                constexpr std::string_view testTarget{"/test_method/post?test_operation=create",};
                constexpr std::string_view testRequestBody{R"raw({"test_operation":"create"})raw",};
@@ -524,7 +525,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
                      [
                         testPeerHost,
                            testTarget,
-                           &testContentType,
+                           testContentType,
                            testRequestBody,
                            testResponseBody
                      ] (auto const &testRequest, auto &testResponse)
@@ -600,15 +601,15 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          constexpr std::string_view testResponseBody{R"raw({"test":"deferred connect"})raw",};
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
-         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
-         testClient.expect_ready_to_connect_deferred(system_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
+         testClient.expect_ready_to_connect_deferred(steady_clock::now() + std::chrono::milliseconds{10,}); ///< must be cancelled due to the following call
+         testClient.expect_ready_to_connect_deferred(steady_clock::now() + std::chrono::hours{1,}); ///< must cancel previous deferred task
          ASSERT_EQ(std::future_status::timeout, testClient.wait_for(std::chrono::milliseconds{10,}));
-         auto const testConnectTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         auto const testConnectTime{steady_clock::now() + std::chrono::milliseconds{100,},};
          EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
             .WillOnce(
-               [testPeerHost, &testContentType, testResponseBody, testConnectTime] (auto const &testRequest, auto &testResponse)
+               [testPeerHost, testContentType, testResponseBody, testConnectTime] (auto const &testRequest, auto &testResponse)
                {
-                  EXPECT_GT(system_clock::now(), testConnectTime);
+                  EXPECT_GT(steady_clock::now(), testConnectTime);
                   std::map<std::string_view, std::string_view> testHeaders
                   {
                      {"Accept", "*/*",},
@@ -648,7 +649,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          );
          testClient.expect_ready_to_send(testHttpRequest);
          testClient.executor().execute(
-            [&testClient, &testConfig, testConnectTime] ()
+            [&testClient, testConfig, testConnectTime] ()
             {
                testClient.expect_ready_to_connect_deferred(testConfig, testConnectTime);
             }
@@ -660,13 +661,13 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          constexpr std::string_view testResponseBody{R"raw({"test":"deferred send"})raw",};
          EXPECT_CALL(testServer, should_accept_socket()).WillOnce(testing::Return(true));
          EXPECT_CALL(testServer, should_pass_handshake()).WillOnce(testing::Return(true));
-         testClient.expect_ready_to_send_deferred(system_clock::now() + std::chrono::milliseconds{10,});
-         auto const testSendTime{system_clock::now() + std::chrono::milliseconds{100,},};
+         testClient.expect_ready_to_send_deferred(steady_clock::now() + std::chrono::milliseconds{10,});
+         auto const testSendTime{steady_clock::now() + std::chrono::milliseconds{100,},};
          EXPECT_CALL(testServer, handle_request(testing::_, testing::_))
             .WillOnce(
-               [testPeerHost, &testContentType, testResponseBody, testSendTime] (auto const &testRequest, auto &testResponse)
+               [testPeerHost, testContentType, testResponseBody, testSendTime] (auto const &testRequest, auto &testResponse)
                {
-                  EXPECT_GT(system_clock::now(), testSendTime);
+                  EXPECT_GT(steady_clock::now(), testSendTime);
                   std::map<std::string_view, std::string_view> testHeaders
                   {
                      {"Accept", "*/*",},
@@ -705,7 +706,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
             }
          );
          testClient.expect_ready_to_send(
-            [&testClient, &testHttpRequest, testSendTime] ()
+            [&testClient, testHttpRequest, testSendTime] ()
             {
                testClient.expect_ready_to_send_deferred(testHttpRequest, testSendTime);
             }

@@ -37,11 +37,12 @@ namespace
 
 tls_client_context create_test_tls_client_context(std::string_view const domainName)
 {
-   constexpr size_t testSocketListCapacity{1,};
-   constexpr size_t testIoBufferCapacity{1,};
-   tcp_client_thread const testThread{thread_config{testSocketListCapacity, testIoBufferCapacity,},};
+   constexpr uint32_t testSocketListCapacity{1,};
+   constexpr uint32_t testRecvBufferSize{1,};
+   constexpr uint32_t testSendBufferSize{1,};
+   tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    x509_store const x509Store{x509_store_config{},};
-   constexpr size_t testTlsSessionListCapacity{1,};
+   constexpr uint32_t testTlsSessionListCapacity{1,};
    return tls_client_context{testThread, x509Store, domainName, testTlsSessionListCapacity,};
 }
 

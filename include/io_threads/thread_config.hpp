@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <cstddef> ///< for size_t
 #include <cstdint> ///< for uint32_t
 #include <optional> ///< for std::nullopt, std::nullopt_t, std::optional
 #if (defined(__linux__))
@@ -38,115 +37,53 @@ namespace io_threads
 enum struct cpu_id : uint32_t
 {};
 
-class cpu_affinity_config final
-{
-public:
-   cpu_affinity_config() = delete;
-   [[maybe_unused, nodiscard]] cpu_affinity_config(cpu_affinity_config &&rhs) noexcept = default;
-   [[maybe_unused, nodiscard]] cpu_affinity_config(cpu_affinity_config const &rhs) noexcept = default;
-
 #if (defined(__linux__))
-   [[maybe_unused, nodiscard]] cpu_affinity_config(cpu_id const asyncWorkersCpuId, cpu_id const kernelThreadCpuId) noexcept :
-      m_asyncWorkersCpuId{asyncWorkersCpuId,},
-      m_kernelThreadCpuId{kernelThreadCpuId,}
-   {}
-#else
-   [[maybe_unused, nodiscard]] cpu_affinity_config(cpu_id const, cpu_id const) noexcept
-   {}
+enum struct io_ring : int
+{};
+
+using io_affinity = std::variant<std::nullopt_t, cpu_id, io_ring>;
 #endif
 
-   [[maybe_unused]] cpu_affinity_config &operator = (cpu_affinity_config &&rhs) noexcept = default;
-   [[maybe_unused]] cpu_affinity_config &operator = (cpu_affinity_config const &rhs) noexcept = default;
-
-#if (defined(__linux__))
-   [[maybe_unused, nodiscard]] cpu_id async_workers_cpu_id() const noexcept
-   {
-      return m_asyncWorkersCpuId;
-   }
-
-   [[maybe_unused, nodiscard]] cpu_id kernel_thread_cpu_id() const noexcept
-   {
-      return m_kernelThreadCpuId;
-   }
-
-private:
-   cpu_id m_asyncWorkersCpuId;
-   cpu_id m_kernelThreadCpuId;
-#endif
-};
-
-#if (defined(__linux__))
-class shared_cpu_affinity_config final
+class thread_config
 {
 public:
-   shared_cpu_affinity_config() = delete;
-   [[maybe_unused, nodiscard]] constexpr shared_cpu_affinity_config(shared_cpu_affinity_config &&rhs) noexcept = default;
-   [[maybe_unused, nodiscard]] constexpr shared_cpu_affinity_config(shared_cpu_affinity_config const &rhs) noexcept = default;
-
-   [[maybe_unused, nodiscard]] constexpr explicit shared_cpu_affinity_config(int const ioRing) noexcept :
-      m_ioRing{ioRing,}
-   {}
-
-   [[maybe_unused]] constexpr shared_cpu_affinity_config &operator = (shared_cpu_affinity_config &&rhs) noexcept = default;
-   [[maybe_unused]] constexpr shared_cpu_affinity_config &operator = (shared_cpu_affinity_config const &rhs) noexcept = default;
-
-   [[maybe_unused, nodiscard]] constexpr int io_ring() const noexcept
-   {
-      return m_ioRing;
-   }
-
-private:
-   int m_ioRing;
-};
-
-using cpu_affinity_config_variant = std::variant<std::nullopt_t, cpu_affinity_config, shared_cpu_affinity_config>;
-#else
-using shared_cpu_affinity_config = std::nullopt_t;
-#endif
-
-class thread_config final
-{
-public:
-   thread_config() = delete;
+   [[maybe_unused, nodiscard]] thread_config() noexcept = default;
    [[maybe_unused, nodiscard]] thread_config(thread_config &&rhs) noexcept = default;
    [[maybe_unused, nodiscard]] thread_config(thread_config const &rhs) noexcept = default;
-   [[nodiscard]] thread_config(size_t descriptorListCapacity, size_t ioBufferCapacity) noexcept;
 
    [[maybe_unused]] thread_config &operator = (thread_config &&rhs) noexcept = default;
    [[maybe_unused]] thread_config &operator = (thread_config const &rhs) noexcept = default;
 
-   [[maybe_unused, nodiscard]] size_t descriptor_list_capacity() const noexcept
+   [[maybe_unused, nodiscard]] std::optional<cpu_id> worker_affinity() const noexcept
    {
-      return m_descriptorListCapacity;
-   }
-
-   [[maybe_unused, nodiscard]] size_t io_buffer_capacity() const noexcept
-   {
-      return m_ioBufferCapacity;
-   }
-
-   [[maybe_unused, nodiscard]] std::optional<cpu_id> worker_cpu_affinity() const noexcept
-   {
-      return m_workerCpuAffinity;
+      return m_workerAffinity;
    }
 
 #if (defined(__linux__))
-   [[nodiscard]] cpu_affinity_config_variant const &io_threads_affinity() const noexcept
+   [[maybe_unused, nodiscard]] io_affinity const &async_workers_affinity() const noexcept
    {
-      return m_ioThreadsAffinity;
+      return m_asyncWorkersAffinity;
    }
-#endif
 
-   [[nodiscard]] thread_config with_io_threads_affinity(cpu_affinity_config cpuAffinity) const noexcept;
-   [[nodiscard]] thread_config with_io_threads_affinity(shared_cpu_affinity_config cpuAffinity) const noexcept;
-   [[nodiscard]] thread_config with_worker_cpu_affinity(cpu_id const value) const noexcept;
+   [[maybe_unused, nodiscard]] io_affinity const &kernel_thread_affinity() const noexcept
+   {
+      return m_kernelThreadAffinity;
+   }
+
+   [[nodiscard]] thread_config with_io_threads_affinity(io_ring sharedIoThreads) const noexcept;
+   [[nodiscard]] thread_config with_io_threads_affinity(cpu_id asyncWorkersAffinity, std::optional<cpu_id> kernelThreadAffinity) const noexcept;
+   [[nodiscard]] thread_config with_io_threads_affinity(io_ring sharedAsyncWorkers, std::optional<cpu_id> kernelThreadAffinity) const noexcept;
+#else
+   [[nodiscard]] thread_config with_io_threads_affinity(std::nullopt_t const) const noexcept;
+   [[nodiscard]] thread_config with_io_threads_affinity(std::optional<cpu_id> const, std::optional<cpu_id> const) const noexcept;
+#endif
+   [[nodiscard]] thread_config with_worker_affinity(cpu_id const value) const noexcept;
 
 private:
-   size_t m_descriptorListCapacity;
-   size_t m_ioBufferCapacity;
-   std::optional<cpu_id> m_workerCpuAffinity{std::nullopt,};
+   std::optional<cpu_id> m_workerAffinity{std::nullopt,};
 #if (defined(__linux__))
-   cpu_affinity_config_variant m_ioThreadsAffinity{std::nullopt,};
+   io_affinity m_asyncWorkersAffinity{std::nullopt,};
+   io_affinity m_kernelThreadAffinity{std::nullopt,};
 #endif
 };
 

@@ -48,8 +48,11 @@ struct tcp_socket_descriptor final
    uint32_t const registeredSocketIndex;
    tcp_socket_status tcpSocketStatus{tcp_socket_status::none,};
    uint8_t refsCount{0,};
-   tcp_client *tcpClient{nullptr,};
-   tcp_socket_descriptor *next{nullptr,};
+   union
+   {
+      tcp_client *tcpClient;
+      tcp_socket_descriptor *next;
+   };
    std::error_code disconnectReason{};
 };
 

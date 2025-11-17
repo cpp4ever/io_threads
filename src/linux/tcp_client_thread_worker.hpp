@@ -34,11 +34,11 @@
 #include "io_threads/data_chunk.hpp" ///< for io_threads::data_chunk
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client.hpp" ///< for io_threads::tcp_client
-#include "io_threads/thread_config.hpp" ///< for io_threads::shared_cpu_affinity_config, io_threads::thread_config
-#include "io_threads/time.hpp" ///< for io_threads::system_clock, io_threads::system_time
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_ring, io_threads::thread_config
+#include "io_threads/time.hpp" ///< for io_threads::steady_clock, io_threads::steady_time
 #include "linux/tcp_client_uring.hpp" ///< for io_threads::tcp_client_uring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor, io_threads::tcp_socket_status
-#include "linux/tcp_socket_operation.hpp" ///< for io_threads::tcp_socket_operation, io_threads::tcp_socket_operation_type, io_threads::log_socket_error
+#include "linux/tcp_socket_operation.hpp" ///< for io_threads::log_socket_error, io_threads::tcp_socket_operation, io_threads::tcp_socket_operation_type
 #include "linux/tcp_socket_options.hpp" ///< for io_threads::tcp_socket_options
 #include "linux/thread_affinity.hpp" ///< for io_threads::set_thread_affinity
 #include "linux/uring_command_queue.hpp" ///< for io_threads::uring_command_queue
@@ -58,7 +58,7 @@
 #include <chrono> ///< for std::chrono::duration_cast, std::chrono::nanoseconds, std::chrono::seconds
 #include <cstddef> ///< for size_t
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
-#include <cstring> ///< for std::memcpy, std::memmove, strnlen
+#include <cstring> ///< for std::memcpy, std::memmove, std::memset, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
@@ -80,20 +80,34 @@ public:
 
    [[nodiscard]] tcp_client_thread_worker(
       std::unique_ptr<tcp_client_uring> tcpClientUring,
-      size_t const socketListCapacity,
-      size_t const ioBufferCapacity
+      uint32_t const socketListCapacity,
+      uint32_t const recvBufferSize,
+      uint32_t const sendBufferSize
    ) :
-      m_tcpClientUring{std::move(tcpClientUring),},
-      m_uringCommandQueue{socketListCapacity,},
-      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),}
+      m_uringCommandQueue{std::make_unique<uring_command_queue>(socketListCapacity),},
+      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),},
+      m_tcpClientUring{std::move(tcpClientUring),}
    {
-      m_tcpSocketOperations = m_tcpClientUring->register_tcp_socket_operations(
-         socketListCapacity * 2,
-         std::max(sizeof(tcp_socket_operation) + sizeof(tcp_socket_options), tcp_socket_operation::total_size(ioBufferCapacity))
-      );
-      assert(nullptr != m_tcpSocketOperations);
       m_tcpSocketDescriptors = m_tcpClientUring->register_tcp_socket_descriptors(socketListCapacity);
       assert(nullptr != m_tcpSocketDescriptors);
+      m_tcpClientUring->register_tcp_socket_operations(
+         m_tcpRecvOperations,
+         m_tcpSendOperations,
+         socketListCapacity,
+         recvBufferSize,
+         std::max<uint32_t>(sizeof(tcp_socket_options), sendBufferSize)
+      );
+      assert(nullptr != m_tcpRecvOperations);
+      assert(nullptr != m_tcpSendOperations);
+   }
+
+   ~tcp_client_thread_worker()
+   {
+      m_tcpClientUring->unregister_tcp_socket_operations(m_tcpRecvOperations, m_tcpSendOperations);
+      assert(nullptr == m_tcpRecvOperations);
+      assert(nullptr == m_tcpSendOperations);
+      m_tcpClientUring->unregister_tcp_socket_descriptors(m_tcpSocketDescriptors);
+      assert(nullptr == m_tcpSocketDescriptors);
    }
 
    tcp_client_thread_worker &operator = (tcp_client_thread_worker &&) = delete;
@@ -108,11 +122,8 @@ public:
       }
       else
       {
-         thread_task const ioTask
-         {
-            .routine{ioRoutine},
-         };
-         m_uringCommandQueue.push(to_underlying(tcp_client_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
+         thread_task const ioTask{.routine{ioRoutine},};
+         m_uringCommandQueue->push(to_underlying(tcp_client_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
          m_tcpClientUring->wake();
          ioTask.completionFuture.wait();
       }
@@ -120,26 +131,26 @@ public:
 
    void ready_to_connect(tcp_client &tcpClient)
    {
-      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_connect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_connect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
-   void ready_to_connect_deferred(tcp_client &client, system_time const notBeforeTime)
+   void ready_to_connect_deferred(tcp_client &tcpClient, steady_time const notBeforeTime)
    {
       auto &deferredTask
       {
          m_deferredTaskMemory->pop<tcp_deferred_task>(
-            tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_connect, .notBeforeTime = notBeforeTime,}
+            tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_connect, .notBeforeTime = notBeforeTime,}
          ),
       };
       if (std::this_thread::get_id() == m_threadId)
       {
-         cancel_deferred_task(client);
+         cancel_deferred_task(tcpClient);
          enqueue_deferred_task(deferredTask);
       }
       else
       {
-         m_uringCommandQueue.push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
+         m_uringCommandQueue->push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
          m_tcpClientUring->wake();
       }
    }
@@ -148,9 +159,11 @@ public:
    {
       if ((std::this_thread::get_id() == m_threadId) && (nullptr == tcpClient.m_socketDescriptor))
       {
+         cancel_deferred_task(tcpClient);
+         tcpClient.io_disconnected(std::error_code{});
          return;
       }
-      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_disconnect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_disconnect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
@@ -159,68 +172,70 @@ public:
       if (
          true
          && (std::this_thread::get_id() == m_threadId)
-         && ((nullptr == tcpClient.m_socketDescriptor) || (tcp_socket_status::busy == tcpClient.m_socketDescriptor->tcpSocketStatus))
+         && ((nullptr == tcpClient.m_socketDescriptor) || (tcp_socket_status::ready != tcpClient.m_socketDescriptor->tcpSocketStatus))
       )
       {
          return;
       }
-      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_send), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_send), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
-   void ready_to_send_deferred(tcp_client &client, system_time const notBeforeTime)
+   void ready_to_send_deferred(tcp_client &tcpClient, steady_time const notBeforeTime)
    {
       if (std::this_thread::get_id() == m_threadId)
       {
-         if ((nullptr == client.m_socketDescriptor) || (tcp_socket_status::busy == client.m_socketDescriptor->tcpSocketStatus))
+         if ((nullptr == tcpClient.m_socketDescriptor) || (tcp_socket_status::ready != tcpClient.m_socketDescriptor->tcpSocketStatus))
          {
             return;
          }
-         cancel_deferred_task(client);
-         auto &deferredTask
-         {
+         assert(tcp_socket_status::none != tcpClient.m_socketDescriptor->tcpSocketStatus);
+         cancel_deferred_task(tcpClient);
+         enqueue_deferred_task(
             m_deferredTaskMemory->pop<tcp_deferred_task>(
-               tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
-            ),
-         };
-         enqueue_deferred_task(deferredTask);
+               tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
+            )
+         );
       }
       else
       {
          auto const &deferredTask
          {
             m_deferredTaskMemory->pop<tcp_deferred_task>(
-               tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
+               tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
             ),
          };
-         m_uringCommandQueue.push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
+         m_uringCommandQueue->push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
          m_tcpClientUring->wake();
       }
    }
 
-   [[nodiscard]] shared_cpu_affinity_config share_io_threads() const noexcept
+   [[nodiscard]] io_ring share_io_threads() const noexcept
    {
       return m_tcpClientUring->share_io_threads();
    }
 
    void stop()
    {
-      m_uringCommandQueue.push(to_underlying(tcp_client_command::unknown), 0);
+      m_uringCommandQueue->push(to_underlying(tcp_client_command::unknown), 0);
       m_tcpClientUring->wake();
    }
 
    [[nodiscard]] static std::jthread start(
       thread_config const &threadConfig,
+      uint32_t const socketListCapacity,
+      uint32_t const recvBufferSize,
+      uint32_t const sendBufferSize,
       std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
    )
    {
       return std::jthread
       {
-         [threadConfig, &workerPromise] (std::stop_token const)
+         [&threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, &workerPromise] (std::stop_token const)
          {
-            if (true == threadConfig.worker_cpu_affinity().has_value())
+            if (true == threadConfig.worker_affinity().has_value())
             {
-               if (auto const returnCode{set_thread_affinity(threadConfig.worker_cpu_affinity().value()),}; 0 != returnCode)
+               if (auto const returnCode{set_thread_affinity(threadConfig.worker_affinity().value()),}; 0 != returnCode)
                {
                   log_system_error("[tcp_thread] failed to pin thread to cpu core: ({}) - {}", returnCode);
                   unreachable();
@@ -229,51 +244,33 @@ public:
             auto const threadWorker
             {
                std::make_shared<tcp_client_thread_worker>(
-                  tcp_client_uring::construct(threadConfig.io_threads_affinity(), threadConfig.descriptor_list_capacity() * 2 + 1),
-                  threadConfig.descriptor_list_capacity(),
-                  threadConfig.io_buffer_capacity()
+                  tcp_client_uring::construct(
+                     threadConfig.async_workers_affinity(),
+                     threadConfig.kernel_thread_affinity(),
+                     socketListCapacity * 2 + 1
+                  ),
+                  socketListCapacity,
+                  recvBufferSize,
+                  sendBufferSize
                ),
             };
             workerPromise.set_value(threadWorker);
-            __kernel_timespec ioTimeout{};
-            intptr_t tasksCount{0,};
-            do
-            {
-               threadWorker->process_deferred_tasks();
-               if (auto const *deferredTask{threadWorker->m_deferredTaskHead,}; nullptr != deferredTask)
-               {
-                  std::chrono::nanoseconds const timeoutNanoseconds
-                  {
-                     std::max<std::chrono::nanoseconds>(std::chrono::nanoseconds{0,}, deferredTask->notBeforeTime - system_clock::now())
-                  };
-                  auto const timeoutSeconds{std::chrono::duration_cast<std::chrono::seconds>(timeoutNanoseconds),};
-                  ioTimeout.tv_sec = timeoutSeconds.count();
-                  ioTimeout.tv_nsec = (timeoutNanoseconds - timeoutSeconds).count();
-                  tasksCount = threadWorker->m_tcpClientUring->poll(*threadWorker, std::addressof(ioTimeout));
-               }
-               else
-               {
-                  tasksCount = threadWorker->m_tcpClientUring->poll(*threadWorker, nullptr);
-               }
-            } while (tasksCount > 0);
-            threadWorker->m_tcpClientUring->unregister_tcp_socket_descriptors(threadWorker->m_tcpSocketDescriptors);
-            threadWorker->m_tcpSocketDescriptors = nullptr;
-            threadWorker->m_tcpClientUring->unregister_tcp_socket_operations(threadWorker->m_tcpSocketOperations);
-            threadWorker->m_tcpSocketOperations = nullptr;
+            threadWorker->run();
          }
       };
    }
 
 private:
+   int const m_tcpSynCnt{1,};
    std::jthread::id const m_threadId{std::this_thread::get_id(),};
+   std::unique_ptr<uring_command_queue> const m_uringCommandQueue;
+   std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
+   tcp_socket_descriptor *m_tcpSocketDescriptors{nullptr,};
+   tcp_socket_operation *m_tcpRecvOperations{nullptr,};
+   tcp_socket_operation *m_tcpSendOperations{nullptr,};
+   std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
    tcp_deferred_task *m_deferredTaskHead{nullptr,};
    tcp_deferred_task *m_deferredTaskTail{nullptr,};
-   std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
-   uring_command_queue m_uringCommandQueue;
-   tcp_socket_operation *m_tcpSocketOperations{nullptr,};
-   tcp_socket_descriptor *m_tcpSocketDescriptors{nullptr,};
-   std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
-   int const m_tcpSynCnt{1,};
 
    void cancel_deferred_task(tcp_client &tcpClient);
    void enqueue_deferred_task(tcp_deferred_task &deferredTask);
@@ -297,7 +294,7 @@ private:
          auto &client{deferredTask.client,};
          assert(std::addressof(deferredTask) != client.m_deferredTask);
          cancel_deferred_task(client);
-         if (system_clock::now() >= deferredTask.notBeforeTime)
+         if (steady_clock::now() >= deferredTask.notBeforeTime)
          {
             handle_deferred_task(deferredTask);
          }
@@ -353,18 +350,13 @@ private:
 
    void handle_connect_completion(tcp_socket_operation &tcpSocketOperation, int32_t result, [[maybe_unused]] uint32_t const flags)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
       assert(0 < tcpSocketDescriptor.registeredSocketIndex);
-      assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
-      assert(tcp_socket_status::ready != tcpSocketDescriptor.tcpSocketStatus);
-      assert(tcp_socket_status::busy != tcpSocketDescriptor.tcpSocketStatus);
-      assert(tcp_socket_status::close != tcpSocketDescriptor.tcpSocketStatus);
+      assert((tcp_socket_status::connect == tcpSocketDescriptor.tcpSocketStatus) || (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus));
       assert(1 == tcpSocketDescriptor.refsCount);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
       assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
       assert(0 == tcpSocketOperation.bufferOffset);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
@@ -378,13 +370,15 @@ private:
       if (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus) [[unlikely]]
       {
          tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
-         std::destroy_at(std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1));
+         std::destroy_at(std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation.bufferBytes)));
 #if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
          prep_close(tcpSocketOperation);
 #else
          if (tcp_socket_operation_type::socket == tcpSocketOperation.type)
          {
             close(result);
+            tcpSocketOperation.type = tcp_socket_operation_type::close;
+            push_tcp_socket_operation(tcpSocketOperation);
          }
          else
          {
@@ -393,9 +387,10 @@ private:
 #endif
          return;
       }
-      auto &tcpSocketOptions = *std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1);
+      auto &tcpSocketOptions = *std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation.bufferBytes));
       switch (tcpSocketOperation.type)
       {
+
       case tcp_socket_operation_type::socket:
       {
 #if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
@@ -609,11 +604,11 @@ private:
       case tcp_socket_operation_type::connect:
       {
          std::destroy_at(std::addressof(tcpSocketOptions));
-         tcpSocketOperation.type = tcp_socket_operation_type::recv;
          tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
          tcpSocketDescriptor.tcpClient->io_connected();
-         recv(tcpSocketOperation);
-         send(tcpSocketDescriptor);
+         tcpSocketOperation.type = tcp_socket_operation_type::send;
+         recv(tcpSocketDescriptor);
+         send(tcpSocketOperation);
       }
       break;
 
@@ -623,6 +618,7 @@ private:
          unreachable();
       }
       break;
+
       }
    }
 
@@ -631,7 +627,7 @@ private:
    void handle_event_completion() override
    {
       assert(std::this_thread::get_id() == m_threadId);
-      m_uringCommandQueue.handle(*this);
+      m_uringCommandQueue->handle(*this);
    }
 
    void handle_ready_to_connect(tcp_client &tcpClient)
@@ -641,12 +637,14 @@ private:
       auto &tcpSocketDescriptor{pop_tcp_socket_descriptor(tcpClient),};
       assert(0 < tcpSocketDescriptor.registeredSocketIndex);
       assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      auto &tcpSocketOperation{pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::socket),};
+      auto &tcpSocketOperation{pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send),};
       assert(std::addressof(tcpSocketDescriptor) == tcpSocketOperation.descriptor);
       assert(1 == tcpSocketDescriptor.refsCount);
-      auto config{tcpClient.io_ready_to_connect(),};
+      assert(sizeof(tcp_socket_options) <= tcpSocketOperation.bufferSize);
+      tcpSocketOperation.type = tcp_socket_operation_type::socket;
+      auto const config{tcpClient.io_ready_to_connect(),};
       auto &tcpSocketOptions = *std::construct_at(
-         std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1),
+         std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation.bufferBytes)),
          tcp_socket_options
          {
             .soBindToDevice = {0,},
@@ -660,43 +658,42 @@ private:
             .address = config.peer_address().socket_address()->sockaddr(),
          }
       );
+      std::memset(tcpSocketOptions.soBindToDevice.data(), 0, tcpSocketOptions.soBindToDevice.size());
       if (true == config.peer_address().network_interface().has_value())
       {
          auto const deviceName = config.peer_address().network_interface().value().system_name();
          std::memcpy(tcpSocketOptions.soBindToDevice.data(), deviceName.data(), deviceName.size());
-         tcpSocketOptions.soBindToDevice[deviceName.size()] = 0;
       }
       m_tcpClientUring->prep_socket(tcpSocketOperation, tcpSocketOptions.address.addressFamily);
    }
 
    void handle_ready_to_disconnect(tcp_client &tcpClient)
    {
-      assert(nullptr != tcpClient.m_socketDescriptor);
       assert(nullptr == tcpClient.m_deferredTask);
-      auto *tcpSocketDescriptor{tcpClient.m_socketDescriptor,};
-      if (nullptr != tcpSocketDescriptor) [[likely]]
+      if (auto *tcpSocketDescriptor{tcpClient.m_socketDescriptor,}; nullptr != tcpSocketDescriptor) [[likely]]
       {
          assert(0 < tcpSocketDescriptor->registeredSocketIndex);
          assert(tcp_socket_status::none != tcpSocketDescriptor->tcpSocketStatus);
          assert(std::addressof(tcpClient) == tcpSocketDescriptor->tcpClient);
-         assert(nullptr == tcpSocketDescriptor->next);
          if (tcp_socket_status::ready == tcpSocketDescriptor->tcpSocketStatus)
          {
             assert(1 == tcpSocketDescriptor->refsCount);
-            auto &tcpSocketOperation{pop_tcp_socket_operation(*tcpSocketDescriptor, tcp_socket_operation_type::send),};
-            assert(nullptr == tcpSocketOperation.next);
-            assert(tcpSocketOperation.descriptor == tcpSocketDescriptor);
-            assert(2 == tcpSocketDescriptor->refsCount);
-            assert(0 == tcpSocketOperation.bufferOffset);
-            assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
-            tcpSocketDescriptor->tcpSocketStatus = tcp_socket_status::close;
-            prep_disconnect(tcpSocketOperation);
+            prep_disconnect(*tcpSocketDescriptor);
          }
          else if (tcp_socket_status::busy == tcpSocketDescriptor->tcpSocketStatus)
          {
             assert(2 == tcpSocketDescriptor->refsCount);
             tcpSocketDescriptor->tcpSocketStatus = tcp_socket_status::disconnect;
          }
+         else if (tcp_socket_status::connect == tcpSocketDescriptor->tcpSocketStatus)
+         {
+            assert(1 == tcpSocketDescriptor->refsCount);
+            tcpSocketDescriptor->tcpSocketStatus = tcp_socket_status::disconnect;
+         }
+      }
+      else
+      {
+         tcpClient.io_disconnected(std::error_code{});
       }
    }
 
@@ -706,9 +703,7 @@ private:
       auto *tcpSocketDescriptor{tcpClient.m_socketDescriptor,};
       assert((nullptr == tcpSocketDescriptor) || (0 < tcpSocketDescriptor->registeredSocketIndex));
       assert((nullptr == tcpSocketDescriptor) || (tcp_socket_status::none != tcpSocketDescriptor->tcpSocketStatus));
-      assert((nullptr == tcpSocketDescriptor) || (tcp_socket_status::connect != tcpSocketDescriptor->tcpSocketStatus));
       assert((nullptr == tcpSocketDescriptor) || (std::addressof(tcpClient) == tcpSocketDescriptor->tcpClient));
-      assert((nullptr == tcpSocketDescriptor) || (nullptr == tcpSocketDescriptor->next));
       if ((nullptr != tcpSocketDescriptor) && (tcp_socket_status::ready == tcpSocketDescriptor->tcpSocketStatus))
       {
          assert(1 == tcpSocketDescriptor->refsCount);
@@ -718,19 +713,17 @@ private:
 
    void handle_received_data(tcp_socket_operation &tcpSocketOperation, size_t const bytesReceived)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
       assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
       assert(tcp_socket_status::connect != tcpSocketDescriptor.tcpSocketStatus);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
       assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
       assert(0 < bytesReceived);
-      auto const bufferCapacity{m_tcpClientUring->registered_buffer_capacity(tcpSocketOperation),};
+      size_t const bufferSize{tcpSocketOperation.bufferSize,};
       size_t const bytesLength{tcpSocketOperation.bufferOffset + bytesReceived,};
-      if (bufferCapacity < bytesLength) [[unlikely]]
+      if (bufferSize < bytesLength) [[unlikely]]
       {
          log_error(std::source_location::current(), "[tcp_client] received more bytes than the buffer contains: it must be a bug");
          unreachable();
@@ -740,11 +733,7 @@ private:
          auto const errorCode
          {
             tcpSocketDescriptor.tcpClient->io_data_received(
-               data_chunk
-               {
-                  .bytes = std::addressof(tcpSocketOperation.bufferBytes[0]),
-                  .bytesLength = bytesLength,
-               },
+               data_chunk{.bytes = std::addressof(tcpSocketOperation.bufferBytes[0]), .bytesLength = bytesLength,},
                bytesProcessed
             ),
          };
@@ -755,7 +744,7 @@ private:
          if (bytesProcessed < bytesLength)
          {
             tcpSocketOperation.bufferOffset = bytesLength - bytesProcessed;
-            if (bufferCapacity <= tcpSocketOperation.bufferOffset) [[unlikely]]
+            if (bufferSize <= tcpSocketOperation.bufferOffset) [[unlikely]]
             {
                log_error(std::source_location::current(), "[tcp_client] no more bytes could be received: it must be a bug");
                unreachable();
@@ -784,18 +773,20 @@ private:
       {
          assert(1 == tcpSocketDescriptor.refsCount);
          assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         push_tcp_socket_operation(tcpSocketOperation);
+         assert(0 == tcpSocketDescriptor.refsCount);
          tcpSocketDescriptor.disconnectReason = errorCode;
-         prep_disconnect(tcpSocketOperation);
+         prep_shutdown(tcpSocketDescriptor);
+         assert(1 == tcpSocketDescriptor.refsCount);
       }
       else if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus)
       {
          assert(2 == tcpSocketDescriptor.refsCount);
          assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::disconnect;
-         tcpSocketDescriptor.disconnectReason = errorCode;
          push_tcp_socket_operation(tcpSocketOperation);
          assert(1 == tcpSocketDescriptor.refsCount);
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         tcpSocketDescriptor.disconnectReason = errorCode;
       }
       else
       {
@@ -804,13 +795,14 @@ private:
             || (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus)
             || (tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus)
          );
+         assert(2 == tcpSocketDescriptor.refsCount);
          push_tcp_socket_operation(tcpSocketOperation);
+         assert(1 == tcpSocketDescriptor.refsCount);
       }
    }
 
    void handle_send_completion(tcp_socket_operation &tcpSocketOperation)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
       assert(0 < tcpSocketDescriptor.registeredSocketIndex);
@@ -819,43 +811,41 @@ private:
       assert(tcp_socket_status::ready != tcpSocketDescriptor.tcpSocketStatus);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
       assert(0 == tcpSocketOperation.bufferOffset);
+      assert(0 < tcpSocketOperation.bufferSize);
       assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
       if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) [[likely]]
       {
          assert(2 == tcpSocketDescriptor.refsCount);
          tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::ready;
-         push_tcp_socket_operation(tcpSocketOperation);
-         assert(1 == tcpSocketDescriptor.refsCount);
-         send(tcpSocketDescriptor);
+         send(tcpSocketOperation);
       }
       else if (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus)
       {
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         assert(2 == tcpSocketDescriptor.refsCount);
          prep_disconnect(tcpSocketOperation);
       }
       else
       {
          assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-         push_tcp_socket_operation(tcpSocketOperation);
+         assert(1 == tcpSocketDescriptor.refsCount);
+         prep_close(tcpSocketOperation);
       }
    }
 
    void handle_socket_error(tcp_socket_operation &tcpSocketOperation, int32_t const value)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
       assert(0 < tcpSocketDescriptor.registeredSocketIndex);
       assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
       assert(0 < value);
       switch (tcpSocketOperation.type)
       {
+
       [[unlikely]] case tcp_socket_operation_type::none: unreachable();
 
       case tcp_socket_operation_type::socket: [[fallthrough]];
@@ -875,17 +865,17 @@ private:
          assert(tcp_socket_status::close != tcpSocketDescriptor.tcpSocketStatus);
          assert(1 == tcpSocketDescriptor.refsCount);
          assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
-         assert(0 == tcpSocketOperation.bufferOffset);
          tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
          tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
          log_socket_error(tcpSocketOperation.type, tcpSocketDescriptor.disconnectReason);
-         std::destroy_at(std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation) + 1));
+         std::destroy_at(std::bit_cast<tcp_socket_options *>(std::addressof(tcpSocketOperation.bufferBytes)));
 #if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))
          if (tcp_socket_operation_type::socket == tcpSocketOperation.type)
 #else
          if (tcp_socket_operation_type::connect != tcpSocketOperation.type)
 #endif
          {
+            tcpSocketOperation.type = tcp_socket_operation_type::close;
             push_tcp_socket_operation(tcpSocketOperation);
          }
          else
@@ -897,22 +887,28 @@ private:
 
       case tcp_socket_operation_type::recv:
       {
-         if (
-            false
-            || (tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus)
-            || (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus)
-         )
+         if (tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus)
          {
-            assert(
-               false
-               || ((tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus) && (1 == tcpSocketDescriptor.refsCount))
-               || ((tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) && (2 == tcpSocketDescriptor.refsCount))
-            );
-            assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
+            assert(1 == tcpSocketDescriptor.refsCount);
+            if (false == (bool{tcpSocketDescriptor.disconnectReason}))
+            {
+               tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
+            }
+            log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
+            push_tcp_socket_operation(tcpSocketOperation);
+            assert(0 == tcpSocketDescriptor.refsCount);
+            prep_close(tcpSocketDescriptor);
+         }
+         else if (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus)
+         {
+            assert(2 == tcpSocketDescriptor.refsCount);
+            if (false == (bool{tcpSocketDescriptor.disconnectReason}))
+            {
+               tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
+            }
+            log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
+            push_tcp_socket_operation(tcpSocketOperation);
             tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
-            tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
-            log_socket_error(tcpSocketOperation.type, tcpSocketDescriptor.disconnectReason);
-            prep_close(tcpSocketOperation);
          }
          else
          {
@@ -922,50 +918,64 @@ private:
                || (tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus)
             );
             push_tcp_socket_operation(tcpSocketOperation);
+            if (0 == tcpSocketDescriptor.refsCount)
+            {
+               prep_close(tcpSocketDescriptor);
+            }
          }
       }
       break;
 
       case tcp_socket_operation_type::send:
       {
-         if (
-            false
-            || (tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus)
-            || (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus)
-         )
+         assert((tcp_socket_status::busy == tcpSocketDescriptor.tcpSocketStatus) || (tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus));
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         if (false == (bool{tcpSocketDescriptor.disconnectReason}))
          {
-            assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
-            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
             tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
-            log_socket_error(tcpSocketOperation.type, tcpSocketDescriptor.disconnectReason);
-            prep_close(tcpSocketOperation);
          }
-         else
-         {
-            assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-            push_tcp_socket_operation(tcpSocketOperation);
-         }
+         log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
+         prep_shutdown(tcpSocketOperation);
       }
       break;
 
-      case tcp_socket_operation_type::disconnect: [[fallthrough]];
+      case tcp_socket_operation_type::disconnect:
+      {
+         assert(tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus);
+         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+         if (false == (bool{tcpSocketDescriptor.disconnectReason}))
+         {
+            tcpSocketDescriptor.disconnectReason = std::error_code{value, std::generic_category(),};
+         }
+         log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
+         prep_shutdown(tcpSocketOperation);
+      }
+      break;
+
       case tcp_socket_operation_type::shutdown:
       {
          assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-         assert(0 == tcpSocketOperation.bufferOffset);
          log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
-         prep_close(tcpSocketOperation);
+         if (1 == tcpSocketDescriptor.refsCount)
+         {
+            prep_close(tcpSocketOperation);
+         }
+         else ///< recv is still in process, have to wait for it
+         {
+            push_tcp_socket_operation(tcpSocketOperation);
+         }
       }
       break;
 
       case tcp_socket_operation_type::close:
       {
          assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-         assert(0 == tcpSocketOperation.bufferOffset);
+         assert(1 == tcpSocketDescriptor.refsCount);
          log_socket_error(tcpSocketOperation.type, std::error_code{value, std::generic_category(),});
          push_tcp_socket_operation(tcpSocketOperation);
       }
       break;
+
       }
    }
 
@@ -973,11 +983,9 @@ private:
    {
       assert(0 != userdata);
       auto &tcpSocketOperation{*std::launder(std::bit_cast<tcp_socket_operation *>(userdata)),};
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
       assert(0 < tcpSocketOperation.descriptor->refsCount);
-      assert(nullptr == tcpSocketOperation.descriptor->next);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
       assert(std::this_thread::get_id() == m_threadId);
       if (0 > result) [[unlikely]]
@@ -995,7 +1003,9 @@ private:
       }
       switch (tcpSocketOperation.type)
       {
+
       [[unlikely]] case tcp_socket_operation_type::none: break;
+
       case tcp_socket_operation_type::socket: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_bindtodevice: [[fallthrough]];
       case tcp_socket_operation_type::setopt_so_keepalive: [[fallthrough]];
@@ -1060,17 +1070,26 @@ private:
       {
          assert(tcp_socket_status::close == tcpSocketOperation.descriptor->tcpSocketStatus);
          assert(0 == flags);
-         prep_close(tcpSocketOperation);
+         if (1 == tcpSocketOperation.descriptor->refsCount)
+         {
+            prep_close(tcpSocketOperation);
+         }
+         else ///< recv is still in process, have to wait for it
+         {
+            push_tcp_socket_operation(tcpSocketOperation);
+         }
       }
       break;
 
       case tcp_socket_operation_type::close:
       {
          assert(tcp_socket_status::close == tcpSocketOperation.descriptor->tcpSocketStatus);
+         assert(1 == tcpSocketOperation.descriptor->refsCount);
          assert(0 == flags);
          push_tcp_socket_operation(tcpSocketOperation);
       }
       break;
+
       }
    }
 
@@ -1093,64 +1112,70 @@ private:
       auto &tcpSocketDescriptor{*std::launder(m_tcpSocketDescriptors),};
       assert(tcp_socket_status::none == tcpSocketDescriptor.tcpSocketStatus);
       assert(0 == tcpSocketDescriptor.refsCount);
-      assert(nullptr == tcpSocketDescriptor.tcpClient);
       assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
       m_tcpSocketDescriptors = std::launder(tcpSocketDescriptor.next);
       tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::connect;
-      tcpSocketDescriptor.tcpClient = std::addressof(tcpClient);
       tcpSocketDescriptor.next = nullptr;
+      tcpSocketDescriptor.tcpClient = std::addressof(tcpClient);
       tcpClient.m_socketDescriptor = std::addressof(tcpSocketDescriptor);
       return tcpSocketDescriptor;
    }
 
-   [[nodiscard]] tcp_socket_operation &pop_tcp_socket_operation(
-      tcp_socket_descriptor &tcpSocketDescriptor,
-      tcp_socket_operation_type const tcpSocketOperationType
-   )
+   [[nodiscard]] tcp_socket_operation &pop_tcp_socket_operation(tcp_socket_descriptor &tcpSocketDescriptor, tcp_socket_operation_type const tcpSocketOperationType)
    {
-      assert(
-         false
-         || ((tcp_socket_operation_type::socket == tcpSocketOperationType) && (tcp_socket_status::connect == tcpSocketDescriptor.tcpSocketStatus))
-         || ((tcp_socket_operation_type::send == tcpSocketOperationType) && (tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus))
-      );
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::busy != tcpSocketDescriptor.tcpSocketStatus);
       assert(2 > tcpSocketDescriptor.refsCount);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      if (nullptr == m_tcpSocketOperations) [[unlikely]]
-      {
-         log_error(std::source_location::current(), "[tcp_client] too few socket operations provided, it must be a bug");
-         unreachable();
-      }
-      auto &tcpSocketOperation{*std::launder(m_tcpSocketOperations),};
-      assert(nullptr == tcpSocketOperation.descriptor);
+      assert(tcp_socket_operation_type::none != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_so_bindtodevice != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_so_keepalive != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_ip_tos != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_keepcnt != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_keepidle != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_keepintvl != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::connect != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::disconnect != tcpSocketOperationType);
+      auto *&tcpSocketOperations{(tcp_socket_operation_type::recv == tcpSocketOperationType) ? m_tcpRecvOperations : m_tcpSendOperations,};
+      assert(nullptr != tcpSocketOperations);
+      auto &tcpSocketOperation{*tcpSocketOperations,};
+      assert(tcpSocketOperationType == tcpSocketOperation.type);
+      assert(0 < tcpSocketOperation.bufferIndex);
+      assert(0 < tcpSocketOperation.bufferSize);
       assert(0 == tcpSocketOperation.bufferOffset);
-      assert(tcp_socket_operation_type::none == tcpSocketOperation.type);
-      m_tcpSocketOperations = std::launder(tcpSocketOperation.next);
+      tcpSocketOperations = tcpSocketOperation.next;
       tcpSocketOperation.next = nullptr;
       tcpSocketOperation.descriptor = std::addressof(tcpSocketDescriptor);
-      tcpSocketOperation.type = tcpSocketOperationType;
       ++tcpSocketDescriptor.refsCount;
       return tcpSocketOperation;
+   }
+
+   void prep_close(tcp_socket_descriptor &tcpSocketDescriptor)
+   {
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::connect != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::busy != tcpSocketDescriptor.tcpSocketStatus);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(0 == tcpSocketDescriptor.refsCount);
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+      prep_close(pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send));
    }
 
    void prep_close(tcp_socket_operation &tcpSocketOperation)
    {
       assert(nullptr != tcpSocketOperation.descriptor);
+      assert(0 < tcpSocketOperation.descriptor->registeredSocketIndex);
       assert(tcp_socket_status::close == tcpSocketOperation.descriptor->tcpSocketStatus);
-      tcpSocketOperation.type = tcp_socket_operation_type::close;
-      m_tcpClientUring->prep_close(tcpSocketOperation);
-   }
-
-   void prep_disconnect(tcp_socket_operation &tcpSocketOperation)
-   {
-      assert(nullptr == tcpSocketOperation.next);
-      assert(nullptr != tcpSocketOperation.descriptor);
-      auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
-      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
-      assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
-      assert(nullptr != tcpSocketDescriptor.tcpClient);
-      assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
+      assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
+      assert(1 == tcpSocketOperation.descriptor->refsCount);
+      assert(tcpSocketOperation.descriptor == tcpSocketOperation.descriptor->tcpClient->m_socketDescriptor);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::socket != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_so_bindtodevice != tcpSocketOperation.type);
@@ -1162,9 +1187,35 @@ private:
       assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperation.type);
-      assert(tcp_socket_operation_type::connect != tcpSocketOperation.type);
-      assert(tcp_socket_operation_type::disconnect != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::recv != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::close != tcpSocketOperation.type);
+      tcpSocketOperation.type = tcp_socket_operation_type::close;
+      m_tcpClientUring->prep_close(tcpSocketOperation);
+   }
+
+   void prep_disconnect(tcp_socket_descriptor &tcpSocketDescriptor)
+   {
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus);
+      assert(1 == tcpSocketDescriptor.refsCount);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::disconnect;
+      prep_disconnect(pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send));
+   }
+
+   void prep_disconnect(tcp_socket_operation &tcpSocketOperation)
+   {
+      assert(nullptr != tcpSocketOperation.descriptor);
+      auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::disconnect == tcpSocketDescriptor.tcpSocketStatus);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      assert(2 == tcpSocketDescriptor.refsCount);
+      assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
       size_t bytesWritten{static_cast<size_t>(-1),};
       if (
          auto const errorCode
@@ -1173,7 +1224,7 @@ private:
                data_chunk
                {
                   .bytes = std::addressof(tcpSocketOperation.bufferBytes[0]),
-                  .bytesLength = m_tcpClientUring->registered_buffer_capacity(tcpSocketOperation)
+                  .bytesLength = tcpSocketOperation.bufferSize,
                },
                bytesWritten
             ),
@@ -1191,17 +1242,49 @@ private:
       }
    }
 
+   void prep_shutdown(tcp_socket_descriptor &tcpSocketDescriptor)
+   {
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::connect != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::busy != tcpSocketDescriptor.tcpSocketStatus);
+      assert(tcp_socket_status::close != tcpSocketDescriptor.tcpSocketStatus);
+      assert(1 >= tcpSocketDescriptor.refsCount);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
+      prep_shutdown(pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send));
+   }
+
    void prep_shutdown(tcp_socket_operation &tcpSocketOperation)
    {
       assert(nullptr != tcpSocketOperation.descriptor);
-      assert(tcp_socket_status::close == tcpSocketOperation.descriptor->tcpSocketStatus);
-      if (1 == tcpSocketOperation.descriptor->refsCount)
+      auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor};
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::socket != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_so_bindtodevice != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_so_keepalive != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_ip_tos != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_keepcnt != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_keepidle != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_keepintvl != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::connect != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::recv != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::close != tcpSocketOperation.type);
+      if (1 == tcpSocketDescriptor.refsCount)
       {
          prep_close(tcpSocketOperation);
       }
       else
       {
-         assert(2 == tcpSocketOperation.descriptor->refsCount);
+         assert(2 == tcpSocketDescriptor.refsCount);
          tcpSocketOperation.type = tcp_socket_operation_type::shutdown;
          m_tcpClientUring->prep_shutdown(tcpSocketOperation, SHUT_RDWR);
       }
@@ -1211,19 +1294,19 @@ private:
 
    void push_tcp_socket_descriptor(tcp_socket_descriptor &tcpSocketDescriptor)
    {
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
       assert(tcp_socket_status::close == tcpSocketDescriptor.tcpSocketStatus);
       assert(0 == tcpSocketDescriptor.refsCount);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       auto &tcpClient{*tcpSocketDescriptor.tcpClient,};
       assert(std::addressof(tcpSocketDescriptor) == tcpClient.m_socketDescriptor);
       cancel_deferred_task(tcpClient);
-      assert(nullptr == tcpSocketDescriptor.next);
       tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::none;
       tcpSocketDescriptor.refsCount = 0;
       tcpClient.m_socketDescriptor = nullptr;
       tcpSocketDescriptor.tcpClient = nullptr;
       tcpSocketDescriptor.next = std::launder(m_tcpSocketDescriptors);
-      auto const disconnectReason{tcpSocketDescriptor.disconnectReason,};
+      std::error_code const disconnectReason{tcpSocketDescriptor.disconnectReason,};
       tcpSocketDescriptor.disconnectReason = std::error_code{};
       m_tcpSocketDescriptors = std::launder(std::addressof(tcpSocketDescriptor));
       tcpClient.io_disconnected(disconnectReason);
@@ -1231,39 +1314,82 @@ private:
 
    void push_tcp_socket_operation(tcp_socket_operation &tcpSocketOperation)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
       assert(0 < tcpSocketDescriptor.registeredSocketIndex);
       assert(tcp_socket_status::none != tcpSocketDescriptor.tcpSocketStatus);
-      assert(tcp_socket_status::busy != tcpSocketDescriptor.tcpSocketStatus);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
       assert(tcp_socket_operation_type::none != tcpSocketOperation.type);
-      tcpSocketOperation.next = std::launder(m_tcpSocketOperations);
       tcpSocketOperation.descriptor = nullptr;
+      --tcpSocketDescriptor.refsCount;
       tcpSocketOperation.bufferOffset = 0;
-      tcpSocketOperation.type = tcp_socket_operation_type::none;
-      m_tcpSocketOperations = std::launder(std::addressof(tcpSocketOperation));
-      if (0 == --tcpSocketDescriptor.refsCount)
+      if (auto const tcpSocketOperationType{tcpSocketOperation.type,}; tcp_socket_operation_type::recv == tcpSocketOperationType)
       {
-         push_tcp_socket_descriptor(tcpSocketDescriptor);
+         tcpSocketOperation.next = m_tcpRecvOperations;
+         m_tcpRecvOperations = std::addressof(tcpSocketOperation);
       }
+      else
+      {
+         tcpSocketOperation.next = m_tcpSendOperations;
+         tcpSocketOperation.type = tcp_socket_operation_type::send;
+         m_tcpSendOperations = std::addressof(tcpSocketOperation);
+         if (0 == tcpSocketDescriptor.refsCount)
+         {
+            assert(tcp_socket_operation_type::close == tcpSocketOperationType);
+            push_tcp_socket_descriptor(tcpSocketDescriptor);
+         }
+      }
+   }
+
+   void recv(tcp_socket_descriptor &tcpSocketDescriptor)
+   {
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus);
+      assert(1 == tcpSocketDescriptor.refsCount);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      recv(pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::recv));
    }
 
    void recv(tcp_socket_operation &tcpSocketOperation)
    {
-      assert(nullptr == tcpSocketOperation.next);
       assert(nullptr != tcpSocketOperation.descriptor);
       assert(0 < tcpSocketOperation.descriptor->registeredSocketIndex);
       assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
       assert(tcp_socket_status::connect != tcpSocketOperation.descriptor->tcpSocketStatus);
+      assert(0 < tcpSocketOperation.descriptor->refsCount);
+      assert(2 >= tcpSocketOperation.descriptor->refsCount);
       assert(nullptr != tcpSocketOperation.descriptor->tcpClient);
       assert(tcpSocketOperation.descriptor == tcpSocketOperation.descriptor->tcpClient->m_socketDescriptor);
-      assert(nullptr == tcpSocketOperation.descriptor->next);
       assert(tcp_socket_operation_type::recv == tcpSocketOperation.type);
+      assert(0 < tcpSocketOperation.bufferIndex);
+      assert(0 < tcpSocketOperation.bufferSize);
+      assert(0 == tcpSocketOperation.bufferOffset);
       m_tcpClientUring->prep_recv(tcpSocketOperation);
+   }
+
+   void run()
+   {
+      __kernel_timespec ioTimeout{};
+      intptr_t tasksCount{0,};
+      do
+      {
+         process_deferred_tasks();
+         if (auto const *deferredTask{m_deferredTaskHead,}; nullptr != deferredTask)
+         {
+            auto const now{steady_clock::now(),};
+            std::chrono::nanoseconds const timeoutNanoseconds{std::max(deferredTask->notBeforeTime, now) - now,};
+            auto const timeoutSeconds{std::chrono::duration_cast<std::chrono::seconds>(timeoutNanoseconds),};
+            ioTimeout.tv_sec = timeoutSeconds.count();
+            ioTimeout.tv_nsec = (timeoutNanoseconds - timeoutSeconds).count();
+            tasksCount = m_tcpClientUring->poll(*this, std::addressof(ioTimeout));
+         }
+         else
+         {
+            tasksCount = m_tcpClientUring->poll(*this, nullptr);
+         }
+      } while (tasksCount > 0);
    }
 
    void send(tcp_socket_descriptor &tcpSocketDescriptor)
@@ -1272,12 +1398,27 @@ private:
       assert(tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus);
       assert(1 == tcpSocketDescriptor.refsCount);
       assert(nullptr != tcpSocketDescriptor.tcpClient);
-      auto &tcpClient{*tcpSocketDescriptor.tcpClient,};
-      assert(std::addressof(tcpSocketDescriptor) == tcpClient.m_socketDescriptor);
-      assert(nullptr == tcpSocketDescriptor.next);
-      cancel_deferred_task(tcpClient);
-      auto &tcpSocketOperation{pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send),};
+      assert(std::addressof(tcpSocketDescriptor) == tcpSocketDescriptor.tcpClient->m_socketDescriptor);
+      assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
+      send(pop_tcp_socket_operation(tcpSocketDescriptor, tcp_socket_operation_type::send));
+   }
+
+   void send(tcp_socket_operation &tcpSocketOperation)
+   {
+      assert(nullptr != tcpSocketOperation.descriptor);
+      auto &tcpSocketDescriptor{*tcpSocketOperation.descriptor,};
+      assert(0 < tcpSocketDescriptor.registeredSocketIndex);
+      assert(tcp_socket_status::ready == tcpSocketDescriptor.tcpSocketStatus);
       assert(2 == tcpSocketDescriptor.refsCount);
+      assert(nullptr != tcpSocketDescriptor.tcpClient);
+      auto &tcpClient{*tcpSocketDescriptor.tcpClient,};
+      assert(tcpSocketOperation.descriptor == tcpClient.m_socketDescriptor);
+      assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
+      assert(tcp_socket_operation_type::send == tcpSocketOperation.type);
+      assert(0 < tcpSocketOperation.bufferIndex);
+      assert(0 < tcpSocketOperation.bufferSize);
+      assert(0 == tcpSocketOperation.bufferOffset);
+      cancel_deferred_task(tcpClient);
       size_t bytesWritten{static_cast<size_t>(-1),};
       if (
          auto const errorCode
@@ -1286,7 +1427,7 @@ private:
                data_chunk
                {
                   .bytes = std::addressof(tcpSocketOperation.bufferBytes[0]),
-                  .bytesLength = m_tcpClientUring->registered_buffer_capacity(tcpSocketOperation),
+                  .bytesLength = tcpSocketOperation.bufferSize,
                },
                bytesWritten
             ),
@@ -1299,16 +1440,15 @@ private:
          {
             push_tcp_socket_operation(tcpSocketOperation);
             assert(1 == tcpSocketDescriptor.refsCount);
-            return;
          }
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::busy;
-         m_tcpClientUring->prep_send(tcpSocketOperation, bytesWritten);
+         else
+         {
+            tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::busy;
+            m_tcpClientUring->prep_send(tcpSocketOperation, bytesWritten);
+         }
       }
       else
       {
-         assert(1 == tcpSocketDescriptor.refsCount);
-         assert(false == (bool{tcpSocketDescriptor.disconnectReason}));
-         tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::close;
          tcpSocketDescriptor.disconnectReason = errorCode;
          prep_disconnect(tcpSocketOperation);
       }

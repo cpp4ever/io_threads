@@ -64,7 +64,6 @@ jobs:
       working-directory: ${{runner.workspace}}/build
       run: |
         echo "CMAKE_BUILD_PARALLEL_LEVEL=$((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)" >> $env:GITHUB_ENV
-        echo "CTEST_OUTPUT_ON_FAILURE=1" >> $env:GITHUB_ENV
         cmake -A ${{matrix.platform}} -DIO_THREADS_SSL_LIBRARY=${{matrix.ssl-library}} -DIO_THREADS_SANITIZER=ASan -T ${{matrix.toolset}} -S ${{github.workspace}}
 
     - name: Build
@@ -75,4 +74,4 @@ jobs:
     - name: Test
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config ${{matrix.build-type}} --output-on-failure
+        ctest --build-config ${{matrix.build-type}} --verbose

@@ -26,7 +26,8 @@
 #pragma once
 
 #include <array> ///< for std::array
-#include <cstddef> ///< for size_t, std::byte
+#include <cstddef> ///< for std::byte
+#include <cstdint> ///< for uint32_t
 #include <string_view> ///< for std::string_view
 
 namespace io_threads
@@ -34,11 +35,11 @@ namespace io_threads
 
 struct sec_websocket_key final
 {
-   static constexpr size_t sizeof_value{16};
-   static constexpr size_t sizeof_base64_value{4 * ((sizeof_value + 2) / 3) + 1};
+   static constexpr uint32_t sizeof_value{16,};
+   static constexpr uint32_t sizeof_base64_value{4 * ((sizeof_value + 2) / 3) + 1,};
 
-   std::array<std::byte, sizeof_base64_value> bytes{std::byte{0}};
-   size_t bytesLength{0};
+   std::array<std::byte, sizeof_base64_value> bytes{std::byte{0,},};
+   uint32_t bytesLength{0,};
 };
 
 class random_generator;

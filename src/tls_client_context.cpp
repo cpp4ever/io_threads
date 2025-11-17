@@ -37,6 +37,7 @@
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::make_shared
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
@@ -52,7 +53,7 @@ tls_client_context::tls_client_context(
    tcp_client_thread executor,
    x509_store const &x509Store,
    std::string_view const &domainName,
-   size_t const tlsSessionListCapacity
+   uint32_t const tlsSessionListCapacity
 ) :
    m_executor{std::move(executor),}
 {
@@ -77,6 +78,11 @@ tls_client_context::~tls_client_context()
       );
       assert(nullptr == m_impl);
    }
+}
+
+std::string_view tls_client_context::domain_name() const noexcept
+{
+   return m_impl->domain_name();
 }
 
 tls_client::tls_client(tls_client_context tlsClientContext) noexcept :

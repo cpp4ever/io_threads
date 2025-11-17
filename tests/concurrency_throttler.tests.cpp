@@ -42,25 +42,25 @@ TEST_F(throttler, concurrency_throttler)
    constexpr size_t testLimit{10,};
    constexpr std::chrono::seconds testRollingTimeWindow{1,};
    concurrency_throttler testThrottler{testRollingTimeWindow, testLimit,};
-   auto const testTime{system_clock::now(),};
-   system_time testNextSlotTime{};
+   auto const testTime{steady_clock::now(),};
+   steady_time testNextSlotTime{};
    std::vector<concurrent_timeslot> testTimeslots{};
    for (size_t testIteration{0,}; testLimit > testIteration; ++testIteration)
    {
       testTimeslots.emplace_back(testThrottler.try_reserve(testTime + std::chrono::milliseconds{testIteration,}, testNextSlotTime));
       ASSERT_TRUE(testTimeslots.back());
-      EXPECT_EQ(testNextSlotTime, system_time{});
+      EXPECT_EQ(testNextSlotTime, steady_time{});
    }
    ASSERT_FALSE(testThrottler.try_reserve(testTime, testNextSlotTime));
    EXPECT_EQ(testNextSlotTime, testTime + testRollingTimeWindow);
-   testNextSlotTime = system_time{};
+   testNextSlotTime = steady_time{};
    ASSERT_FALSE(testThrottler.try_reserve(testTime + testRollingTimeWindow - std::chrono::nanoseconds{1,}, testNextSlotTime));
    EXPECT_EQ(testNextSlotTime, testTime + 2 * testRollingTimeWindow - (std::chrono::nanoseconds{1,}));
    for (size_t testIteration{0,}; testLimit > testIteration; ++testIteration)
    {
       testTimeslots[testIteration].submit(testTime + std::chrono::milliseconds{testIteration,});
    }
-   testNextSlotTime = system_time{};
+   testNextSlotTime = steady_time{};
    ASSERT_FALSE(testThrottler.try_reserve(testTime, testNextSlotTime));
    EXPECT_EQ(testNextSlotTime, testTime + testRollingTimeWindow);
    for (size_t testIteration{0,}; testLimit > testIteration; ++testIteration)

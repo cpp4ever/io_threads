@@ -44,6 +44,7 @@
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for uint32_t
 #include <cstring> ///< for std::memcpy
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t
@@ -130,7 +131,7 @@ public:
    [[nodiscard]] tls_client_context_impl(
       std::shared_ptr<x509_store_impl> const &x509Store,
       std::string_view const &domainName,
-      size_t const tlsSessionListCapacity
+      uint32_t const tlsSessionListCapacity
    ) :
       m_sslContext{x509Store->create_ssl_context(),},
       m_securityBuffersMemoryPool
@@ -185,7 +186,7 @@ public:
          unreachable();
       }
       m_utilityBuffer.resize(tls_packet_size_limit, std::byte{0,});
-      for (size_t tlsClientSessionIndex{0,}; tlsSessionListCapacity > tlsClientSessionIndex; ++tlsClientSessionIndex)
+      for (uint32_t tlsClientSessionIndex{0,}; tlsSessionListCapacity > tlsClientSessionIndex; ++tlsClientSessionIndex)
       {
          std::unique_ptr<SSL> ssl{SSL_new(m_sslContext.get()),};
          if (nullptr == ssl) [[unlikely]]

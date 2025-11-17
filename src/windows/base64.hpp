@@ -30,7 +30,7 @@
 
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cstddef> ///< for size_t
+#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::addressof
 #include <system_error> ///< for std::error_code
 
@@ -40,7 +40,7 @@ namespace io_threads
 {
 
 template<typename string_output, typename binary_input>
-[[nodiscard]] size_t base64_encode(string_output &stringOutput, binary_input const &binaryInput)
+[[nodiscard]] uint32_t base64_encode(string_output &stringOutput, binary_input const &binaryInput)
 {
    assert((4 * (std::size(binaryInput) + 2) / 3 + 1) <= std::size(stringOutput));
    auto const inputBytesLength{static_cast<DWORD>(std::size(binaryInput)),};
