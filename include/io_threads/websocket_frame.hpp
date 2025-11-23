@@ -36,6 +36,7 @@ enum struct websocket_frame_type : uint8_t
    none [[maybe_unused]] = 0x0,
    text [[maybe_unused]] = 0x1,
    binary [[maybe_unused]] = 0x2,
+   pong [[maybe_unused]] = 0xA,
 };
 
 struct websocket_frame final
