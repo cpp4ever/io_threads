@@ -2,7 +2,7 @@
    Part of the io_threads project (https://github.com/cpp4ever/io_threads), under the MIT License
    SPDX-License-Identifier: MIT
 
-   Copyright (c) 2024 Mikhail Smirnov
+   Copyright (c) 2024-2025 Mikhail Smirnov
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the Software), to deal
