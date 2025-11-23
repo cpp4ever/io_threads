@@ -51,14 +51,11 @@ void test_tcp_connect_timeout(test_client &testClient, uint16_t const testPort)
 #endif
       ),
    };
-   constexpr auto testNonRoutableIps = std::to_array<std::string_view>({
-      "10.0.0.0",
-      "10.255.255.255",
-   });
+   constexpr auto testNonRoutableIps{std::to_array<std::string_view>({"10.0.0.0", "10.255.255.255",}),};
    for (auto const &testNonRoutableIp : testNonRoutableIps)
    {
       std::error_code testErrorCode{};
-      auto const testSocketAddress = make_socket_address(testNonRoutableIp, testPort, testErrorCode);
+      auto const testSocketAddress{make_socket_address(testNonRoutableIp, testPort, testErrorCode),};
       ASSERT_FALSE(testErrorCode) << testErrorCode.value() << ": " << testErrorCode.message();
       ASSERT_TRUE(testSocketAddress.has_value());
       testClient.expect_error(testExpectedErrorCodeMatcher);
