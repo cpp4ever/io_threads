@@ -468,6 +468,7 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
          session.inboundFrame->partsCount += inboundPingFrame.partsCount;
 #endif
          outboundFrame.header = session.inboundFrame->header;
+         outboundFrame.header.opcode = websocket_frame_opcode_pong;
          outboundFrame.header.fin = inboundPingFrame.header.fin;
          std::memcpy(
             outboundFrame.bytes,
@@ -483,6 +484,7 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
       {
          assert(websocket_frame_opcode_ping == inboundPingFrame.header.opcode);
          outboundFrame.header = inboundPingFrame.header;
+         outboundFrame.header.opcode = websocket_frame_opcode_pong;
       }
       std::memcpy(
          outboundFrame.bytes + outboundFrame.bytesLength,
