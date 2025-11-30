@@ -149,14 +149,7 @@ public:
       std::string_view const domainName,
       size_t const tlsSessionListCapacity
    ) :
-      m_sessionMemory
-      {
-         std::make_unique<memory_pool>(
-            tlsSessionListCapacity,
-            std::align_val_t{alignof(tls_client_session),},
-            sizeof(tls_client_session)
-         ),
-      },
+      m_clientSessionPool{tlsSessionListCapacity, std::align_val_t{alignof(tls_client_session),}, sizeof(tls_client_session),},
       m_x509Store{x509Store,}
    {
       assert(nullptr != m_x509Store);
@@ -186,14 +179,14 @@ public:
    {
       CtxtHandle securityContextHandle{.dwLower = 0, .dwUpper = 0,};
       auto const securityContextRequirements{security_context_requirements(),};
-      auto *securityBuffer{m_securityMemory->pop_memory_chunk(),};
+      auto *securityBuffer{m_securityBufferPool->pop_memory_chunk(),};
       auto outboundSecurityBuffer
       {
          std::to_array(
             {
                SecBuffer
                {
-                  .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_chunk_size()),
+                  .cbBuffer = static_cast<ULONG>(m_securityBufferPool->memory_chunk_size()),
                   .BufferType = SECBUFFER_TOKEN,
                   .pvBuffer = securityBuffer,
                },
@@ -230,9 +223,9 @@ public:
          assert(SECBUFFER_TOKEN == outboundSecurityBuffer[0].BufferType);
          assert(securityBuffer <= outboundSecurityBuffer[0].pvBuffer);
          assert(
-            (securityBuffer + m_securityMemory->memory_chunk_size()) >= (std::bit_cast<std::byte const *>(outboundSecurityBuffer[0].pvBuffer) + outboundSecurityBuffer[0].cbBuffer)
+            (securityBuffer + m_securityBufferPool->memory_chunk_size()) >= (std::bit_cast<std::byte const *>(outboundSecurityBuffer[0].pvBuffer) + outboundSecurityBuffer[0].cbBuffer)
          );
-         return m_sessionMemory->pop_object<tls_client_session>(
+         return m_clientSessionPool.pop_object<tls_client_session>(
             tls_client_session
             {
                .securityContextHandle = securityContextHandle,
@@ -246,7 +239,7 @@ public:
             }
          );
       }
-      m_securityMemory->push_memory_chunk(securityBuffer);
+      m_securityBufferPool->push_memory_chunk(securityBuffer);
       log_system_error("[tls_client] failed to create security context: ({:#X}) - {}", returnCode);
       unreachable();
    }
@@ -266,7 +259,7 @@ public:
             {
                session.status = tls_client_status::ready;
             }
-            m_securityMemory->push_memory_chunk(session.securityBuffer);
+            m_securityBufferPool->push_memory_chunk(session.securityBuffer);
             session.securityBuffer = nullptr;
             return std::error_code{};
          }
@@ -413,7 +406,7 @@ public:
             {
                if ((SECBUFFER_ALERT == securityBuffer.BufferType) && (0 < securityBuffer.cbBuffer))
                {
-                  session.securityBuffer = m_securityMemory->pop_memory_chunk();
+                  session.securityBuffer = m_securityBufferPool->pop_memory_chunk();
                   CopyMemory(session.securityBuffer, securityBuffer.pvBuffer, securityBuffer.cbBuffer);
                   session.securityToken = std::string_view
                   {
@@ -537,10 +530,10 @@ public:
       }
       if (nullptr != session.securityBuffer)
       {
-         m_securityMemory->push_memory_chunk(session.securityBuffer);
+         m_securityBufferPool->push_memory_chunk(session.securityBuffer);
          session.securityBuffer = nullptr;
       }
-      m_sessionMemory->push_object(session);
+      m_clientSessionPool.push_object(session);
    }
 
    [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const &dataChunk, size_t &bytesWritten)
@@ -662,8 +655,8 @@ public:
 
 private:
    CredHandle m_handle{.dwLower = 0, .dwUpper = 0,};
-   std::unique_ptr<memory_pool> m_securityMemory{nullptr,};
-   std::unique_ptr<memory_pool> m_sessionMemory;
+   std::unique_ptr<memory_pool> m_securityBufferPool{nullptr,};
+   memory_pool m_clientSessionPool;
    std::pair<std::wstring, std::string> m_domainName;
    std::shared_ptr<x509_store_impl> const m_x509Store;
    PCCERT_CONTEXT m_certificateContext{nullptr,};
@@ -772,22 +765,22 @@ private:
          .cBuffers = static_cast<ULONG>(inboundSecurityBuffers.size()),
          .pBuffers = inboundSecurityBuffers.data(),
       };
-      auto *tokenSecurityBuffer{(nullptr == session.securityBuffer) ? m_securityMemory->pop_memory_chunk() : session.securityBuffer,};
+      auto *tokenSecurityBuffer{(nullptr == session.securityBuffer) ? m_securityBufferPool->pop_memory_chunk() : session.securityBuffer,};
       session.securityBuffer = nullptr;
-      auto *alertSecurityBuffer{m_securityMemory->pop_memory_chunk(),};
+      auto *alertSecurityBuffer{m_securityBufferPool->pop_memory_chunk(),};
       auto outboundSecurityBuffers
       {
          std::to_array(
             {
                SecBuffer
                {
-                  .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_chunk_size()),
+                  .cbBuffer = static_cast<ULONG>(m_securityBufferPool->memory_chunk_size()),
                   .BufferType = SECBUFFER_TOKEN,
                   .pvBuffer = tokenSecurityBuffer,
                },
                SecBuffer
                {
-                  .cbBuffer = static_cast<ULONG>(m_securityMemory->memory_chunk_size()),
+                  .cbBuffer = static_cast<ULONG>(m_securityBufferPool->memory_chunk_size()),
                   .BufferType = SECBUFFER_ALERT,
                   .pvBuffer = alertSecurityBuffer,
                },
@@ -831,14 +824,14 @@ private:
          if (true == session.securityToken.empty())
          {
             session.status = tls_client_status::ready;
-            m_securityMemory->push_memory_chunk(tokenSecurityBuffer);
+            m_securityBufferPool->push_memory_chunk(tokenSecurityBuffer);
          }
          else
          {
             session.status = tls_client_status::handshake_complete;
             session.securityBuffer = tokenSecurityBuffer;
          }
-         m_securityMemory->push_memory_chunk(alertSecurityBuffer);
+         m_securityBufferPool->push_memory_chunk(alertSecurityBuffer);
          tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
@@ -848,13 +841,13 @@ private:
          bytesProcessed = handle_handshake_step(session, inboundDataChunk, inboundSecurityBuffers, outboundSecurityBuffers);
          if (true == session.securityToken.empty())
          {
-            m_securityMemory->push_memory_chunk(tokenSecurityBuffer);
+            m_securityBufferPool->push_memory_chunk(tokenSecurityBuffer);
          }
          else
          {
             session.securityBuffer = tokenSecurityBuffer;
          }
-         m_securityMemory->push_memory_chunk(alertSecurityBuffer);
+         m_securityBufferPool->push_memory_chunk(alertSecurityBuffer);
          tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
@@ -862,8 +855,8 @@ private:
       case SEC_E_INCOMPLETE_MESSAGE:
       {
          bytesProcessed = 0;
-         m_securityMemory->push_memory_chunk(tokenSecurityBuffer);
-         m_securityMemory->push_memory_chunk(alertSecurityBuffer);
+         m_securityBufferPool->push_memory_chunk(tokenSecurityBuffer);
+         m_securityBufferPool->push_memory_chunk(alertSecurityBuffer);
          tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
@@ -890,10 +883,10 @@ private:
                assert(0 == outboundSecurityBuffer.cbBuffer);
             }
          }
-         m_securityMemory->push_memory_chunk(tokenSecurityBuffer);
+         m_securityBufferPool->push_memory_chunk(tokenSecurityBuffer);
          if (true == session.securityToken.empty())
          {
-            m_securityMemory->push_memory_chunk(alertSecurityBuffer);
+            m_securityBufferPool->push_memory_chunk(alertSecurityBuffer);
          }
          tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
@@ -1063,7 +1056,7 @@ private:
          log_error(std::source_location::current(), "[tls_client] {} does not support TCP", std::string_view{UNISP_NAME_A,});
          unreachable();
       }
-      m_securityMemory = std::make_unique<memory_pool>(
+      m_securityBufferPool = std::make_unique<memory_pool>(
          initialSecurityTokenListCapacity,
          std::align_val_t{alignof(std::byte),},
          std::max<size_t>(sizeof(void *), securityPackageInfo->cbMaxToken)

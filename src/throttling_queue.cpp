@@ -27,28 +27,72 @@
 #include "io_threads/throttling_queue.hpp" ///< for io_threads::throttling_queue
 
 #include <algorithm> ///< for std::max
+#include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
+#include <memory> ///< for std::construct_at, std::destroy_at
 #include <mutex> ///< for std::scoped_lock
+#include <new> ///< for operator delete, operator new, std::align_val_t
 
 namespace io_threads
 {
 
 throttling_queue::throttling_queue(time_duration const rollingTimeWindow, size_t const quota) :
-   m_rollingTimeWindow{rollingTimeWindow,},
-   m_timeslots{quota, steady_time{time_duration::zero(),},}
+   m_rollingTimeWindow{rollingTimeWindow,}
 {
-   assert(rollingTimeWindow > time_duration::zero());
-   assert(quota > 0);
+   assert(time_duration::zero() < rollingTimeWindow);
+   assert(0 < quota);
+   m_timeslotPool = std::bit_cast<timeslot *>(::operator new(quota * sizeof(timeslot), std::align_val_t{alignof(timeslot),}));
+   auto *nextTimeslot{m_timeslotPool,};
+   for (size_t index{0,}; quota > index; ++index, ++nextTimeslot)
+   {
+      if (nullptr == m_timeslotHead)
+      {
+         assert(nullptr == m_timeslotTail);
+         m_timeslotTail = m_timeslotHead = std::construct_at(nextTimeslot, timeslot{});
+      }
+      else
+      {
+         assert(nullptr == m_timeslotTail->next);
+         m_timeslotTail->next = std::construct_at(nextTimeslot, timeslot{});
+         m_timeslotTail = m_timeslotTail->next;
+         assert(nullptr == m_timeslotTail->next);
+      }
+   }
+}
+
+throttling_queue::~throttling_queue()
+{
+   while (nullptr != m_timeslotHead)
+   {
+      auto *timeslot{m_timeslotHead,};
+      m_timeslotHead = timeslot->next;
+      std::destroy_at(timeslot);
+   }
+   ::operator delete(m_timeslotPool, std::align_val_t{alignof(timeslot),});
 }
 
 steady_time throttling_queue::enqueue(steady_time const now)
 {
-   [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
-   auto timeslot{m_timeslots.begin(),};
-   *timeslot = std::max(now, *timeslot + m_rollingTimeWindow);
-   m_timeslots.splice(m_timeslots.end(), m_timeslots, timeslot);
-   return *timeslot;
+   assert(nullptr != m_timeslotHead);
+   assert(nullptr != m_timeslotTail);
+   assert(nullptr == m_timeslotTail->next);
+   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_timeslotLock,};
+   auto &timeslot{*m_timeslotHead};
+   timeslot.timestamp = std::max(now, timeslot.timestamp + m_rollingTimeWindow);
+   if (m_timeslotHead != m_timeslotTail)
+   {
+      m_timeslotHead = timeslot.next;
+      timeslot.next = nullptr;
+      m_timeslotTail->next = std::addressof(timeslot);
+      m_timeslotTail = std::addressof(timeslot);
+   }
+   else
+   {
+      assert(nullptr == m_timeslotHead->next);
+   }
+   assert(nullptr == m_timeslotTail->next);
+   return timeslot.timestamp;
 }
 
 }

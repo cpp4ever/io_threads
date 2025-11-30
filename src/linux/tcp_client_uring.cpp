@@ -67,6 +67,7 @@
 ///   IO_URING_VERSION_MAJOR,
 ///   IO_URING_VERSION_MINOR,
 ///   IORING_CQE_F_MORE,
+///   IORING_FEAT_SINGLE_MMAP,
 ///   IORING_SETUP_ATTACH_WQ,
 ///   IORING_SETUP_CQSIZE,
 ///   IORING_SETUP_NO_SQARRAY,
@@ -78,7 +79,7 @@
 #include <linux/time_types.h> ///< for __kernel_timespec
 #include <netinet/in.h> ///< for IPPROTO_TCP
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
-#include <signal.h> ///< for sigfillset, sigset_t
+#include <signal.h> ///< for sigset_t
 #include <sys/eventfd.h> ///< for EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
 #include <sys/socket.h> ///< for AF_INET, AF_INET6, MSG_DONTWAIT, MSG_NOSIGNAL, sa_family_t, SOCK_NONBLOCK, SOCK_STREAM
 #include <sys/uio.h> ///< for iovec
@@ -90,7 +91,7 @@
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memset
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
-#include <new> ///< for std::align_val_t, std::launder
+#include <new> ///< for std::align_val_t
 #include <optional> ///< for std::nullopt_t, std::optional
 #include <source_location> ///< for std::source_location
 #include <variant> ///< for std::visit
@@ -102,6 +103,7 @@ namespace io_threads
 class tcp_client_uring_impl final : public tcp_client_uring
 {
 private:
+   using super = tcp_client_uring;
    template<typename... types> struct overloaded : types... { using types::operator()...; };
 
 public:
@@ -109,14 +111,25 @@ public:
    tcp_client_uring_impl(tcp_client_uring_impl &&) = delete;
    tcp_client_uring_impl(tcp_client_uring_impl const &) = delete;
 
-   [[nodiscard]] tcp_client_uring_impl(io_affinity const &asyncWorkersAffinity, io_affinity const &kernelThreadAffinity, uint32_t const ioRingQueueCapacity)
+   [[nodiscard]] tcp_client_uring_impl(
+      io_affinity const &asyncWorkersAffinity,
+      io_affinity const &kernelThreadAffinity,
+      uint32_t const ioRingQueueCapacity,
+      uint32_t const recvBufferSize,
+      uint32_t const sendBufferSize
+   ) :
+      super{},
+      m_tcpRecvOperationPool{ioRingQueueCapacity, std::align_val_t{alignof(tcp_socket_operation),}, tcp_socket_operation::total_size(recvBufferSize),},
+      m_tcpSendOperationPool{ioRingQueueCapacity, std::align_val_t{alignof(tcp_socket_operation),}, tcp_socket_operation::total_size(sendBufferSize),},
+      m_tcpSocketDescriptorPool{ioRingQueueCapacity, std::align_val_t{alignof(tcp_socket_descriptor),}, sizeof(tcp_socket_descriptor),}
    {
       assert(0 < ioRingQueueCapacity);
-      assert(nullptr != m_ring);
+      assert(0 < recvBufferSize);
+      assert(0 < sendBufferSize);
       io_uring_params ioRingParams;
       std::memset(std::addressof(ioRingParams), 0, sizeof(ioRingParams));
-      ioRingParams.sq_entries = ioRingQueueCapacity;
-      ioRingParams.cq_entries = ioRingQueueCapacity * 2;
+      ioRingParams.sq_entries = ioRingQueueCapacity * 2 + 1;
+      ioRingParams.cq_entries = ioRingQueueCapacity * 3 + 1;
       ioRingParams.flags = IORING_SETUP_CQSIZE | IORING_SETUP_SINGLE_ISSUER;
 #if (defined(IORING_SETUP_NO_SQARRAY))
       ioRingParams.flags |= IORING_SETUP_NO_SQARRAY;
@@ -156,15 +169,16 @@ public:
          },
          kernelThreadAffinity
       );
+      ioRingParams.features = IORING_FEAT_SINGLE_MMAP;
       if (
-         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity, m_ring.get(), std::addressof(ioRingParams)),};
+         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity * 2 + 1, std::addressof(m_ring), std::addressof(ioRingParams)),};
          0 > returnCode
       ) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to initialize the ring: ({}) - {}", -returnCode);
          unreachable();
       }
-      if (auto const returnCode{io_uring_register_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_register_ring_fd(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to register ring descriptor: ({}) - {}", -returnCode);
       }
@@ -178,7 +192,7 @@ public:
                cpu_set_t iowqAffinityMask;
                CPU_ZERO(std::addressof(iowqAffinityMask));
                CPU_SET(to_underlying(asyncWorkersCpuId), std::addressof(iowqAffinityMask));
-               if (auto const returnCode{io_uring_register_iowq_aff(m_ring.get(), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
+               if (auto const returnCode{io_uring_register_iowq_aff(std::addressof(m_ring), sizeof(iowqAffinityMask), std::addressof(iowqAffinityMask)),}; 0 > returnCode) [[unlikely]]
                {
                   log_system_error("[tcp_client] failed to register IO workers affinity mask: ({}) - {}", -returnCode);
                }
@@ -188,19 +202,14 @@ public:
          },
          asyncWorkersAffinity
       );
-      std::array<uint32_t, 2> iowqMaxWorkers = {uint32_t{1,}, ioRingQueueCapacity,};
-      if (auto const returnCode{io_uring_register_iowq_max_workers(m_ring.get(), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
+      std::array<uint32_t, 2> iowqMaxWorkers = {ioRingQueueCapacity, ioRingQueueCapacity,};
+      if (auto const returnCode{io_uring_register_iowq_max_workers(std::addressof(m_ring), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to register IO workers limits: ({}) - {}", -returnCode);
       }
-      if (auto const returnCode{io_uring_ring_dontfork(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_ring_dontfork(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
-      }
-      if (-1 == sigfillset(m_sigmask.get())) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to initialize sigmask: ({}) - {}", errno);
-         unreachable();
       }
       if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
       {
@@ -211,22 +220,21 @@ public:
 
    ~tcp_client_uring_impl() override
    {
-      assert(nullptr != m_ring);
       assert(0 == m_tasksCount);
       assert(-1 != m_eventfd);
       if (-1 == close(m_eventfd)) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to destroy eventfd: ({}) - {}", errno);
       }
-      if (auto const returnCode{io_uring_unregister_iowq_aff(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_unregister_iowq_aff(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
       }
-      if (auto const returnCode{io_uring_unregister_ring_fd(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_unregister_ring_fd(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to unregister ring descriptor: ({}) - {}", -returnCode);
       }
-      io_uring_queue_exit(m_ring.get());
+      io_uring_queue_exit(std::addressof(m_ring));
    }
 
    tcp_client_uring_impl &operator = (tcp_client_uring_impl &&) = delete;
@@ -258,7 +266,6 @@ public:
    void prep_recv(tcp_socket_operation &tcpRecvOperation) override
    {
       assert(nullptr != tcpRecvOperation.descriptor);
-      assert(nullptr != m_tcpRecvOperationPool);
       assert(tcpRecvOperation.bufferSize > tcpRecvOperation.bufferOffset);
       auto &submissionQueueEntry{submission_queue_entry(std::addressof(tcpRecvOperation)),};
       io_uring_prep_read_fixed(
@@ -275,7 +282,6 @@ public:
    void prep_send(tcp_socket_operation &tcpSendOperation, uint32_t const bytesLength) override
    {
       assert(nullptr != tcpSendOperation.descriptor);
-      assert(nullptr != m_tcpSendOperationPool);
       assert((bytesLength + tcpSendOperation.bufferOffset) <= tcpSendOperation.bufferSize);
       auto &submissionQueueEntry{submission_queue_entry(std::addressof(tcpSendOperation)),};
       io_uring_prep_send_zc_fixed(
@@ -356,7 +362,7 @@ public:
    void register_tcp_socket(tcp_socket_descriptor &tcpSocketDescriptor, int32_t const tcpSocket) override
    {
       if (
-         auto const returnCode{io_uring_register_files_update(m_ring.get(), tcpSocketDescriptor.registeredSocketIndex, std::addressof(tcpSocket), 1),};
+         auto const returnCode{io_uring_register_files_update(std::addressof(m_ring), tcpSocketDescriptor.registeredSocketIndex, std::addressof(tcpSocket), 1),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -368,29 +374,22 @@ public:
    [[nodiscard]] tcp_socket_descriptor *register_tcp_socket_descriptors(uint32_t const socketListCapacity) override
    {
       assert(0 < socketListCapacity);
-      assert(nullptr != m_ring);
-      assert(nullptr == m_tcpSocketDescriptorsMemoryPool);
       assert(true == m_registeredSockets.empty());
       m_registeredSockets.resize(socketListCapacity + 1, -1);
       if (
-         auto const returnCode{io_uring_register_files(m_ring.get(), m_registeredSockets.data(), static_cast<uint32_t>(m_registeredSockets.size())),};
+         auto const returnCode{io_uring_register_files(std::addressof(m_ring), m_registeredSockets.data(), static_cast<uint32_t>(m_registeredSockets.size())),};
          0 > returnCode
       ) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to register TCP sockets: ({}) - {}", -returnCode);
          unreachable();
       }
-      m_tcpSocketDescriptorsMemoryPool = std::make_unique<memory_pool>(
-         socketListCapacity,
-         std::align_val_t{alignof(tcp_socket_descriptor),},
-         sizeof(tcp_socket_descriptor)
-      );
       tcp_socket_descriptor *tcpSocketDescriptors{nullptr,};
       for (auto registeredTcpSocketIndex{socketListCapacity,}; 0 < registeredTcpSocketIndex; --registeredTcpSocketIndex)
       {
          tcpSocketDescriptors = std::addressof(
-            m_tcpSocketDescriptorsMemoryPool->pop_object<tcp_socket_descriptor>(
-               tcp_socket_descriptor{.registeredSocketIndex = registeredTcpSocketIndex, .next = std::launder(tcpSocketDescriptors),}
+            m_tcpSocketDescriptorPool.pop_object<tcp_socket_descriptor>(
+               tcp_socket_descriptor{.registeredSocketIndex = registeredTcpSocketIndex, .next = tcpSocketDescriptors,}
             )
          );
       }
@@ -402,41 +401,31 @@ public:
    void register_tcp_socket_operations(
       tcp_socket_operation *&tcpRecvOperations,
       tcp_socket_operation *&tcpSendOperations,
-      uint32_t const socketListCapacity,
-      uint32_t const recvBufferSize,
-      uint32_t const sendBufferSize
+      uint32_t const socketListCapacity
    ) override
    {
       assert(nullptr == tcpRecvOperations);
       assert(nullptr == tcpSendOperations);
       assert(0 < socketListCapacity);
-      assert(nullptr != m_ring);
       assert(true == m_registeredBuffers.empty());
       m_registeredBuffers.reserve(socketListCapacity * 2 + 1);
       m_registeredBuffers.emplace_back(iovec{.iov_base = std::addressof(m_eventfdValue), .iov_len = sizeof(m_eventfdValue),});
       constexpr auto popTcpTransferOperations
       {
-         [] (auto &tcpTransferOperationPool, auto &registeredBuffers, auto const socketListCapacity, auto const bufferSize, auto const tcpSocketOperationType)
+         [] (auto &tcpTransferOperationPool, auto &registeredBuffers, auto const socketListCapacity, auto const tcpSocketOperationType)
          {
-            assert(nullptr == tcpTransferOperationPool);
-            assert(0 < bufferSize);
-            tcpTransferOperationPool = std::make_unique<memory_pool>(
-               socketListCapacity,
-               std::align_val_t{alignof(tcp_socket_operation),},
-               tcp_socket_operation::total_size(bufferSize)
-            );
             tcp_socket_operation *tcpTransferOperations{nullptr,};
             for (uint32_t index{0,}; socketListCapacity > index; ++index)
             {
                auto &tcpTransferOperation
                {
-                  tcpTransferOperationPool->template pop_object<tcp_socket_operation>(
+                  tcpTransferOperationPool.template pop_object<tcp_socket_operation>(
                      tcp_socket_operation
                      {
                         .next = tcpTransferOperations,
                         .type = tcpSocketOperationType,
                         .bufferIndex = static_cast<uint32_t>(registeredBuffers.size()),
-                        .bufferSize = bufferSize,
+                        .bufferSize = tcp_socket_operation::bytes_size(tcpTransferOperationPool.memory_chunk_size()),
                      }
                   ),
                };
@@ -446,10 +435,10 @@ public:
             return tcpTransferOperations;
          },
       };
-      tcpRecvOperations = popTcpTransferOperations(m_tcpRecvOperationPool, m_registeredBuffers, socketListCapacity, recvBufferSize, tcp_socket_operation_type::recv);
-      tcpSendOperations = popTcpTransferOperations(m_tcpSendOperationPool, m_registeredBuffers, socketListCapacity, sendBufferSize, tcp_socket_operation_type::send);
+      tcpRecvOperations = popTcpTransferOperations(m_tcpRecvOperationPool, m_registeredBuffers, socketListCapacity, tcp_socket_operation_type::recv);
+      tcpSendOperations = popTcpTransferOperations(m_tcpSendOperationPool, m_registeredBuffers, socketListCapacity, tcp_socket_operation_type::send);
       if (
-         auto const returnCode{io_uring_register_buffers(m_ring.get(), m_registeredBuffers.data(), m_registeredBuffers.size()),};
+         auto const returnCode{io_uring_register_buffers(std::addressof(m_ring), m_registeredBuffers.data(), m_registeredBuffers.size()),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -461,32 +450,28 @@ public:
    void unregister_tcp_socket_descriptors(tcp_socket_descriptor *&tcpSocketDescriptors) override
    {
       assert(nullptr != tcpSocketDescriptors);
-      assert(nullptr != m_ring);
-      assert(nullptr != m_tcpSocketDescriptorsMemoryPool);
       assert(false == m_registeredSockets.empty());
-      if (auto const returnCode{io_uring_unregister_files(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_unregister_files(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to unregister TCP sockets: ({}) - {}", -returnCode);
       }
       while (nullptr != tcpSocketDescriptors)
       {
-         auto *tcpSocketDescriptor{std::launder(tcpSocketDescriptors),};
+         auto *tcpSocketDescriptor{tcpSocketDescriptors,};
          assert(tcp_socket_status::none == tcpSocketDescriptor->tcpSocketStatus);
          assert(0 == tcpSocketDescriptor->refsCount);
          assert(false == (bool{tcpSocketDescriptor->disconnectReason,}));
-         tcpSocketDescriptors = std::launder(tcpSocketDescriptor->next);
+         tcpSocketDescriptors = tcpSocketDescriptor->next;
          tcpSocketDescriptor->next = nullptr;
-         m_tcpSocketDescriptorsMemoryPool->push_object(*tcpSocketDescriptor);
+         m_tcpSocketDescriptorPool.push_object(*tcpSocketDescriptor);
       }
       m_registeredSockets.clear();
-      m_tcpSocketDescriptorsMemoryPool.reset();
    }
 
    void unregister_tcp_socket_operations(tcp_socket_operation *&tcpRecvOperations, tcp_socket_operation *&tcpSendOperations) override
    {
-      assert(nullptr != m_ring);
       assert(false == m_registeredBuffers.empty());
-      if (auto const returnCode{io_uring_unregister_buffers(m_ring.get()),}; 0 > returnCode) [[unlikely]]
+      if (auto const returnCode{io_uring_unregister_buffers(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to unregister TCP transfer operations: ({}) - {}", -returnCode);
          unreachable();
@@ -496,28 +481,26 @@ public:
       {
          [] (auto &tcpTransferOperationPool, auto *&tcpTransferOperations)
          {
-            assert(nullptr != tcpTransferOperationPool);
             assert(nullptr != tcpTransferOperations);
             while (nullptr != tcpTransferOperations)
             {
-               auto *tcpTransferOperation{std::launder(tcpTransferOperations),};
+               auto *tcpTransferOperation{tcpTransferOperations,};
                assert(0 == tcpTransferOperation->bufferOffset);
-               tcpTransferOperations = std::launder(tcpTransferOperation->next);
+               tcpTransferOperations = tcpTransferOperation->next;
                tcpTransferOperation->next = nullptr;
-               tcpTransferOperationPool->push_object(*tcpTransferOperation);
+               tcpTransferOperationPool.push_object(*tcpTransferOperation);
             }
-            tcpTransferOperationPool.reset();
          },
       };
       pushTcpTransferOperations(m_tcpRecvOperationPool, tcpRecvOperations);
       pushTcpTransferOperations(m_tcpSendOperationPool, tcpSendOperations);
    }
 
-   [[nodiscard]] intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout) final
+   [[nodiscard]] intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout, sigset_t &sigmask) override
    {
       io_uring_cqe *completionQueueEntry{nullptr,};
       if (
-         auto const returnCode{io_uring_submit_and_wait_timeout(m_ring.get(), std::addressof(completionQueueEntry), 1, timeout, m_sigmask.get()),};
+         auto const returnCode{io_uring_submit_and_wait_timeout(std::addressof(m_ring), std::addressof(completionQueueEntry), 1, timeout, std::addressof(sigmask)),};
          (0 > returnCode) && (ETIME != -returnCode)
       ) [[unlikely]]
       {
@@ -526,7 +509,7 @@ public:
       }
       uint32_t completionQueueHead;
       uint32_t numberOfCompletionQueueEntriesRemoved{0,};
-      io_uring_for_each_cqe(m_ring.get(), completionQueueHead, completionQueueEntry)
+      io_uring_for_each_cqe(std::addressof(m_ring), completionQueueHead, completionQueueEntry)
       {
          assert(0 < m_tasksCount);
          if (IORING_CQE_F_MORE != (IORING_CQE_F_MORE & completionQueueEntry->flags))
@@ -559,7 +542,7 @@ public:
          }
          ++numberOfCompletionQueueEntriesRemoved;
       }
-      io_uring_cq_advance(m_ring.get(), numberOfCompletionQueueEntriesRemoved);
+      io_uring_cq_advance(std::addressof(m_ring), numberOfCompletionQueueEntriesRemoved);
       return m_tasksCount;
    }
 
@@ -581,21 +564,19 @@ public:
 
    [[nodiscard]] io_ring share_io_threads() const noexcept override
    {
-      return io_ring{m_ring->ring_fd,};
+      return io_ring{m_ring.ring_fd,};
    }
 
 private:
-   std::unique_ptr<io_uring> const m_ring{std::make_unique<io_uring>(),};
-   std::unique_ptr<sigset_t> const m_sigmask{std::make_unique<sigset_t>(),};
+   io_uring m_ring{};
    intptr_t m_tasksCount{0,};
    int m_eventfd{-1,};
    bool m_running{true,};
-   bool m_hasKernelThread{false,};
    eventfd_t m_eventfdValue{0,};
-   std::unique_ptr<memory_pool> m_tcpRecvOperationPool{nullptr,};
-   std::unique_ptr<memory_pool> m_tcpSendOperationPool{nullptr,};
+   memory_pool m_tcpRecvOperationPool;
+   memory_pool m_tcpSendOperationPool;
    std::vector<iovec> m_registeredBuffers{};
-   std::unique_ptr<memory_pool> m_tcpSocketDescriptorsMemoryPool{nullptr,};
+   memory_pool m_tcpSocketDescriptorPool;
    std::vector<int32_t> m_registeredSockets{};
 
    void prep_close_eventfd()
@@ -621,7 +602,7 @@ private:
    {
       assert(-1 != m_eventfd);
       if (
-         auto const returnCode{io_uring_register_files_update(m_ring.get(), 0, std::addressof(m_eventfd), 1),};
+         auto const returnCode{io_uring_register_files_update(std::addressof(m_ring), 0, std::addressof(m_eventfd), 1),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -633,8 +614,7 @@ private:
    [[nodiscard]] io_uring_sqe &submission_queue_entry(void *userdata)
    {
       assert(nullptr != userdata);
-      assert(nullptr != m_ring);
-      auto *submissionQueueEntry{io_uring_get_sqe(m_ring.get()),};
+      auto *submissionQueueEntry{io_uring_get_sqe(std::addressof(m_ring)),};
       if (nullptr == submissionQueueEntry) [[unlikely]]
       {
          log_error(std::source_location::current(), "[tcp_client] failed to get submission queue entry, it must be a bug");
@@ -649,10 +629,12 @@ private:
 std::unique_ptr<tcp_client_uring> tcp_client_uring::construct(
    io_affinity const &asyncWorkersAffinity,
    io_affinity const &kernelThreadAffinity,
-   uint32_t const ioRingQueueCapacity
+   uint32_t const ioRingQueueCapacity,
+   uint32_t const recvBufferSize,
+   uint32_t const sendBufferSize
 )
 {
-   return std::make_unique<tcp_client_uring_impl>(asyncWorkersAffinity, kernelThreadAffinity, ioRingQueueCapacity);
+   return std::make_unique<tcp_client_uring_impl>(asyncWorkersAffinity, kernelThreadAffinity, ioRingQueueCapacity, recvBufferSize, sendBufferSize);
 }
 
 }

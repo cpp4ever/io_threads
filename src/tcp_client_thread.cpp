@@ -43,7 +43,7 @@
 #include <future> ///< for std::future, std::promise
 #include <memory> ///< for std::addressof, std::make_shared
 #include <source_location> ///< for std::source_location
-#include <thread> ///< for std::jthread
+#include <thread> ///< for std::thread
 #include <utility> ///< for std::move
 
 namespace io_threads
@@ -74,7 +74,6 @@ public:
 
    ~tcp_client_thread_impl()
    {
-      m_thread.request_stop();
       m_worker->stop();
       m_worker.reset();
       m_thread.join();
@@ -122,7 +121,7 @@ public:
 
 private:
    std::shared_ptr<tcp_client::tcp_client_thread_worker> m_worker{nullptr,};
-   std::jthread m_thread{};
+   std::thread m_thread{};
 };
 
 tcp_client_thread::tcp_client_thread(tcp_client_thread &&rhs) noexcept = default;
@@ -227,7 +226,7 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::cancel_deferred_ta
       m_deferredTaskHead = nullptr;
       m_deferredTaskTail = nullptr;
    }
-   m_deferredTaskMemory->push(deferredTask);
+   m_deferredTaskPool.push(deferredTask);
 }
 
 void tcp_client_thread::tcp_client::tcp_client_thread_worker::enqueue_deferred_task(tcp_deferred_task &deferredTask)
@@ -254,14 +253,12 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::enqueue_deferred_t
       m_deferredTaskHead->prev = std::addressof(deferredTask);
       m_deferredTaskHead = std::addressof(deferredTask);
    }
-   else
+   else if (
+      steady_time const midTime{(m_deferredTaskHead->notBeforeTime.time_since_epoch() + m_deferredTaskTail->notBeforeTime.time_since_epoch()) / 2,};
+      midTime > deferredTask.notBeforeTime
+   )
    {
-      assert(nullptr != m_deferredTaskTail);
-      for (
-         auto *currDeferredTask{m_deferredTaskHead->next,};
-         ;
-         currDeferredTask = currDeferredTask->next
-      )
+      for (auto *currDeferredTask{m_deferredTaskHead->next,}; ; currDeferredTask = currDeferredTask->next)
       {
          if (currDeferredTask->notBeforeTime > deferredTask.notBeforeTime)
          {
@@ -269,6 +266,22 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::enqueue_deferred_t
             deferredTask.prev->next = std::addressof(deferredTask);
             deferredTask.next = currDeferredTask;
             currDeferredTask->prev = std::addressof(deferredTask);
+            break;
+         }
+      }
+      assert(nullptr != deferredTask.prev);
+      assert(nullptr != deferredTask.next);
+   }
+   else
+   {
+      for (auto *currDeferredTask{m_deferredTaskTail->prev,}; ; currDeferredTask = currDeferredTask->prev)
+      {
+         if (deferredTask.notBeforeTime >= currDeferredTask->notBeforeTime)
+         {
+            deferredTask.next = currDeferredTask->next;
+            deferredTask.next->prev = std::addressof(deferredTask);
+            deferredTask.prev = currDeferredTask;
+            currDeferredTask->next = std::addressof(deferredTask);
             break;
          }
       }
@@ -286,7 +299,7 @@ void tcp_client_thread::tcp_client::tcp_client_thread_worker::handle_deferred_ta
    assert(nullptr == client.m_deferredTask);
    assert((tcp_client_command::ready_to_connect == deferredTask.command) || (tcp_client_command::ready_to_send == deferredTask.command));
    auto const command{deferredTask.command,};
-   m_deferredTaskMemory->push(deferredTask);
+   m_deferredTaskPool.push(deferredTask);
    switch (command)
    {
 

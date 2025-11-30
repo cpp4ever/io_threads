@@ -53,7 +53,7 @@
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint16_t, uint32_t
 #include <cstring> ///< for std::memcpy
-#include <memory> ///< for std::addressof, std::unique_ptr
+#include <memory> ///< for std::addressof
 #include <source_location> ///< for std::source_location
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
@@ -149,17 +149,16 @@ public:
       data_chunk const &dataChunk
    );
 
-   void ready_to_close(websocket_client_session &session, uint16_t closureReason) const;
+   void ready_to_close(websocket_client_session &session, uint16_t closureReason);
 
    void release_session(websocket_client_session &session);
 
 private:
-   //std::unique_ptr<memory_pool> const m_deflatePool;
-   std::unique_ptr<memory_pool> const m_inflatePool;
-   std::unique_ptr<memory_pool> const m_inboundFramePool;
-   std::unique_ptr<memory_pool> const m_outboundFramePool;
+   memory_pool m_inflatePool;
+   memory_pool m_inboundFramePool;
+   memory_pool m_outboundFramePool;
    websocket_client_handshake_handler m_handshakeHandler{};
-   std::unique_ptr<memory_pool> const m_sessionPool;
+   memory_pool m_sessionPool;
 
    void handle_connection_close_frame(websocket_client_session &session, websocket_frame_data const &inboundConnectionCloseFrame);
 
@@ -186,13 +185,13 @@ private:
          assert(session.inboundFrame->frameLength == session.inboundFrame->bytesLength);
          if (
             (session.inboundFrame->bytesLength + inboundDataFrame.bytesLength)
-               > (m_inboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data))
+               > (m_inboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data))
          ) [[unlikely]]
          {
             log_error(
                std::source_location::current(),
                "[wss_client] {} byte frame buffer is too small for {} byte message",
-               m_inboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data),
+               m_inboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data),
                session.inboundFrame->bytesLength + inboundDataFrame.bytesLength
             );
             unreachable();
@@ -227,7 +226,7 @@ private:
       ;
       if (nullptr != session.inboundFrame)
       {
-         m_inboundFramePool->push_object(*session.inboundFrame);
+         m_inboundFramePool.push_object(*session.inboundFrame);
          session.inboundFrame = nullptr;
       }
       return errorCode;
@@ -248,8 +247,8 @@ private:
    )
    {
       auto &inflateContext{(nullptr == session.inflateContext) ? pop_inflate_stream(-15) : *session.inflateContext};
-      auto *inflateBuffer = m_inboundFramePool->pop_memory_chunk();
-      auto const inflateBufferSize{m_inboundFramePool->memory_chunk_size(),};
+      auto *inflateBuffer = m_inboundFramePool.pop_memory_chunk();
+      auto const inflateBufferSize{m_inboundFramePool.memory_chunk_size(),};
       inflateContext.next_in = std::bit_cast<Bytef *>(frame.bytes);
       inflateContext.avail_in = static_cast<uInt>(frame.bytesLength);
       inflateContext.total_in = 0;
@@ -270,7 +269,7 @@ private:
             };
             if (auto const errorCode{inflatedFrameHandler(inflatedFrame, false)}; true == bool{errorCode})
             {
-               m_inboundFramePool->push_memory_chunk(inflateBuffer);
+               m_inboundFramePool.push_memory_chunk(inflateBuffer);
                return errorCode;
             }
             inflateContext.next_out = std::bit_cast<Bytef *>(inflateBuffer);
@@ -284,7 +283,7 @@ private:
                returnCode,
                std::string_view{inflateContext.msg}
             );
-            m_inboundFramePool->push_memory_chunk(inflateBuffer);
+            m_inboundFramePool.push_memory_chunk(inflateBuffer);
             return make_zlib_error_code(returnCode);
          }
       }
@@ -308,7 +307,7 @@ private:
             returnCode,
             std::string_view{inflateContext.msg}
          );
-         m_inboundFramePool->push_memory_chunk(inflateBuffer);
+         m_inboundFramePool.push_memory_chunk(inflateBuffer);
          return make_zlib_error_code(returnCode);
       }
       inflatedFrame.bytesLength = static_cast<uint32_t>(inflateContext.next_out - std::bit_cast<Bytef *>(inflateBuffer));
@@ -317,7 +316,7 @@ private:
          push_inflate_stream(inflateContext);
       }
       auto const errorCode = inflatedFrameHandler(inflatedFrame, true);
-      m_inboundFramePool->push_memory_chunk(inflateBuffer);
+      m_inboundFramePool.push_memory_chunk(inflateBuffer);
       return errorCode;
    }
 

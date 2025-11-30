@@ -29,7 +29,7 @@
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 
-#include <cstddef> ///< for size_t, std::byte
+#include <cstddef> ///< for std::byte
 #include <cstdint> ///< for uint32_t, uint8_t
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string
@@ -107,6 +107,11 @@ struct tcp_socket_operation final
    uint32_t const bufferSize;
    uint32_t bufferOffset{0,};
    std::byte bufferBytes[1]{std::byte{0,},};
+
+   [[nodiscard]] static constexpr uint32_t bytes_size(uint32_t const totalSize) noexcept
+   {
+      return totalSize - offsetof(tcp_socket_operation, bufferBytes);
+   }
 
    [[nodiscard]] static constexpr uint32_t total_size(uint32_t const bufferSize) noexcept
    {

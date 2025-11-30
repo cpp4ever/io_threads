@@ -27,6 +27,7 @@
 
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
 #include "io_threads/tcp_client_address.hpp" ///< for io_threads::tcp_client_address
+#include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 #include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 #include "io_threads/throttling_queue.hpp" ///< for io_threads::throttling_queue
 
@@ -57,19 +58,31 @@ public:
 private:
    time_duration const m_rollingTimeWindow;
    size_t const m_quota;
-   std::mutex m_lock{};
-   struct network_interface_throttler final
+   class network_interface_throttling_queue final
    {
-      std::unique_ptr<throttling_queue> ipv4Throttler;
-      std::unique_ptr<throttling_queue> ipv6Throttler;
+   public:
+      network_interface_throttling_queue() = delete;
+      network_interface_throttling_queue(network_interface_throttling_queue &&) = delete;
+      network_interface_throttling_queue(network_interface_throttling_queue const &) = delete;
+      [[nodiscard]] network_interface_throttling_queue(time_duration rollingTimeWindow, size_t quota);
+
+      network_interface_throttling_queue &operator = (network_interface_throttling_queue &&) = delete;
+      network_interface_throttling_queue &operator = (network_interface_throttling_queue const &) = delete;
+
+      [[nodiscard]] steady_time enqueue(socket_address const &socketAddress, steady_time now);
+
+   private:
+      throttling_queue m_ipv4;
+      throttling_queue m_ipv6;
    };
    struct network_interface_compare final
    {
       [[nodiscard]] bool operator() (std::optional<network_interface> const &lhs, std::optional<network_interface> const &rhs) const noexcept;
    };
-   std::map<std::optional<network_interface>, network_interface_throttler, network_interface_compare> m_mapNetworkInterfaceToThrottler{};
+   std::map<std::optional<network_interface>, network_interface_throttling_queue, network_interface_compare> m_mapNetworkInterfaceToThrottler{};
+   std::mutex m_lock{};
 
-   [[nodiscard]] network_interface_throttler &find_or_create_throttler(std::optional<network_interface> const &networkInterface);
+   [[nodiscard]] network_interface_throttling_queue &find_or_create_throttler(std::optional<network_interface> const &networkInterface);
 };
 
 }

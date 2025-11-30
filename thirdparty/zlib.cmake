@@ -32,7 +32,7 @@ if(NOT TARGET zlibstatic)
    FetchContent_Declare(
       zlib
       # Download Step Options
-      URL https://zlib.net/zlib-1.3.1.tar.xz
+      URL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
       URL_HASH SHA256=38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32
       DOWNLOAD_EXTRACT_TIMESTAMP ON
    )

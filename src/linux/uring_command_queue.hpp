@@ -32,7 +32,7 @@
 #include <cstdint> ///< for intptr_t
 #include <memory> ///< for std::addressof
 #include <mutex> ///< for std::mutex, std::scoped_lock
-#include <new> ///< for std::align_val_t, std::launder
+#include <new> ///< for std::align_val_t
 
 namespace io_threads
 {
@@ -53,7 +53,7 @@ public:
    uring_command_queue(uring_command_queue const &) = delete;
 
    [[nodiscard]] explicit uring_command_queue(size_t const commandQueueCapacity) :
-      m_uringCommandsMemoryPool{commandQueueCapacity, std::align_val_t{alignof(uring_command)}, sizeof(uring_command)}
+      m_uringCommandsPool{commandQueueCapacity, std::align_val_t{alignof(uring_command)}, sizeof(uring_command)}
    {}
 
    uring_command_queue &operator = (uring_command_queue &&) = delete;
@@ -65,18 +65,18 @@ public:
       auto *unorderedUringCommands{pop_uring_commands(),};
       while (nullptr != unorderedUringCommands)
       {
-         auto *uringCommand{std::launder(unorderedUringCommands),};
-         unorderedUringCommands = std::launder(uringCommand->next);
-         uringCommand->next = std::launder(orderedUringCommands);
-         orderedUringCommands = std::launder(uringCommand);
+         auto *uringCommand{unorderedUringCommands,};
+         unorderedUringCommands = uringCommand->next;
+         uringCommand->next = orderedUringCommands;
+         orderedUringCommands = uringCommand;
       }
       while (nullptr != orderedUringCommands)
       {
-         auto *uringCommand{std::launder(orderedUringCommands),};
-         orderedUringCommands = std::launder(uringCommand->next);
+         auto *uringCommand{orderedUringCommands,};
+         orderedUringCommands = uringCommand->next;
          uringCommand->next = nullptr;
          uringListener.handle_command(uringCommand->id, uringCommand->target);
-         m_uringCommandsMemoryPool.push(*uringCommand);
+         m_uringCommandsPool.push(*uringCommand);
       }
    }
 
@@ -84,24 +84,24 @@ public:
    {
       auto &uringCommand
       {
-         m_uringCommandsMemoryPool.pop<uring_command>(
+         m_uringCommandsPool.pop<uring_command>(
             uring_command{.next = nullptr, .id = commandId, .target = commandTarget,}
          ),
       };
       [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
-      uringCommand.next = std::launder(m_uringCommands);
-      m_uringCommands = std::launder(std::addressof(uringCommand));
+      uringCommand.next = m_uringCommands;
+      m_uringCommands = std::addressof(uringCommand);
    }
 
 private:
-   shared_memory_pool m_uringCommandsMemoryPool;
+   shared_memory_pool m_uringCommandsPool;
    std::mutex m_uringCommandsLock{};
    uring_command *m_uringCommands{nullptr,};
 
    [[nodiscard]] uring_command *pop_uring_commands()
    {
       [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
-      auto *uringCommands{std::launder(m_uringCommands),};
+      auto *uringCommands{m_uringCommands,};
       m_uringCommands = nullptr;
       return uringCommands;
    }

@@ -28,7 +28,6 @@
 #include <llhttp.h> ///< for llhttp_t, llhttp_settings_t
 
 #include <cstddef> ///< for size_t
-#include <memory> ///< for std::unique_ptr
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
 
@@ -50,9 +49,9 @@ public:
 private:
    struct http_response_parser_context;
 
-   std::unique_ptr<llhttp_t> const m_llhttp;
+   llhttp_settings_t m_llhttpSettings{};
+   llhttp_t m_llhttp{};
    size_t m_contentLength{0,};
-   std::unique_ptr<llhttp_settings_t> const m_llhttpSettings;
 
    [[nodiscard]] virtual std::error_code handle_body(std::string_view const &content, size_t contentLength) = 0;
    [[nodiscard]] virtual std::error_code handle_header(std::string_view const &headerField, std::string_view const &headerValue) = 0;

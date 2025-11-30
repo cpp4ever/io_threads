@@ -29,7 +29,6 @@
 
 #include <cstddef> ///< for size_t
 #include <mutex> ///< for std::mutex
-#include <list> ///< for std::list
 
 namespace io_threads
 {
@@ -41,6 +40,7 @@ public:
    throttling_queue(throttling_queue &&) = delete;
    throttling_queue(throttling_queue const &) = delete;
    [[nodiscard]] throttling_queue(time_duration rollingTimeWindow, size_t quota);
+   ~throttling_queue();
 
    throttling_queue &operator = (throttling_queue &&) = delete;
    throttling_queue &operator = (throttling_queue const &) = delete;
@@ -49,8 +49,15 @@ public:
 
 private:
    time_duration const m_rollingTimeWindow;
-   std::mutex m_lock{};
-   std::list<steady_time> m_timeslots;
+   struct timeslot final
+   {
+      timeslot *next{nullptr,};
+      steady_time timestamp{};
+   };
+   timeslot *m_timeslotHead{nullptr,};
+   timeslot *m_timeslotTail{nullptr,};
+   std::mutex m_timeslotLock{};
+   timeslot *m_timeslotPool{nullptr,};
 };
 
 }

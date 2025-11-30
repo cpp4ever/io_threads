@@ -37,7 +37,7 @@
 #include <functional> ///< for std::function
 #include <future> ///< for std::future, std::promise
 #include <memory> ///< for std::make_shared, std::shared_ptr
-#include <thread> ///< for std::jthread
+#include <thread> ///< for std::thread
 #include <utility> ///< for std::move
 
 namespace io_threads
@@ -50,10 +50,10 @@ public:
    file_writer_thread_impl(file_writer_thread_impl &&) = delete;
    file_writer_thread_impl(file_writer_thread_impl const &) = delete;
 
-   [[nodiscard]] explicit file_writer_thread_impl(thread_config const &threadConfig, uint32_t const fileListCapacity, uint32_t const ioBufferSize)
+   [[nodiscard]] file_writer_thread_impl(thread_config const &threadConfig, uint32_t const fileListCapacity, uint32_t const ioBufferSize)
    {
-      assert(fileListCapacity > 0);
-      assert(ioBufferSize > 0);
+      assert(0 < fileListCapacity);
+      assert(0 < ioBufferSize);
       std::promise<std::shared_ptr<file_writer::file_writer_thread_worker>> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
       m_thread = file_writer::file_writer_thread_worker::start(threadConfig, fileListCapacity, ioBufferSize, workerPromise);
@@ -62,7 +62,6 @@ public:
 
    ~file_writer_thread_impl()
    {
-      m_thread.request_stop();
       m_worker->stop();
       m_worker.reset();
       m_thread.join();
@@ -100,7 +99,7 @@ public:
 
 private:
    std::shared_ptr<file_writer::file_writer_thread_worker> m_worker{nullptr,};
-   std::jthread m_thread{};
+   std::thread m_thread{};
 };
 
 file_writer_thread::file_writer_thread(file_writer_thread &&rhs) noexcept = default;

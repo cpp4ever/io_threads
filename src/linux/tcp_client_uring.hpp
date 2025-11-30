@@ -32,6 +32,7 @@
 
 #include <liburing/io_uring_version.h> ///< for IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
 #include <linux/time_types.h> ///< for __kernel_timespec
+#include <signal.h> ///< for sigset_t
 #include <sys/socket.h> ///< for sa_family_t, sockaddr
 
 #include <cstdint> ///< for int32_t, uint32_t
@@ -77,14 +78,12 @@ public:
    virtual void register_tcp_socket_operations(
       tcp_socket_operation *&tcpRecvOperations,
       tcp_socket_operation *&tcpSendOperations,
-      uint32_t socketListCapacity,
-      uint32_t recvBufferSize,
-      uint32_t sendBufferSize
+      uint32_t socketListCapacity
    ) = 0;
    virtual void unregister_tcp_socket_descriptors(tcp_socket_descriptor *&tcpSocketDescriptors) = 0;
    virtual void unregister_tcp_socket_operations(tcp_socket_operation *&tcpRecvOperations, tcp_socket_operation *&tcpSendOperations) = 0;
 
-   [[nodiscard]] virtual intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout) = 0;
+   [[nodiscard]] virtual intptr_t poll(uring_listener &uringListener, __kernel_timespec *timeout, sigset_t &sigmask) = 0;
    virtual void stop() = 0;
    virtual void wake() = 0;
 
@@ -93,7 +92,9 @@ public:
    [[nodiscard]] static std::unique_ptr<tcp_client_uring> construct(
       io_affinity const &asyncWorkersAffinity,
       io_affinity const &kernelThreadAffinity,
-      uint32_t ioRingQueueCapacity
+      uint32_t ioRingQueueCapacity,
+      uint32_t recvBufferSize,
+      uint32_t sendBufferSize
    );
 
 protected:

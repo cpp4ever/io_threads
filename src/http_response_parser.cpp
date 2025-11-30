@@ -54,21 +54,18 @@
 namespace io_threads
 {
 
-http_response_parser::http_response_parser() :
-   m_llhttp{std::make_unique<llhttp_t>(),},
-   m_llhttpSettings{std::make_unique<llhttp_settings_t>(),}
+http_response_parser::http_response_parser()
 {
-   llhttp_settings_init(m_llhttpSettings.get());
-   m_llhttpSettings->on_message_begin = on_message_begin;
-   m_llhttpSettings->on_status = on_status;
-   m_llhttpSettings->on_header_field = on_header_field;
-   m_llhttpSettings->on_header_value = on_header_value;
-   m_llhttpSettings->on_headers_complete = on_headers_complete;
-   m_llhttpSettings->on_body = on_body;
-   m_llhttpSettings->on_message_complete = on_message_complete;
-   m_llhttpSettings->on_status_complete = on_status_complete;
-   llhttp_init(m_llhttp.get(), llhttp_type_t::HTTP_RESPONSE, m_llhttpSettings.get());
-   m_llhttp->data = this;
+   llhttp_settings_init(std::addressof(m_llhttpSettings));
+   m_llhttpSettings.on_message_begin = on_message_begin;
+   m_llhttpSettings.on_status = on_status;
+   m_llhttpSettings.on_header_field = on_header_field;
+   m_llhttpSettings.on_header_value = on_header_value;
+   m_llhttpSettings.on_headers_complete = on_headers_complete;
+   m_llhttpSettings.on_body = on_body;
+   m_llhttpSettings.on_message_complete = on_message_complete;
+   m_llhttpSettings.on_status_complete = on_status_complete;
+   llhttp_init(std::addressof(m_llhttp), llhttp_type_t::HTTP_RESPONSE, std::addressof(m_llhttpSettings));
 }
 
 struct http_response_parser::http_response_parser_context final
@@ -124,21 +121,14 @@ std::error_code make_error_code(llhttp_errno_t const value)
 std::error_code http_response_parser::parse(std::string_view const &httpResponse)
 {
    assert(false == httpResponse.empty());
-   assert(llhttp_errno::HPE_OK == llhttp_get_errno(m_llhttp.get()));
+   assert(llhttp_errno::HPE_OK == llhttp_get_errno(std::addressof(m_llhttp)));
    http_response_parser_context httpResponseParserContext
    {
       .parser = *this,
    };
-   m_llhttp->data = std::addressof(httpResponseParserContext);
-   auto const returnCode
-   {
-      llhttp_execute(
-         m_llhttp.get(),
-         httpResponse.data(),
-         httpResponse.size()
-      ),
-   };
-   m_llhttp->data = nullptr;
+   m_llhttp.data = std::addressof(httpResponseParserContext);
+   auto const returnCode{llhttp_execute(std::addressof(m_llhttp), httpResponse.data(), httpResponse.size()),};
+   m_llhttp.data = nullptr;
    switch (returnCode)
    {
    case llhttp_errno::HPE_OK:
@@ -151,21 +141,21 @@ std::error_code http_response_parser::parse(std::string_view const &httpResponse
    case llhttp_errno::HPE_PAUSED_H2_UPGRADE:
    {
       assert(false == (bool{httpResponseParserContext.errorCode,}));
-      llhttp_resume_after_upgrade(m_llhttp.get());
+      llhttp_resume_after_upgrade(std::addressof(m_llhttp));
    }
    return httpResponseParserContext.errorCode;
 
    case llhttp_errno::HPE_PAUSED:
    {
       assert(true == (bool{httpResponseParserContext.errorCode,}));
-      llhttp_reset(m_llhttp.get());
+      llhttp_reset(std::addressof(m_llhttp));
       m_contentLength = 0;
    }
    return httpResponseParserContext.errorCode;
 
    case llhttp_errno::HPE_CLOSED_CONNECTION:
    {
-      llhttp_reset(m_llhttp.get());
+      llhttp_reset(std::addressof(m_llhttp));
       m_contentLength = 0;
    }
    return httpResponseParserContext.errorCode;
@@ -177,9 +167,9 @@ std::error_code http_response_parser::parse(std::string_view const &httpResponse
          std::source_location::current(),
          "[http_response_parser] HTTP parse error: ({}) - {}",
          std::string_view{llhttp_errno_name(returnCode),},
-         std::string_view{llhttp_get_error_reason(m_llhttp.get()),}
+         std::string_view{llhttp_get_error_reason(std::addressof(m_llhttp)),}
       );
-      llhttp_reset(m_llhttp.get());
+      llhttp_reset(std::addressof(m_llhttp));
       m_contentLength = 0;
    }
    }

@@ -29,7 +29,7 @@
 
 #include <cassert> ///< for assert
 #include <cstdint> ///< for uint32_t
-#include <memory> ///< for std::make_unique
+#include <memory> ///< for std::make_shared
 #include <utility> ///< for std::move
 
 namespace io_threads
@@ -49,7 +49,7 @@ wss_client_context::wss_client_context(
    executor().execute(
       [this, sessionListCapacity, inboundBufferSize, outboundBufferSize] ()
       {
-         m_impl = std::make_unique<wss_client_context_impl>(sessionListCapacity, inboundBufferSize, outboundBufferSize);
+         m_impl = std::make_shared<wss_client_context_impl>(sessionListCapacity, inboundBufferSize, outboundBufferSize);
       }
    );
    assert(nullptr != m_impl);

@@ -80,12 +80,12 @@
 #include <cstdint> ///< for intptr_t, uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t, std::launder
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
+#include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code
-#include <thread> ///< for std::jthread, std::this_thread
+#include <thread> ///< for std::thread, std::this_thread
 
 #pragma comment(lib, "AdvAPI32")
 #pragma comment(lib, "kernel32")
@@ -116,9 +116,8 @@ public:
    file_writer_thread_worker(file_writer_thread_worker const &) = delete;
 
    [[nodiscard]] explicit file_writer_thread_worker(uint32_t const fileListCapacity, uint32_t const ioBufferSize) :
-      m_completionPortEntries{std::make_unique<completion_port::entries>(),},
-      m_ioBuffersMemoryPool{std::make_unique<memory_pool>(fileListCapacity, std::align_val_t{alignof(std::byte)}, ioBufferSize),},
-      m_fileMemoryPool{std::make_unique<memory_pool>(fileListCapacity, std::align_val_t{alignof(file_descriptor)}, sizeof(file_descriptor)),}
+      m_ioBuffersPool{fileListCapacity, std::align_val_t{alignof(std::byte)}, ioBufferSize,},
+      m_filePool{fileListCapacity, std::align_val_t{alignof(file_descriptor)}, sizeof(file_descriptor),}
    {
       constexpr WCHAR stringSecurityDescriptor[]
       {
@@ -187,16 +186,16 @@ public:
       m_completionPort.post_queued_completion_status(0, to_completion_overlapped(file_writer_command::unknown));
    }
 
-   [[nodiscard]] static std::jthread start(
+   [[nodiscard]] static std::thread start(
       thread_config const &threadConfig,
       uint32_t const fileListCapacity,
       uint32_t const ioBufferSize,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
-      return std::jthread
+      return std::thread
       {
-         [threadConfig, fileListCapacity, ioBufferSize, &workerPromise] (std::stop_token const stopToken)
+         [threadConfig, fileListCapacity, ioBufferSize, &workerPromise] ()
          {
             if (
                true
@@ -208,16 +207,18 @@ public:
             }
             auto const threadWorker{std::make_shared<file_writer_thread_worker>(fileListCapacity, ioBufferSize),};
             workerPromise.set_value(threadWorker);
-            while (false == stopToken.stop_requested()) [[likely]]
+            bool stopRequested{false,};
+            completion_port::entries completionPortEntries{};
+            while (false == stopRequested) [[likely]]
             {
                auto timeoutMilliseconds{completion_port::infinite_timeout,};
-               while (threadWorker->m_completionPortEntries->size() == threadWorker->poll(timeoutMilliseconds))
+               while (completionPortEntries.size() == threadWorker->poll(completionPortEntries, timeoutMilliseconds, stopRequested))
                {
                   /// Do while there are entries to poll
                   timeoutMilliseconds = completion_port::no_timeout;
                }
             }
-            while (0 != threadWorker->poll(completion_port::no_timeout))
+            while (0 != threadWorker->poll(completionPortEntries, completion_port::no_timeout, stopRequested))
             {
                /// Until all entries are polled
             }
@@ -226,11 +227,10 @@ public:
    }
 
 private:
-   std::jthread::id const m_threadId{std::this_thread::get_id(),};
+   std::thread::id const m_threadId{std::this_thread::get_id(),};
    completion_port m_completionPort{};
-   std::unique_ptr<completion_port::entries> const m_completionPortEntries;
-   std::unique_ptr<memory_pool> const m_ioBuffersMemoryPool;
-   std::unique_ptr<memory_pool> const m_fileMemoryPool;
+   memory_pool m_ioBuffersPool;
+   memory_pool m_filePool;
    SECURITY_ATTRIBUTES m_securityAttributes
    {
       .nLength = sizeof(SECURITY_ATTRIBUTES),
@@ -241,7 +241,7 @@ private:
    void close_file(file_writer &fileWriter)
    {
       assert(nullptr != fileWriter.m_fileDescriptor);
-      auto &fileDescriptor{*std::launder(fileWriter.m_fileDescriptor),};
+      auto &fileDescriptor{*fileWriter.m_fileDescriptor,};
       fileWriter.m_fileDescriptor = nullptr;
       assert(INVALID_HANDLE_VALUE != fileDescriptor.handle);
       assert(nullptr == fileDescriptor.outputBufferInFlight);
@@ -253,16 +253,18 @@ private:
       {
          check_winapi_error("[file_writer] failed to close file: ({}) - {}");
       }
-      m_fileMemoryPool->push_object(fileDescriptor);
+      m_filePool.push_object(fileDescriptor);
    }
 
-   void handle_completion_port_entry(OVERLAPPED_ENTRY const &completionPortEntry)
+   void handle_completion_port_entry(OVERLAPPED_ENTRY const &completionPortEntry, bool &stopRequested)
    {
       switch (from_completion_overlapped(completionPortEntry.lpOverlapped))
       {
+
       case file_writer_command::unknown:
       {
          assert(0 == completionPortEntry.lpCompletionKey);
+         stopRequested = true;
       }
       break;
 
@@ -304,6 +306,7 @@ private:
          handle_write_completion(fileWriter);
       }
       break;
+
       }
    }
 
@@ -313,7 +316,6 @@ private:
       if (nullptr != fileDescriptor) [[likely]]
       {
          assert(INVALID_HANDLE_VALUE != fileDescriptor->handle);
-         assert(false == fileDescriptor->closeOnCompletion);
          if (nullptr == fileDescriptor->outputBufferInFlight)
          {
             close_file(fileWriter);
@@ -345,7 +347,7 @@ private:
       if (INVALID_HANDLE_VALUE != fileHandle) [[likely]]
       {
          m_completionPort.add_handle(fileHandle, to_completion_key(fileWriter));
-         auto &fileDescriptor{m_fileMemoryPool->pop_object<file_descriptor>(),};
+         auto &fileDescriptor{m_filePool.pop_object<file_descriptor>(),};
          assert(INVALID_HANDLE_VALUE == fileDescriptor.handle);
          assert(nullptr == fileDescriptor.outputBufferInFlight);
          assert(false == fileDescriptor.closeOnCompletion);
@@ -411,18 +413,18 @@ private:
       }
    }
 
-   [[nodiscard]] size_t poll(DWORD const timeout)
+   [[nodiscard]] size_t poll(completion_port::entries completionPortEntries, DWORD const timeout, bool &stopRequested)
    {
-      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(*m_completionPortEntries, timeout),};
-      assert(numberOfCompletionPortEntriesRemoved <= m_completionPortEntries->size());
-      auto completionPortEntry{m_completionPortEntries->begin()};
+      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(completionPortEntries, timeout),};
+      assert(numberOfCompletionPortEntriesRemoved <= completionPortEntries.size());
+      auto completionPortEntry{completionPortEntries.begin()};
       for (
          auto const completionPortEntriesEnd{completionPortEntry + numberOfCompletionPortEntriesRemoved,};
          completionPortEntriesEnd != completionPortEntry;
          ++completionPortEntry
       )
       {
-         handle_completion_port_entry(*completionPortEntry);
+         handle_completion_port_entry(*completionPortEntry, stopRequested);
       }
       return numberOfCompletionPortEntriesRemoved;
    }
@@ -431,8 +433,7 @@ private:
    {
       assert(INVALID_HANDLE_VALUE != fileDescriptor.handle);
       assert(nullptr == fileDescriptor.outputBufferInFlight);
-      assert(nullptr != m_ioBuffersMemoryPool);
-      auto *outputBuffer{m_ioBuffersMemoryPool->pop_memory_chunk(),};
+      auto *outputBuffer{m_ioBuffersPool.pop_memory_chunk(),};
       assert(nullptr != outputBuffer);
       fileDescriptor.outputBufferInFlight = outputBuffer;
       return *outputBuffer;
@@ -442,8 +443,7 @@ private:
    {
       assert(INVALID_HANDLE_VALUE != fileDescriptor.handle);
       assert(nullptr != fileDescriptor.outputBufferInFlight);
-      assert(nullptr != m_ioBuffersMemoryPool);
-      m_ioBuffersMemoryPool->push_memory_chunk(fileDescriptor.outputBufferInFlight);
+      m_ioBuffersPool.push_memory_chunk(fileDescriptor.outputBufferInFlight);
       fileDescriptor.outputBufferInFlight = nullptr;
    }
 
@@ -458,7 +458,7 @@ private:
       auto const bytesWritten
       {
          fileWriter.io_ready_to_write(
-            data_chunk{.bytes = std::addressof(outputBuffer), .bytesLength = m_ioBuffersMemoryPool->memory_chunk_size(),}
+            data_chunk{.bytes = std::addressof(outputBuffer), .bytesLength = m_ioBuffersPool.memory_chunk_size(),}
          ),
       };
       if (0 == bytesWritten)
@@ -501,9 +501,11 @@ private:
    {
       switch (value)
       {
+
          case file_writer_option::create_new: return CREATE_NEW;
          case file_writer_option::create_or_open_and_truncate: return CREATE_ALWAYS;
          case file_writer_option::create_or_open_for_append: return OPEN_ALWAYS;
+
       }
       log_error(sourceLocation, "[file_writer] unexpected option {}: it must be a bug", to_underlying(value));
       unreachable();

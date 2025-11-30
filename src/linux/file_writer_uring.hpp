@@ -29,6 +29,7 @@
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
+#include <signal.h> ///< for sigset_t
 #include <sys/types.h> ///< for mode_t
 
 #include <cstdint> ///< for int32_t, uint32_t
@@ -53,13 +54,13 @@ public:
    virtual void prep_open(file_descriptor &fileDescriptor, int32_t flags, mode_t mode) = 0;
    virtual void prep_write(file_descriptor &fileDescriptor, uint32_t bytesLength) = 0;
 
-   [[nodiscard]] virtual registered_buffer *register_buffers(uint32_t fileListCapacity, uint32_t registeredBufferSize) = 0;
+   [[nodiscard]] virtual registered_buffer *register_buffers(uint32_t fileListCapacity) = 0;
    [[nodiscard]] virtual file_descriptor *register_file_descriptors(uint32_t fileListCapacity) = 0;
    [[nodiscard]] virtual uint32_t registered_buffer_capacity(registered_buffer &registeredBuffer) const = 0;
    virtual void unregister_buffers(registered_buffer *registeredBuffers) = 0;
    virtual void unregister_file_descriptors(file_descriptor *fileDescriptors) = 0;
 
-   virtual void run(uring_listener &uringListener) = 0;
+   virtual void run(uring_listener &uringListener, sigset_t &sigmask) = 0;
    virtual void stop() = 0;
    virtual void wake() = 0;
 
@@ -68,7 +69,8 @@ public:
    [[nodiscard]] static std::unique_ptr<file_writer_uring> construct(
       io_affinity const &asyncWorkersAffinity,
       io_affinity const &kernelThreadAffinity,
-      uint32_t ioRingQueueCapacity
+      uint32_t ioRingQueueCapacity,
+      uint32_t ioBufferSize
    );
 
 protected:

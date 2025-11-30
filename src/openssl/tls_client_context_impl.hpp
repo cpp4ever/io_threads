@@ -46,7 +46,7 @@
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint32_t
 #include <cstring> ///< for std::memcpy
-#include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
+#include <memory> ///< for std::addressof, std::unique_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string, std::wstring
@@ -134,14 +134,14 @@ public:
       uint32_t const tlsSessionListCapacity
    ) :
       m_sslContext{x509Store->create_ssl_context(),},
-      m_securityBuffersMemoryPool
+      m_securityBuffersPool
       {
          tlsSessionListCapacity,
          std::align_val_t{alignof(std::byte),},
          tls_packet_size_limit,
       },
       m_domainName{domainName,},
-      m_tlsClientSessionsMemoryPool
+      m_tlsClientSessionsPool
       {
          tlsSessionListCapacity,
          std::align_val_t{alignof(tls_client_session),},
@@ -198,13 +198,13 @@ public:
          auto *wbio{create_memory_bio(),};
          auto &tlsClientSession
          {
-            m_tlsClientSessionsMemoryPool.pop_object<tls_client_session>(
+            m_tlsClientSessionsPool.pop_object<tls_client_session>(
                tls_client_session
                {
                   .ssl = std::move(ssl),
                   .rbio = rbio,
                   .wbio = wbio,
-                  .next = std::launder(m_tlsClientSessions),
+                  .next = m_tlsClientSessions,
                }
             ),
          };
@@ -236,9 +236,9 @@ public:
    {
       while (nullptr != m_tlsClientSessions)
       {
-         auto *tlsClientSession = std::launder(m_tlsClientSessions);
+         auto *tlsClientSession{m_tlsClientSessions,};
          m_tlsClientSessions = tlsClientSession->next;
-         m_tlsClientSessionsMemoryPool.push_object(*tlsClientSession);
+         m_tlsClientSessionsPool.push_object(*tlsClientSession);
       }
    }
 
@@ -253,16 +253,16 @@ public:
          unreachable();
       }
       ERR_clear_error();
-      auto &tlsClientSession = *std::launder(m_tlsClientSessions);
-      m_tlsClientSessions = std::launder(tlsClientSession.next);
+      auto &tlsClientSession{*m_tlsClientSessions,};
+      m_tlsClientSessions = tlsClientSession.next;
       tlsClientSession.next = nullptr;
       SSL_set_tlsext_host_name(tlsClientSession.ssl.get(), m_domainName.data());
       assert(TLSEXT_STATUSTYPE_ocsp == SSL_get_tlsext_status_type(tlsClientSession.ssl.get()));
       tlsClientSession.status = tls_client_status::handshake;
-      tlsClientSession.securityBuffer = m_securityBuffersMemoryPool.pop_memory_chunk();
+      tlsClientSession.securityBuffer = m_securityBuffersPool.pop_memory_chunk();
       set_wbio(
          tlsClientSession,
-         data_chunk{.bytes = tlsClientSession.securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_chunk_size(),}
+         data_chunk{.bytes = tlsClientSession.securityBuffer, .bytesLength = m_securityBuffersPool.memory_chunk_size(),}
       );
       if (auto const returnCode{SSL_connect(tlsClientSession.ssl.get()),}; 0 >= returnCode) [[unlikely]]
       {
@@ -274,7 +274,7 @@ public:
          }
       }
       auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
-      assert(m_securityBuffersMemoryPool.memory_chunk_size() >= bytesWritten);
+      assert(m_securityBuffersPool.memory_chunk_size() >= bytesWritten);
       tlsClientSession.securityToken = std::string_view{std::bit_cast<char const *>(tlsClientSession.securityBuffer), bytesWritten,};
       reset_wbio(tlsClientSession);
       return tlsClientSession;
@@ -291,7 +291,7 @@ public:
             {
                tlsClientSession.status = tls_client_status::ready;
             }
-            m_securityBuffersMemoryPool.push_memory_chunk(tlsClientSession.securityBuffer);
+            m_securityBuffersPool.push_memory_chunk(tlsClientSession.securityBuffer);
             tlsClientSession.securityBuffer = nullptr;
             return std::error_code{};
          }
@@ -337,11 +337,11 @@ public:
          std::byte *securityBuffer{tlsClientSession.securityBuffer,};
          if (nullptr == securityBuffer) [[likely]]
          {
-            securityBuffer = m_securityBuffersMemoryPool.pop_memory_chunk();
+            securityBuffer = m_securityBuffersPool.pop_memory_chunk();
          }
          set_wbio(
             tlsClientSession,
-            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_chunk_size(),}
+            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersPool.memory_chunk_size(),}
          );
          std::error_code errorCode{};
          if (
@@ -360,7 +360,7 @@ public:
             }
          }
          auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
-         assert(m_securityBuffersMemoryPool.memory_chunk_size() >= bytesWritten);
+         assert(m_securityBuffersPool.memory_chunk_size() >= bytesWritten);
          reset_wbio(tlsClientSession);
          assert(BIO_ctrl_pending(tlsClientSession.rbio) <= inboundDataChunk.bytesLength);
          bytesProcessed = inboundDataChunk.bytesLength - BIO_ctrl_pending(tlsClientSession.rbio);
@@ -368,7 +368,7 @@ public:
          if (0 == bytesWritten) [[likely]]
          {
             tlsClientSession.securityBuffer = nullptr;
-            m_securityBuffersMemoryPool.push_memory_chunk(securityBuffer);
+            m_securityBuffersPool.push_memory_chunk(securityBuffer);
             if (tls_client_status::handshake_complete == tlsClientSession.status) [[unlikely]]
             {
                tlsClientSession.status = tls_client_status::ready;
@@ -411,11 +411,11 @@ public:
          {
             (nullptr != tlsClientSession.securityBuffer)
                ? tlsClientSession.securityBuffer
-               : m_securityBuffersMemoryPool.pop_memory_chunk()
+               : m_securityBuffersPool.pop_memory_chunk()
          };
          set_wbio(
             tlsClientSession,
-            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersMemoryPool.memory_chunk_size(),}
+            data_chunk{.bytes = securityBuffer, .bytesLength = m_securityBuffersPool.memory_chunk_size(),}
          );
          std::error_code errorCode{};
          if (
@@ -430,7 +430,7 @@ public:
             }
          }
          auto const bytesWritten{BIO_ctrl_pending(tlsClientSession.wbio),};
-         assert(m_securityBuffersMemoryPool.memory_chunk_size() >= bytesWritten);
+         assert(m_securityBuffersPool.memory_chunk_size() >= bytesWritten);
          reset_wbio(tlsClientSession);
          assert(BIO_ctrl_pending(tlsClientSession.rbio) <= inboundDataChunk.bytesLength);
          bytesProcessed = inboundDataChunk.bytesLength - BIO_ctrl_pending(tlsClientSession.rbio);
@@ -441,7 +441,7 @@ public:
             {
                tlsClientSession.status = tls_client_status::ready;
                tlsClientSession.securityBuffer = nullptr;
-               m_securityBuffersMemoryPool.push_memory_chunk(securityBuffer);
+               m_securityBuffersPool.push_memory_chunk(securityBuffer);
             }
             else
             {
@@ -462,7 +462,7 @@ public:
             if (0 == bytesWritten)
             {
                tlsClientSession.securityBuffer = nullptr;
-               m_securityBuffersMemoryPool.push_memory_chunk(securityBuffer);
+               m_securityBuffersPool.push_memory_chunk(securityBuffer);
             }
             else
             {
@@ -536,12 +536,12 @@ public:
       }
       if (nullptr != tlsClientSession.securityBuffer)
       {
-         m_securityBuffersMemoryPool.push_memory_chunk(tlsClientSession.securityBuffer);
+         m_securityBuffersPool.push_memory_chunk(tlsClientSession.securityBuffer);
          tlsClientSession.securityBuffer = nullptr;
       }
       tlsClientSession.securityToken = std::string_view{"",};
-      tlsClientSession.next = std::launder(m_tlsClientSessions);
-      m_tlsClientSessions = std::launder(std::addressof(tlsClientSession));
+      tlsClientSession.next = m_tlsClientSessions;
+      m_tlsClientSessions = std::addressof(tlsClientSession);
    }
 
    [[nodiscard]] std::error_code shutdown(tls_client_session &tlsClientSession, data_chunk const &dataChunk, size_t &bytesWritten)
@@ -593,10 +593,10 @@ public:
 private:
    std::unique_ptr<SSL_CTX> m_sslContext;
    std::vector<std::byte> m_utilityBuffer{};
-   memory_pool m_securityBuffersMemoryPool;
+   memory_pool m_securityBuffersPool;
    tls_client_session *m_tlsClientSessions{nullptr,};
    std::string const m_domainName;
-   memory_pool m_tlsClientSessionsMemoryPool;
+   memory_pool m_tlsClientSessionsPool;
 
    [[nodiscard]] static BIO *create_memory_bio()
    {

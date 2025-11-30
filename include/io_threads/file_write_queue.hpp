@@ -35,7 +35,6 @@
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::addressof, std::allocator, std::construct_at, std::destroy_at
 #include <mutex> ///< for std::mutex, std::scoped_lock
-#include <new> ///< for std::launder
 #include <system_error> ///< for std::error_code
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_constructible_v, std::is_pointer_v, std::is_reference_v
 #include <utility> ///< for std::forward, std::move
@@ -79,7 +78,7 @@ public:
       requires(true == std::is_constructible_v<type, types...>)
    [[maybe_unused, nodiscard]] file_write_task<type> &allocate(types &&...values)
    {
-      return *std::launder(std::construct_at<file_write_task<type>>(m_allocator.allocate(1), std::forward<types>(values)...));
+      return *std::construct_at<file_write_task<type>>(m_allocator.allocate(1), std::forward<types>(values)...);
    }
 
    [[maybe_unused]] void deallocate(file_write_task<type> &task)
@@ -180,14 +179,14 @@ protected:
          || (false == m_opened.load(std::memory_order_acquire))
          || (false == io_has_tasks())
       );
-      auto *tasks{std::launder(m_orderedTasks),};
+      auto *tasks{m_orderedTasks,};
       m_orderedTasks = nullptr;
       do
       {
          while (nullptr != tasks)
          {
-            auto *task{std::launder(tasks),};
-            tasks = std::launder(task->next);
+            auto *task{tasks,};
+            tasks = task->next;
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
          }
@@ -229,8 +228,8 @@ private:
       {
          while ((nullptr != m_orderedTasks) && (true == m_typeSerializer.update(m_orderedTasks->value, m_lastTaskOffset)))
          {
-            auto *task{std::launder(m_orderedTasks),};
-            m_orderedTasks = std::launder(task->next);
+            auto *task{m_orderedTasks,};
+            m_orderedTasks = task->next;
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
             m_lastTaskOffset = 0;
@@ -242,10 +241,10 @@ private:
          auto *unorderedTasks{pop_unordered_tasks(),};
          while (nullptr != unorderedTasks)
          {
-            auto *task{std::launder(unorderedTasks),};
-            unorderedTasks = std::launder(task->next);
-            task->next = std::launder(m_orderedTasks);
-            m_orderedTasks = std::launder(task);
+            auto *task{unorderedTasks,};
+            unorderedTasks = task->next;
+            task->next = m_orderedTasks;
+            m_orderedTasks = task;
          }
       } while ((nullptr != m_orderedTasks) && (0 == iteration++));
       auto const bytesWritten{m_typeSerializer.finish(),};
@@ -256,7 +255,7 @@ private:
    [[nodiscard]] file_write_task<type> *pop_unordered_tasks()
    {
       [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
-      auto *unorderedTasks{std::launder(m_unorderedTasks),};
+      auto *unorderedTasks{m_unorderedTasks,};
       m_unorderedTasks = nullptr;
       return unorderedTasks;
    }
@@ -270,8 +269,8 @@ private:
       }
       [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
       bool wakeupIo{nullptr == m_unorderedTasks,};
-      lastTask->next = std::launder(m_unorderedTasks);
-      m_unorderedTasks = std::launder(std::addressof(task));
+      lastTask->next = m_unorderedTasks;
+      m_unorderedTasks = std::addressof(task);
       return wakeupIo;
    }
 };

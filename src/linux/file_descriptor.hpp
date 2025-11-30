@@ -27,7 +27,7 @@
 
 #include "io_threads/file_writer.hpp" ///< for io_threads::file_writer
 
-#include <cstddef> ///< for size_t, std::byte
+#include <cstddef> ///< for std::byte
 #include <cstdint> ///< for uint32_t, uint8_t
 #include <system_error> ///< for std::error_code
 
@@ -49,12 +49,12 @@ struct registered_buffer final
    uint32_t const index;
    std::byte bytes[1]{std::byte{0,},};
 
-   [[nodiscard]] static constexpr size_t calc_bytes_capacity(size_t const totalSize) noexcept
+   [[nodiscard]] static constexpr uint32_t bytes_size(uint32_t const totalSize) noexcept
    {
       return totalSize - offsetof(registered_buffer, bytes);
    }
 
-   [[nodiscard]] static constexpr size_t calc_total_size(size_t const bytesCapacity) noexcept
+   [[nodiscard]] static constexpr uint32_t total_size(uint32_t const bytesCapacity) noexcept
    {
       return bytesCapacity + offsetof(registered_buffer, bytes);
    }

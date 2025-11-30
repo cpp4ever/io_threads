@@ -49,6 +49,7 @@
 ///   S_IRWXG,
 ///   S_IRWXU
 #include <fcntl.h>
+#include <signal.h> ///< for sigfillset, sigset_t
 
 #include <algorithm> ///< for std::max
 #include <bit> ///< for std::bit_cast
@@ -60,11 +61,10 @@
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
 #include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::launder
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code, std::generic_category
-#include <thread> ///< for std::jthread, std::this_thread
+#include <thread> ///< for std::thread, std::this_thread
 #include <utility> ///< for std::move
 
 namespace io_threads
@@ -77,18 +77,11 @@ public:
    file_writer_thread_worker(file_writer_thread_worker &&) = delete;
    file_writer_thread_worker(file_writer_thread_worker const &) = delete;
 
-   [[nodiscard]] file_writer_thread_worker(
-      std::unique_ptr<file_writer_uring> fileWriterUring,
-      uint32_t const fileListCapacity,
-      uint32_t const ioBufferSize
-   ) :
+   [[nodiscard]] file_writer_thread_worker(std::unique_ptr<file_writer_uring> fileWriterUring, uint32_t const fileListCapacity) :
       m_uringCommandQueue{fileListCapacity,},
       m_fileWriterUring{std::move(fileWriterUring),}
    {
-      m_registeredBuffers = m_fileWriterUring->register_buffers(
-         fileListCapacity,
-         std::max(registered_buffer::calc_total_size(PATH_MAX + 1), registered_buffer::calc_total_size(ioBufferSize))
-      );
+      m_registeredBuffers = m_fileWriterUring->register_buffers(fileListCapacity);
       assert(nullptr != m_registeredBuffers);
       m_fileDescriptors = m_fileWriterUring->register_file_descriptors(fileListCapacity);
       assert(nullptr != m_fileDescriptors);
@@ -145,16 +138,16 @@ public:
       m_fileWriterUring->wake();
    }
 
-   [[nodiscard]] static std::jthread start(
+   [[nodiscard]] static std::thread start(
       thread_config const &threadConfig,
       uint32_t const fileListCapacity,
       uint32_t const ioBufferSize,
       std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
    )
    {
-      return std::jthread
+      return std::thread
       {
-         [&threadConfig, fileListCapacity, ioBufferSize, &workerPromise] (std::stop_token const)
+         [&threadConfig, fileListCapacity, ioBufferSize, &workerPromise] ()
          {
             if (true == threadConfig.worker_affinity().has_value())
             {
@@ -170,14 +163,20 @@ public:
                   file_writer_uring::construct(
                      threadConfig.async_workers_affinity(),
                      threadConfig.kernel_thread_affinity(),
-                     fileListCapacity + 1
+                     fileListCapacity,
+                     std::max<uint32_t>(PATH_MAX + 1, ioBufferSize)
                   ),
-                  fileListCapacity,
-                  ioBufferSize
+                  fileListCapacity
                ),
             };
             workerPromise.set_value(threadWorker);
-            threadWorker->m_fileWriterUring->run(*threadWorker);
+            sigset_t sigmask{};
+            if (-1 == sigfillset(std::addressof(sigmask))) [[unlikely]]
+            {
+               log_system_error("[file_writer] failed to initialize sigmask: ({}) - {}", errno);
+               unreachable();
+            }
+            threadWorker->m_fileWriterUring->run(*threadWorker, sigmask);
             threadWorker->m_fileWriterUring->unregister_file_descriptors(threadWorker->m_fileDescriptors);
             threadWorker->m_fileDescriptors = nullptr;
             threadWorker->m_fileWriterUring->unregister_buffers(threadWorker->m_registeredBuffers);
@@ -187,7 +186,7 @@ public:
    }
 
 private:
-   std::jthread::id const m_threadId{std::this_thread::get_id(),};
+   std::thread::id const m_threadId{std::this_thread::get_id(),};
    uring_command_queue m_uringCommandQueue;
    std::unique_ptr<file_writer_uring> const m_fileWriterUring;
    registered_buffer *m_registeredBuffers{nullptr,};
@@ -307,8 +306,8 @@ private:
          log_error(std::source_location::current(), "[file_writer] too few file descriptors provided, please increase capacity of file descriptor list");
          unreachable();
       }
-      auto &fileDescriptor{*std::launder(m_fileDescriptors)};
-      m_fileDescriptors = std::launder(fileDescriptor.next);
+      auto &fileDescriptor{*m_fileDescriptors,};
+      m_fileDescriptors = fileDescriptor.next;
       fileDescriptor.next = nullptr;
       assert(0 < fileDescriptor.registeredFileIndex);
       assert(file_status::none == fileDescriptor.fileStatus);
@@ -349,7 +348,7 @@ private:
    {
       assert(0 != userdata);
       assert(0 == flags);
-      auto &fileDescriptor{*std::launder(std::bit_cast<file_descriptor *>(userdata)),};
+      auto &fileDescriptor{*std::bit_cast<file_descriptor *>(userdata),};
       assert(0 < fileDescriptor.registeredFileIndex);
       assert(file_status::none != fileDescriptor.fileStatus);
       assert(nullptr != fileDescriptor.fileWriter);
@@ -442,9 +441,9 @@ private:
       assert(nullptr == fileDescriptor.next);
       assert(false == (bool{fileDescriptor.closeReason,}));
       assert(nullptr != m_registeredBuffers);
-      auto &registeredBuffer{*std::launder(m_registeredBuffers),};
+      auto &registeredBuffer{*m_registeredBuffers,};
       assert(0 < registeredBuffer.index);
-      m_registeredBuffers = std::launder(registeredBuffer.next);
+      m_registeredBuffers = registeredBuffer.next;
       registeredBuffer.next = nullptr;
       fileDescriptor.registeredBufferInFlight = std::addressof(registeredBuffer);
       return registeredBuffer;
@@ -465,10 +464,10 @@ private:
       fileDescriptor.fileStatus = file_status::none;
       fileDescriptor.closeOnCompletion = false;
       fileDescriptor.fileWriter = nullptr;
-      fileDescriptor.next = std::launder(m_fileDescriptors);
+      fileDescriptor.next = m_fileDescriptors;
       auto const closeReason{fileDescriptor.closeReason,};
       fileDescriptor.closeReason = std::error_code{};
-      m_fileDescriptors = std::launder(std::addressof(fileDescriptor));
+      m_fileDescriptors = std::addressof(fileDescriptor);
       fileWriter.io_closed(closeReason);
    }
 
@@ -482,12 +481,12 @@ private:
       assert(nullptr != fileDescriptor.fileWriter);
       assert(nullptr == fileDescriptor.next);
       assert(false == (bool{fileDescriptor.closeReason,}));
-      auto &registeredBuffer{*std::launder(fileDescriptor.registeredBufferInFlight),};
+      auto &registeredBuffer{*fileDescriptor.registeredBufferInFlight,};
       fileDescriptor.registeredBufferInFlight = nullptr;
       assert(0 < registeredBuffer.index);
       assert(nullptr == registeredBuffer.next);
-      registeredBuffer.next = std::launder(m_registeredBuffers);
-      m_registeredBuffers = std::launder(std::addressof(registeredBuffer));
+      registeredBuffer.next = m_registeredBuffers;
+      m_registeredBuffers = std::addressof(registeredBuffer);
    }
 
    void write(file_writer &fileWriter)

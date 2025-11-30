@@ -28,19 +28,29 @@
 #include "common/utility.hpp" ///< for io_threads::unreachable
 #include "openssl/error.hpp" ///< for io_threads::log_openssl_errors
 
+/// for
+///   EVP_DigestFinal,
+///   EVP_DigestInit,
+///   EVP_DigestUpdate,
+///   EVP_MD,
+///   EVP_MD_CTX,
+///   EVP_MD_CTX_free,
+///   EVP_MD_CTX_new,
+///   EVP_MD_fetch,
+///   EVP_MD_free
 #include <openssl/evp.h>
 
 #include <array> ///< for std::array
 #include <bit> ///< for std::bit_cast
+#include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
+#include <cstdint> ///< for uint32_t, uint8_t
 #include <memory> ///< for std::addressof
-#include <new> ///< for operator delete, operator new, std::align_val_t
-#include <source_location> ///< for std::source_location
 
 namespace io_threads
 {
 
-constexpr size_t sha1_digest_size = 20;
+constexpr size_t sha1_digest_size{20,};
 using sha1_digest = std::array<std::byte, sha1_digest_size>;
 
 class sha1_context final

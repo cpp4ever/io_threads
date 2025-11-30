@@ -93,7 +93,7 @@ std::error_code websocket_client_handshake_handler::handle_response(
    std::string_view const &handshakeResponse
 )
 {
-   if (auto const errorCode{m_responseParser->parse(handshakeResponse),}; true == bool{errorCode,})
+   if (auto const errorCode{m_responseParser.parse(handshakeResponse),}; true == bool{errorCode,})
    {
       return errorCode;
    }
@@ -103,7 +103,7 @@ std::error_code websocket_client_handshake_handler::handle_response(
       {
          std::bit_cast<char const *>(secWebSocketAccept.bytes.data()),
          secWebSocketAccept.bytesLength,
-      } != m_responseParser->sec_websocket_accept()
+      } != m_responseParser.sec_websocket_accept()
    ) [[unlikely]]
    {
       return make_error_code(websocket_error::handshake_wrong_sec_websocket_accept);

@@ -57,7 +57,7 @@
 #include <bit> ///< for std::bit_cast
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr
-#include <new> ///< for operator delete, operator new, std::align_val_t, std::launder
+#include <new> ///< for operator delete, operator new, std::align_val_t
 #include <optional> ///< for std::nullopt, std::optional
 #include <string> ///< for std::string, std::wstring
 #include <string_view> ///< for std::string_view
@@ -123,24 +123,20 @@ public:
       ULONG ipAdapterAddresesSize{1024 * 64};
       auto *ipAdapterAddreses
       {
-         std::launder(
-            std::construct_at<IP_ADAPTER_ADDRESSES>(
-               std::bit_cast<IP_ADAPTER_ADDRESSES *>(
-                  ::operator new(ipAdapterAddresesSize, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)})
-               )
+         std::construct_at<IP_ADAPTER_ADDRESSES>(
+            std::bit_cast<IP_ADAPTER_ADDRESSES *>(
+               ::operator new(ipAdapterAddresesSize, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)})
             )
-         )
+         ),
       };
       auto returnCode{GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, ipAdapterAddreses, std::addressof(ipAdapterAddresesSize))};
       if ((ERROR_BUFFER_OVERFLOW == returnCode) || (ERROR_NOT_ENOUGH_MEMORY == returnCode))
       {
          std::destroy_at(ipAdapterAddreses);
          ::operator delete(ipAdapterAddreses, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)});
-         ipAdapterAddreses = std::launder(
-            std::construct_at<IP_ADAPTER_ADDRESSES>(
-               std::bit_cast<IP_ADAPTER_ADDRESSES *>(
-                  ::operator new(ipAdapterAddresesSize, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)})
-               )
+         ipAdapterAddreses = std::construct_at<IP_ADAPTER_ADDRESSES>(
+            std::bit_cast<IP_ADAPTER_ADDRESSES *>(
+               ::operator new(ipAdapterAddresesSize, std::align_val_t{alignof(IP_ADAPTER_ADDRESSES)})
             )
          );
          returnCode = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, ipAdapterAddreses, std::addressof(ipAdapterAddresesSize));

@@ -122,13 +122,13 @@
 #include <cstdint> ///< for intptr_t, uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t, std::launder
+#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
+#include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code, std::system_category
-#include <thread> ///< for std::jthread, std::this_thread
+#include <thread> ///< for std::thread, std::this_thread
 
 #pragma comment(lib, "kernel32")
 #pragma comment(lib, "WS2_32")
@@ -159,33 +159,26 @@ public:
    tcp_client_thread_worker(tcp_client_thread_worker const &) = delete;
 
    [[nodiscard]] tcp_client_thread_worker(uint32_t const socketListCapacity, uint32_t const recvBufferSize, uint32_t const sendBufferSize) :
-      m_completionPortEntries{std::make_unique<completion_port::entries>(),},
-      m_sendMemory
+      m_deferredTaskPool{socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task),},
+      m_sendContextPool
       {
-         std::make_unique<memory_pool>(
-            socketListCapacity,
-            std::align_val_t{alignof(tcp_data_transfer_context),},
-            sizeof(tcp_data_transfer_context) + sendBufferSize
-         ),
+         socketListCapacity,
+         std::align_val_t{alignof(tcp_data_transfer_context),},
+         sizeof(tcp_data_transfer_context) + sendBufferSize,
       },
-      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),},
-      m_recvMemory
+      m_socketDescriptorPool{socketListCapacity, std::align_val_t{alignof(tcp_socket_descriptor),}, sizeof(tcp_socket_descriptor),},
+      m_connectivityContextPool
       {
-         std::make_unique<memory_pool>(
-            socketListCapacity,
-            std::align_val_t{alignof(tcp_data_transfer_context),},
-            sizeof(tcp_data_transfer_context) + recvBufferSize
-         ),
+         socketListCapacity,
+         std::align_val_t{alignof(tcp_connectivity_context),},
+         sizeof(tcp_connectivity_context) + std::max(sizeof(SOCKADDR_IN), sizeof(SOCKADDR_IN6)),
       },
-      m_connectivityMemory
+      m_recvContextPool
       {
-         std::make_unique<memory_pool>(
-            socketListCapacity,
-            std::align_val_t{alignof(tcp_connectivity_context),},
-            sizeof(tcp_connectivity_context) + std::max(sizeof(SOCKADDR_IN), sizeof(SOCKADDR_IN6))
-         ),
-      },
-      m_socketMemory{std::make_unique<memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_socket_descriptor),}, sizeof(tcp_socket_descriptor)),}
+         socketListCapacity,
+         std::align_val_t{alignof(tcp_data_transfer_context),},
+         sizeof(tcp_data_transfer_context) + recvBufferSize,
+      }
    {
       constexpr int socketFamily{AF_INET,};
       constexpr int socketType{SOCK_STREAM,};
@@ -242,7 +235,7 @@ public:
    {
       auto &deferredTask
       {
-         m_deferredTaskMemory->pop<tcp_deferred_task>(
+         m_deferredTaskPool.pop<tcp_deferred_task>(
             tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_connect, .notBeforeTime = notBeforeTime,}
          ),
       };
@@ -292,7 +285,7 @@ public:
          cancel_deferred_task(client);
          auto &deferredTask
          {
-            m_deferredTaskMemory->pop<tcp_deferred_task>(
+            m_deferredTaskPool.pop<tcp_deferred_task>(
                tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
             ),
          };
@@ -302,7 +295,7 @@ public:
       {
          auto const &deferredTask
          {
-            m_deferredTaskMemory->pop<tcp_deferred_task>(
+            m_deferredTaskPool.pop<tcp_deferred_task>(
                tcp_deferred_task{.client = client, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
             ),
          };
@@ -315,7 +308,7 @@ public:
       m_completionPort.post_queued_completion_status(0, to_completion_overlapped(tcp_client_command::unknown));
    }
 
-   [[nodiscard]] static std::jthread start(
+   [[nodiscard]] static std::thread start(
       thread_config const &threadConfig,
       uint32_t const socketListCapacity,
       uint32_t const recvBufferSize,
@@ -324,9 +317,9 @@ public:
    )
    {
       [[maybe_unused]] static winsock_scope const winsockScope{};
-      return std::jthread
+      return std::thread
       {
-         [&threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, &workerPromise] (std::stop_token const stopToken)
+         [&threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, &workerPromise] ()
          {
             if (
                true
@@ -338,7 +331,9 @@ public:
             }
             auto const threadWorker{std::make_shared<tcp_client_thread_worker>(socketListCapacity, recvBufferSize, sendBufferSize),};
             workerPromise.set_value(threadWorker);
-            while (false == stopToken.stop_requested()) [[likely]]
+            bool stopRequested{false,};
+            completion_port::entries completionPortEntries{};
+            while (false == stopRequested) [[likely]]
             {
                threadWorker->process_deferred_tasks();
                auto timeoutMilliseconds{completion_port::infinite_timeout,};
@@ -347,13 +342,13 @@ public:
                   auto const now{steady_clock::now(),};
                   timeoutMilliseconds = static_cast<DWORD>(std::chrono::ceil<std::chrono::milliseconds>(std::max(deferredTask->notBeforeTime, now) - now).count());
                };
-               while (threadWorker->m_completionPortEntries->size() == threadWorker->poll(timeoutMilliseconds))
+               while (completionPortEntries.size() == threadWorker->poll(completionPortEntries, timeoutMilliseconds, stopRequested))
                {
                   /// Do while there are entries to poll
                   timeoutMilliseconds = completion_port::no_timeout;
                }
             }
-            while (0 != threadWorker->poll(completion_port::no_timeout))
+            while (0 != threadWorker->poll(completionPortEntries, completion_port::no_timeout, stopRequested))
             {
                /// Until all entries are polled
             }
@@ -362,18 +357,17 @@ public:
    }
 
 private:
-   std::jthread::id const m_threadId{std::this_thread::get_id(),};
+   std::thread::id const m_threadId{std::this_thread::get_id(),};
+   shared_memory_pool m_deferredTaskPool;
    tcp_deferred_task *m_deferredTaskHead{nullptr,};
    tcp_deferred_task *m_deferredTaskTail{nullptr,};
    completion_port m_completionPort{};
-   std::unique_ptr<completion_port::entries> const m_completionPortEntries;
-   std::unique_ptr<memory_pool> const m_sendMemory;
-   std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
-   std::unique_ptr<memory_pool> const m_recvMemory;
+   memory_pool m_sendContextPool;
+   memory_pool m_socketDescriptorPool;
+   memory_pool m_connectivityContextPool;
    LPFN_CONNECTEX m_connect{nullptr,};
    LPFN_DISCONNECTEX m_disconnect{nullptr,};
-   std::unique_ptr<memory_pool> const m_connectivityMemory;
-   std::unique_ptr<memory_pool> const m_socketMemory;
+   memory_pool m_recvContextPool;
 
    void cancel_deferred_task(tcp_client &tcpClient);
 
@@ -447,14 +441,16 @@ private:
 
    void enqueue_deferred_task(tcp_deferred_task &deferredTask);
 
-   void handle_completion_port_entry(OVERLAPPED_ENTRY const &completionPortEntry)
+   void handle_completion_port_entry(OVERLAPPED_ENTRY const &completionPortEntry, bool &stopRequested)
    {
       switch (from_completion_overlapped(completionPortEntry.lpOverlapped))
       {
+
       case tcp_client_command::unknown:
       {
          /// Generated by dtor of io_threads::tcp_client_thread::tcp_client_thread_impl
          assert(0 == completionPortEntry.lpCompletionKey);
+         stopRequested = true;
       }
       break;
 
@@ -554,6 +550,7 @@ private:
          }
       }
       break;
+
       }
    }
 
@@ -582,7 +579,7 @@ private:
          {
             check_winsock_error("[tcp_client] failed to set SO_UPDATE_CONNECT_CONTEXT socket option: ({}) - {}");
          }
-         m_connectivityMemory->push_object(*socketDescriptor.connectivityContext);
+         m_connectivityContextPool.push_object(*socketDescriptor.connectivityContext);
          socketDescriptor.connectivityContext = nullptr;
          socketDescriptor.recvContext = std::addressof(pop_recv_context());
          client.io_connected();
@@ -646,7 +643,7 @@ private:
    void handle_disconnected(tcp_client &client, std::error_code errorCode)
    {
       assert(nullptr != client.m_socketDescriptor);
-      auto *socketDescriptor{std::launder(client.m_socketDescriptor),};
+      auto *socketDescriptor{client.m_socketDescriptor,};
       assert(INVALID_SOCKET != socketDescriptor->handle);
       client.m_socketDescriptor = nullptr;
       if (SOCKET_ERROR == closesocket(socketDescriptor->handle)) [[unlikely]]
@@ -656,24 +653,24 @@ private:
       socketDescriptor->handle = INVALID_SOCKET;
       if (nullptr != socketDescriptor->recvContext)
       {
-         m_recvMemory->push_object(*socketDescriptor->recvContext);
+         m_recvContextPool.push_object(*socketDescriptor->recvContext);
          socketDescriptor->recvContext = nullptr;
       }
       if (nullptr != socketDescriptor->sendContext)
       {
-         m_sendMemory->push_object(*socketDescriptor->sendContext);
+         m_sendContextPool.push_object(*socketDescriptor->sendContext);
          socketDescriptor->sendContext = nullptr;
       }
       if (nullptr != socketDescriptor->connectivityContext)
       {
-         m_connectivityMemory->push_object(*socketDescriptor->connectivityContext);
+         m_connectivityContextPool.push_object(*socketDescriptor->connectivityContext);
          socketDescriptor->connectivityContext = nullptr;
       }
       if (socketDescriptor->disconnectReason)
       {
          errorCode = socketDescriptor->disconnectReason;
       }
-      m_socketMemory->push_object(*socketDescriptor);
+      m_socketDescriptorPool.push_object(*socketDescriptor);
       cancel_deferred_task(client);
       client.io_disconnected(errorCode);
    }
@@ -711,7 +708,7 @@ private:
             auto &connectivityContext{pop_connect_context(),};
             assert(nullptr != connectivityContext.address);
             CopyMemory(connectivityContext.address, std::addressof(socketAddress), sizeof(SOCKADDR_INET));
-            auto &socketDescriptor{m_socketMemory->pop_object<tcp_socket_descriptor>(),};
+            auto &socketDescriptor{m_socketDescriptorPool.pop_object<tcp_socket_descriptor>(),};
             assert(INVALID_SOCKET == socketDescriptor.handle);
             assert(nullptr == socketDescriptor.recvContext);
             assert(nullptr == socketDescriptor.sendContext);
@@ -753,7 +750,7 @@ private:
       socketDescriptor.connectivityContext = std::addressof(pop_disconnect_context());
       if ((true == bool{errorCode,}) || (0 == bytesWritten))
       {
-         m_sendMemory->push_object(sendContext);
+         m_sendContextPool.push_object(sendContext);
          disconnect(client);
          return;
       }
@@ -825,7 +822,7 @@ private:
          }
          else
          {
-            m_recvMemory->push_object(*socketDescriptor.recvContext);
+            m_recvContextPool.push_object(*socketDescriptor.recvContext);
             socketDescriptor.recvContext = nullptr;
             if (nullptr == socketDescriptor.connectivityContext)
             {
@@ -867,7 +864,7 @@ private:
       }
       WSABUF const dataTransferBuffer
       {
-         .len = static_cast<ULONG>(m_recvMemory->memory_chunk_size() - sizeof(tcp_data_transfer_context)),
+         .len = static_cast<ULONG>(m_recvContextPool.memory_chunk_size() - sizeof(tcp_data_transfer_context)),
          .buf = std::bit_cast<CHAR *>(socketDescriptor.recvContext + 1),
       };
       auto const totalBytesReceived{static_cast<size_t>(recvBuffer.buf - dataTransferBuffer.buf) + bytesReceived,};
@@ -883,7 +880,7 @@ private:
          true == bool{errorCode}
       ) [[unlikely]]
       {
-         m_recvMemory->push_object(*socketDescriptor.recvContext);
+         m_recvContextPool.push_object(*socketDescriptor.recvContext);
          socketDescriptor.recvContext = nullptr;
          if (false == bool{socketDescriptor.disconnectReason,})
          {
@@ -946,7 +943,7 @@ private:
          )
       ) [[likely]]
       {
-         m_sendMemory->push_object(*socketDescriptor.sendContext);
+         m_sendContextPool.push_object(*socketDescriptor.sendContext);
          socketDescriptor.sendContext = nullptr;
          if (nullptr != socketDescriptor.connectivityContext) [[unlikely]]
          {
@@ -981,48 +978,48 @@ private:
       task.completionPromise.set_value();
    }
 
-   [[nodiscard]] size_t poll(DWORD const timeout)
+   [[nodiscard]] size_t poll(completion_port::entries &completionPortEntries, DWORD const timeout, bool &stopRequested)
    {
-      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(*m_completionPortEntries, timeout),};
-      assert(numberOfCompletionPortEntriesRemoved <= m_completionPortEntries->size());
-      auto completionPortEntry{m_completionPortEntries->begin()};
+      auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(completionPortEntries, timeout),};
+      assert(numberOfCompletionPortEntriesRemoved <= completionPortEntries.size());
+      auto completionPortEntry{completionPortEntries.begin()};
       for (
          auto const completionPortEntriesEnd{completionPortEntry + numberOfCompletionPortEntriesRemoved};
          completionPortEntriesEnd != completionPortEntry;
          ++completionPortEntry
       )
       {
-         handle_completion_port_entry(*completionPortEntry);
+         handle_completion_port_entry(*completionPortEntry, stopRequested);
       }
       return numberOfCompletionPortEntriesRemoved;
    }
 
    [[nodiscard]] tcp_connectivity_context &pop_connect_context()
    {
-      auto &connectivityContext = m_connectivityMemory->pop_object<tcp_connectivity_context>();
+      auto &connectivityContext = m_connectivityContextPool.pop_object<tcp_connectivity_context>();
       connectivityContext.address = std::bit_cast<LPSOCKADDR>(std::addressof(connectivityContext) + 1);
       return connectivityContext;
    }
 
    [[nodiscard]] tcp_data_transfer_context &pop_recv_context()
    {
-      auto &dataTransferContext = m_recvMemory->pop_object<tcp_data_transfer_context>();
-      dataTransferContext.buffer.len = static_cast<ULONG>(m_recvMemory->memory_chunk_size() - sizeof(tcp_data_transfer_context));
+      auto &dataTransferContext = m_recvContextPool.pop_object<tcp_data_transfer_context>();
+      dataTransferContext.buffer.len = static_cast<ULONG>(m_recvContextPool.memory_chunk_size() - sizeof(tcp_data_transfer_context));
       dataTransferContext.buffer.buf = std::bit_cast<CHAR *>(std::addressof(dataTransferContext) + 1);
       return dataTransferContext;
    }
 
    [[nodiscard]] tcp_data_transfer_context &pop_send_context()
    {
-      auto &dataTransferContext = m_sendMemory->pop_object<tcp_data_transfer_context>();
-      dataTransferContext.buffer.len = static_cast<ULONG>(m_sendMemory->memory_chunk_size() - sizeof(tcp_data_transfer_context));
+      auto &dataTransferContext = m_sendContextPool.pop_object<tcp_data_transfer_context>();
+      dataTransferContext.buffer.len = static_cast<ULONG>(m_sendContextPool.memory_chunk_size() - sizeof(tcp_data_transfer_context));
       dataTransferContext.buffer.buf = std::bit_cast<CHAR *>(std::addressof(dataTransferContext) + 1);
       return dataTransferContext;
    }
 
    [[nodiscard]] tcp_connectivity_context &pop_disconnect_context()
    {
-      return m_connectivityMemory->pop_object<tcp_connectivity_context>();
+      return m_connectivityContextPool.pop_object<tcp_connectivity_context>();
    }
 
    void process_deferred_tasks();
@@ -1084,7 +1081,7 @@ private:
          true == bool{errorCode,}
       ) [[unlikely]]
       {
-         m_sendMemory->push_object(sendContext);
+         m_sendContextPool.push_object(sendContext);
          if (false == bool{socketDescriptor.disconnectReason,})
          {
             socketDescriptor.disconnectReason = errorCode;
@@ -1094,7 +1091,7 @@ private:
       }
       if (0 == bytesWritten)
       {
-         m_sendMemory->push_object(sendContext);
+         m_sendContextPool.push_object(sendContext);
          return;
       }
       if (static_cast<size_t>(sendContext.buffer.len) < bytesWritten) [[unlikely]]

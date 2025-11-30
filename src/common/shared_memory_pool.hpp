@@ -25,16 +25,11 @@
 
 #pragma once
 
-#include "common/utility.hpp" ///< for io_threads::to_underlying
+#include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 
-#include <atomic> ///< for std::atomic_intptr_t
-#include <bit> ///< for std::bit_cast
-#include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< for uintptr_t
-#include <memory> ///< for std::construct_at, std::destroy_at
 #include <mutex> ///< for std::mutex, std::scoped_lock
-#include <new> ///< for std::align_val_t, std::launder
+#include <new> ///< for std::align_val_t
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_destructible_v, std::is_pointer_v, std::is_reference_v
 #include <utility> ///< for std::forward
 
@@ -43,18 +38,14 @@ namespace io_threads
 
 class shared_memory_pool final
 {
-private:
-   struct memory_chunk final
-   {
-      memory_chunk *next;
-   };
-
 public:
    shared_memory_pool() = delete;
    shared_memory_pool(shared_memory_pool &&) = delete;
    shared_memory_pool(shared_memory_pool const &) = delete;
-   [[nodiscard]] shared_memory_pool(size_t initialPoolCapacity, std::align_val_t memoryChunkAlignment, size_t memoryChunkSize);
-   ~shared_memory_pool();
+
+   [[maybe_unused, nodiscard]] shared_memory_pool(size_t const initialPoolCapacity, std::align_val_t const memoryChunkAlignment, size_t const memoryChunkSize) :
+      m_pool{initialPoolCapacity, memoryChunkAlignment, memoryChunkSize,}
+   {}
 
    shared_memory_pool &operator = (shared_memory_pool &&) = delete;
    shared_memory_pool &operator = (shared_memory_pool const &) = delete;
@@ -63,58 +54,21 @@ public:
       requires((true == std::is_constructible_v<type, types...>) && (false == std::is_pointer_v<type>) && (false == std::is_reference_v<type>))
    [[maybe_unused, nodiscard]] type &pop(types &&...values)
    {
-      assert(std::align_val_t{alignof(type)} <= m_memoryChunkAlignment);
-      assert(0 == (to_underlying(m_memoryChunkAlignment) % alignof(type)));
-      assert(sizeof(type) <= m_memoryChunkSize);
-      {
-         [[maybe_unused]] std::scoped_lock memoryChunksGuard{m_memoryChunksLock,};
-         if (nullptr != m_memoryChunks) [[likely]]
-         {
-            auto *memoryChunk{std::launder(m_memoryChunks),};
-            m_memoryChunks = std::launder(memoryChunk->next);
-            memoryChunk->next = nullptr;
-            std::destroy_at(memoryChunk);
-            return *std::launder(std::construct_at<type>(std::bit_cast<type *>(memoryChunk), std::forward<types>(values)...));
-         }
-      }
-      return *std::launder(std::construct_at<type>(std::bit_cast<type *>(allocate_memory_chunk()), std::forward<types>(values)...));
+      [[maybe_unused]] std::scoped_lock poolGuard{m_poolLock,};
+      return m_pool.pop_object<type>(std::forward<types>(values)...);
    }
 
    template<typename type>
       requires((false == std::is_pointer_v<type>) && (false == std::is_reference_v<type>))
    [[maybe_unused]] void push(type &value) noexcept(true == std::is_nothrow_destructible_v<type>)
    {
-      assert(std::align_val_t{alignof(type)} <= m_memoryChunkAlignment);
-      assert(0 == (std::bit_cast<uintptr_t>(std::addressof(value)) % to_underlying(m_memoryChunkAlignment)));
-      assert(sizeof(type) <= m_memoryChunkSize);
-      [[maybe_unused]] std::scoped_lock memoryChunksGuard{m_memoryChunksLock,};
-      std::destroy_at(std::addressof(value));
-      m_memoryChunks = std::launder(
-         std::construct_at<memory_chunk>(std::bit_cast<memory_chunk *>(std::addressof(value)), memory_chunk{.next = std::launder(m_memoryChunks),})
-      );
+      [[maybe_unused]] std::scoped_lock const poolGuard{m_poolLock,};
+      m_pool.push_object(value);
    }
 
 private:
-   std::align_val_t const m_memoryChunkAlignment;
-   size_t const m_memoryChunkSize;
-   memory_chunk *m_memoryChunks{nullptr,};
-   std::mutex m_memoryChunksLock{};
-#if (not defined(NDEBUG))
-   std::atomic_intptr_t m_memoryChunksCount{0,};
-#endif
-
-   [[nodiscard]] memory_chunk *allocate_memory_chunk()
-#if (defined(NDEBUG))
-      const
-#endif
-   ;
-   void deallocate_memory_chunk(memory_chunk &memoryChunk)
-#if (defined(NDEBUG))
-      const
-#endif
-   ;
-
-   [[nodiscard]] memory_chunk *pop_memory_chunks();
+   memory_pool m_pool;
+   std::mutex m_poolLock{};
 };
 
 }

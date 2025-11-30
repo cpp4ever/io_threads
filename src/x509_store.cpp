@@ -49,7 +49,7 @@ x509_store::x509_store(x509_store_config const &config, std::vector<domain_addre
 {}
 
 x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat) :
-   m_impl{std::make_shared<x509_store_impl>(x509Data, x509DataFormat, std::string_view{"",}),}
+   x509_store{x509Data, x509DataFormat, std::string_view{"",},}
 {}
 
 x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat, std::string_view const &x509DataPassword) :

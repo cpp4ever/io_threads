@@ -25,13 +25,13 @@
 
 #include "io_threads/connection_throttler.hpp" ///< for io_threads::connection_throttler
 #include "io_threads/network_interface.hpp" ///< for io_threads::network_interface
+#include "io_threads/socket_address.hpp" ///< for io_threads::socket_address
 #include "io_threads/tcp_client_address.hpp" ///< for io_threads::tcp_client_address
 #include "io_threads/time.hpp" ///< for io_threads::steady_time, io_threads::time_duration
 #include "io_threads/throttling_queue.hpp" ///< for io_threads::throttling_queue
 
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t
-#include <memory> ///< for std::make_unique
 #include <mutex> ///< for std::scoped_lock
 #include <optional> ///< for std::nullopt, std::optional
 #include <vector> ///< for std::vector
@@ -63,46 +63,41 @@ connection_throttler::connection_throttler(std::vector<network_interface> const 
    assert(quota > 0);
    if (true == networkInterfaces.empty())
    {
-      [[maybe_unused]] auto const &throttler{find_or_create_throttler(std::nullopt),};
+      m_mapNetworkInterfaceToThrottler.try_emplace(std::nullopt, m_rollingTimeWindow, m_quota);
    }
    else
    {
       for (auto const &networkInterface : networkInterfaces)
       {
-         [[maybe_unused]] auto const &throttler{find_or_create_throttler(networkInterface),};
+         m_mapNetworkInterfaceToThrottler.try_emplace(networkInterface, m_rollingTimeWindow, m_quota);
       }
    }
 }
 
 steady_time connection_throttler::enqueue(tcp_client_address const &tcpClientAddress, steady_time const now)
 {
-   auto &throttler{find_or_create_throttler(tcpClientAddress.network_interface()),};
-   if (true == tcpClientAddress.socket_address().ipv4())
-   {
-      return throttler.ipv4Throttler->enqueue(now);
-   }
-   assert(true == tcpClientAddress.socket_address().ipv6());
-   return throttler.ipv6Throttler->enqueue(now);
+   return find_or_create_throttler(tcpClientAddress.network_interface()).enqueue(tcpClientAddress.socket_address(), now);
 }
 
-connection_throttler::network_interface_throttler &connection_throttler::find_or_create_throttler(std::optional<network_interface> const &networkInterface)
+connection_throttler::network_interface_throttling_queue::network_interface_throttling_queue(time_duration const rollingTimeWindow, size_t const quota) :
+   m_ipv4{rollingTimeWindow, quota,},
+   m_ipv6{rollingTimeWindow, quota,}
+{}
+
+steady_time connection_throttler::network_interface_throttling_queue::enqueue(socket_address const &socketAddress, steady_time const now)
+{
+   if (true == socketAddress.ipv4())
+   {
+      return m_ipv4.enqueue(now);
+   }
+   assert(true == socketAddress.ipv6());
+   return m_ipv6.enqueue(now);
+}
+
+connection_throttler::network_interface_throttling_queue &connection_throttler::find_or_create_throttler(std::optional<network_interface> const &networkInterface)
 {
    [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
-   if (
-      auto networkInterfaceToThrottler{m_mapNetworkInterfaceToThrottler.find(networkInterface),};
-      m_mapNetworkInterfaceToThrottler.end() != networkInterfaceToThrottler
-   )
-   {
-      return networkInterfaceToThrottler->second;
-   }
-   return m_mapNetworkInterfaceToThrottler.try_emplace(
-      networkInterface,
-      network_interface_throttler
-      {
-         .ipv4Throttler = std::make_unique<throttling_queue>(m_rollingTimeWindow, m_quota),
-         .ipv6Throttler = std::make_unique<throttling_queue>(m_rollingTimeWindow, m_quota),
-      }
-   ).first->second;
+   return m_mapNetworkInterfaceToThrottler.try_emplace(networkInterface, m_rollingTimeWindow, m_quota).first->second;
 }
 
 }

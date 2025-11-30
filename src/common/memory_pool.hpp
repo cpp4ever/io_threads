@@ -31,7 +31,7 @@
 #include <cassert> ///< for assert
 #include <cstddef> ///< for size_t, std::byte
 #include <memory> ///< for std::construct_at, std::destroy_at
-#include <new> ///< for std::align_val_t, std::launder
+#include <new> ///< for std::align_val_t
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_destructible_v, std::is_pointer_v, is_reference_v
 
 namespace io_threads
@@ -69,7 +69,7 @@ public:
       assert(std::align_val_t{alignof(type)} <= m_memoryChunkAlignment);
       assert(0 == (to_underlying(m_memoryChunkAlignment) % alignof(type)));
       assert(sizeof(type) <= memory_chunk_size());
-      return *std::launder(std::construct_at<type>(std::bit_cast<type *>(pop_memory_chunk()), std::forward<types>(values)...));
+      return *std::construct_at<type>(std::bit_cast<type *>(pop_memory_chunk()), std::forward<types>(values)...);
    }
 
    void push_memory_chunk(std::byte *memory) noexcept;
@@ -89,7 +89,10 @@ private:
    std::align_val_t const m_memoryChunkAlignment;
    size_t const m_memoryChunkSize;
    memory_chunk *m_memoryChunks{nullptr,};
-#if (not defined(NDEBUG))
+#if (defined(NDEBUG))
+   std::byte *m_headMemoryChunk{nullptr,};
+   std::byte *m_tailMemoryChunk{nullptr,};
+#else
    intptr_t m_memoryChunksCount{0,};
 #endif
 

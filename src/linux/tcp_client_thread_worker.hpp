@@ -48,6 +48,7 @@
 #include <linux/time_types.h> ///< for __kernel_timespec
 #include <netinet/ip.h> ///< for IP_TOS, IPPROTO_IP
 #include <netinet/tcp.h> ///< for IPPROTO_TCP, TCP_NODELAY, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_SYNCNT, TCP_USER_TIMEOUT
+#include <signal.h> ///< for sigfillset, sigset_t
 #include <sys/socket.h> ///< for setsockopt, SHUT_RDWR, SO_BINDTODEVICE, SO_KEEPALIVE, SOL_SOCKET
 #include <unistd.h> ///< for close
 
@@ -61,12 +62,12 @@
 #include <cstring> ///< for std::memcpy, std::memmove, std::memset, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::make_unique, std::shared_ptr, std::unique_ptr
-#include <new> ///< for std::align_val_t, std::launder
+#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr, std::unique_ptr
+#include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code, std::generic_category
-#include <thread> ///< for std::jthread, std::this_thread
+#include <thread> ///< for std::thread, std::this_thread
 
 namespace io_threads
 {
@@ -78,14 +79,9 @@ public:
    tcp_client_thread_worker(tcp_client_thread_worker &&) = delete;
    tcp_client_thread_worker(tcp_client_thread_worker const &) = delete;
 
-   [[nodiscard]] tcp_client_thread_worker(
-      std::unique_ptr<tcp_client_uring> tcpClientUring,
-      uint32_t const socketListCapacity,
-      uint32_t const recvBufferSize,
-      uint32_t const sendBufferSize
-   ) :
-      m_uringCommandQueue{std::make_unique<uring_command_queue>(socketListCapacity),},
-      m_deferredTaskMemory{std::make_unique<shared_memory_pool>(socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task)),},
+   [[nodiscard]] tcp_client_thread_worker(std::unique_ptr<tcp_client_uring> tcpClientUring, uint32_t const socketListCapacity) :
+      m_uringCommandQueue{socketListCapacity,},
+      m_deferredTaskPool{socketListCapacity, std::align_val_t{alignof(tcp_deferred_task),}, sizeof(tcp_deferred_task),},
       m_tcpClientUring{std::move(tcpClientUring),}
    {
       m_tcpSocketDescriptors = m_tcpClientUring->register_tcp_socket_descriptors(socketListCapacity);
@@ -93,9 +89,7 @@ public:
       m_tcpClientUring->register_tcp_socket_operations(
          m_tcpRecvOperations,
          m_tcpSendOperations,
-         socketListCapacity,
-         recvBufferSize,
-         std::max<uint32_t>(sizeof(tcp_socket_options), sendBufferSize)
+         socketListCapacity
       );
       assert(nullptr != m_tcpRecvOperations);
       assert(nullptr != m_tcpSendOperations);
@@ -123,7 +117,7 @@ public:
       else
       {
          thread_task const ioTask{.routine{ioRoutine},};
-         m_uringCommandQueue->push(to_underlying(tcp_client_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
+         m_uringCommandQueue.push(to_underlying(tcp_client_command::execute), std::bit_cast<intptr_t>(std::addressof(ioTask)));
          m_tcpClientUring->wake();
          ioTask.completionFuture.wait();
       }
@@ -131,7 +125,7 @@ public:
 
    void ready_to_connect(tcp_client &tcpClient)
    {
-      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_connect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_connect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
@@ -139,7 +133,7 @@ public:
    {
       auto &deferredTask
       {
-         m_deferredTaskMemory->pop<tcp_deferred_task>(
+         m_deferredTaskPool.pop<tcp_deferred_task>(
             tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_connect, .notBeforeTime = notBeforeTime,}
          ),
       };
@@ -150,7 +144,7 @@ public:
       }
       else
       {
-         m_uringCommandQueue->push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
+         m_uringCommandQueue.push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
          m_tcpClientUring->wake();
       }
    }
@@ -163,7 +157,7 @@ public:
          tcpClient.io_disconnected(std::error_code{});
          return;
       }
-      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_disconnect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_disconnect), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
@@ -177,7 +171,7 @@ public:
       {
          return;
       }
-      m_uringCommandQueue->push(to_underlying(tcp_client_command::ready_to_send), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
+      m_uringCommandQueue.push(to_underlying(tcp_client_command::ready_to_send), std::bit_cast<intptr_t>(std::addressof(tcpClient)));
       m_tcpClientUring->wake();
    }
 
@@ -192,7 +186,7 @@ public:
          assert(tcp_socket_status::none != tcpClient.m_socketDescriptor->tcpSocketStatus);
          cancel_deferred_task(tcpClient);
          enqueue_deferred_task(
-            m_deferredTaskMemory->pop<tcp_deferred_task>(
+            m_deferredTaskPool.pop<tcp_deferred_task>(
                tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
             )
          );
@@ -201,11 +195,11 @@ public:
       {
          auto const &deferredTask
          {
-            m_deferredTaskMemory->pop<tcp_deferred_task>(
+            m_deferredTaskPool.pop<tcp_deferred_task>(
                tcp_deferred_task{.client = tcpClient, .command = tcp_client_command::ready_to_send, .notBeforeTime = notBeforeTime,}
             ),
          };
-         m_uringCommandQueue->push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
+         m_uringCommandQueue.push(to_underlying(tcp_client_command::deferred), std::bit_cast<intptr_t>(std::addressof(deferredTask)));
          m_tcpClientUring->wake();
       }
    }
@@ -217,11 +211,11 @@ public:
 
    void stop()
    {
-      m_uringCommandQueue->push(to_underlying(tcp_client_command::unknown), 0);
+      m_uringCommandQueue.push(to_underlying(tcp_client_command::unknown), 0);
       m_tcpClientUring->wake();
    }
 
-   [[nodiscard]] static std::jthread start(
+   [[nodiscard]] static std::thread start(
       thread_config const &threadConfig,
       uint32_t const socketListCapacity,
       uint32_t const recvBufferSize,
@@ -229,9 +223,9 @@ public:
       std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
    )
    {
-      return std::jthread
+      return std::thread
       {
-         [&threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, &workerPromise] (std::stop_token const)
+         [&threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, &workerPromise] ()
          {
             if (true == threadConfig.worker_affinity().has_value())
             {
@@ -247,11 +241,11 @@ public:
                   tcp_client_uring::construct(
                      threadConfig.async_workers_affinity(),
                      threadConfig.kernel_thread_affinity(),
-                     socketListCapacity * 2 + 1
+                     socketListCapacity,
+                     recvBufferSize,
+                     std::max<uint32_t>(sizeof(tcp_socket_options), sendBufferSize)
                   ),
-                  socketListCapacity,
-                  recvBufferSize,
-                  sendBufferSize
+                  socketListCapacity
                ),
             };
             workerPromise.set_value(threadWorker);
@@ -262,9 +256,9 @@ public:
 
 private:
    int const m_tcpSynCnt{1,};
-   std::jthread::id const m_threadId{std::this_thread::get_id(),};
-   std::unique_ptr<uring_command_queue> const m_uringCommandQueue;
-   std::unique_ptr<shared_memory_pool> const m_deferredTaskMemory;
+   std::thread::id const m_threadId{std::this_thread::get_id(),};
+   uring_command_queue m_uringCommandQueue;
+   shared_memory_pool m_deferredTaskPool;
    tcp_socket_descriptor *m_tcpSocketDescriptors{nullptr,};
    tcp_socket_operation *m_tcpRecvOperations{nullptr,};
    tcp_socket_operation *m_tcpSendOperations{nullptr,};
@@ -627,7 +621,7 @@ private:
    void handle_event_completion() override
    {
       assert(std::this_thread::get_id() == m_threadId);
-      m_uringCommandQueue->handle(*this);
+      m_uringCommandQueue.handle(*this);
    }
 
    void handle_ready_to_connect(tcp_client &tcpClient)
@@ -982,7 +976,7 @@ private:
    void handle_task_completion(intptr_t const userdata, int32_t const result, uint32_t const flags) override
    {
       assert(0 != userdata);
-      auto &tcpSocketOperation{*std::launder(std::bit_cast<tcp_socket_operation *>(userdata)),};
+      auto &tcpSocketOperation{*std::bit_cast<tcp_socket_operation *>(userdata),};
       assert(nullptr != tcpSocketOperation.descriptor);
       assert(tcp_socket_status::none != tcpSocketOperation.descriptor->tcpSocketStatus);
       assert(0 < tcpSocketOperation.descriptor->refsCount);
@@ -1109,11 +1103,11 @@ private:
          log_error(std::source_location::current(), "[tcp_client] too few socket descriptors provided, please increase capacity of socket descriptor list");
          unreachable();
       }
-      auto &tcpSocketDescriptor{*std::launder(m_tcpSocketDescriptors),};
+      auto &tcpSocketDescriptor{*m_tcpSocketDescriptors,};
       assert(tcp_socket_status::none == tcpSocketDescriptor.tcpSocketStatus);
       assert(0 == tcpSocketDescriptor.refsCount);
       assert(false == (bool{tcpSocketDescriptor.disconnectReason,}));
-      m_tcpSocketDescriptors = std::launder(tcpSocketDescriptor.next);
+      m_tcpSocketDescriptors = tcpSocketDescriptor.next;
       tcpSocketDescriptor.tcpSocketStatus = tcp_socket_status::connect;
       tcpSocketDescriptor.next = nullptr;
       tcpSocketDescriptor.tcpClient = std::addressof(tcpClient);
@@ -1305,10 +1299,10 @@ private:
       tcpSocketDescriptor.refsCount = 0;
       tcpClient.m_socketDescriptor = nullptr;
       tcpSocketDescriptor.tcpClient = nullptr;
-      tcpSocketDescriptor.next = std::launder(m_tcpSocketDescriptors);
+      tcpSocketDescriptor.next = m_tcpSocketDescriptors;
       std::error_code const disconnectReason{tcpSocketDescriptor.disconnectReason,};
       tcpSocketDescriptor.disconnectReason = std::error_code{};
-      m_tcpSocketDescriptors = std::launder(std::addressof(tcpSocketDescriptor));
+      m_tcpSocketDescriptors = std::addressof(tcpSocketDescriptor);
       tcpClient.io_disconnected(disconnectReason);
    }
 
@@ -1373,6 +1367,12 @@ private:
    {
       __kernel_timespec ioTimeout{};
       intptr_t tasksCount{0,};
+      sigset_t sigmask{};
+      if (-1 == sigfillset(std::addressof(sigmask))) [[unlikely]]
+      {
+         log_system_error("[tcp_client] failed to initialize sigmask: ({}) - {}", errno);
+         unreachable();
+      }
       do
       {
          process_deferred_tasks();
@@ -1383,11 +1383,11 @@ private:
             auto const timeoutSeconds{std::chrono::duration_cast<std::chrono::seconds>(timeoutNanoseconds),};
             ioTimeout.tv_sec = timeoutSeconds.count();
             ioTimeout.tv_nsec = (timeoutNanoseconds - timeoutSeconds).count();
-            tasksCount = m_tcpClientUring->poll(*this, std::addressof(ioTimeout));
+            tasksCount = m_tcpClientUring->poll(*this, std::addressof(ioTimeout), sigmask);
          }
          else
          {
-            tasksCount = m_tcpClientUring->poll(*this, nullptr);
+            tasksCount = m_tcpClientUring->poll(*this, nullptr, sigmask);
          }
       } while (tasksCount > 0);
    }

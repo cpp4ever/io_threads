@@ -40,7 +40,7 @@ private:
    struct timeslot
    {
       timeslot *next{nullptr,};
-      steady_time expirationTime;
+      steady_time expirationTime{};
    };
 
    class busy_timeslots final
@@ -57,9 +57,9 @@ private:
       void push(timeslot &item);
       [[nodiscard]] timeslot &pop();
 
-      [[nodiscard]] size_t size() const noexcept
+      [[nodiscard]] bool empty() const noexcept
       {
-         return m_size;
+         return nullptr == m_head;
       }
 
       [[nodiscard]] steady_time next_expiration_time() const;
@@ -67,7 +67,6 @@ private:
    private:
       timeslot *m_head{nullptr,};
       timeslot *m_tail{nullptr,};
-      size_t m_size{0,};
    };
 
 public:
@@ -110,10 +109,10 @@ public:
 
 private:
    time_duration const m_rollingTimeWindow;
-   std::mutex m_lock{};
    timeslot *m_freeTimeslots{nullptr,};
    busy_timeslots m_busyTimeslots{};
-   std::vector<timeslot> m_allTimeslots;
+   std::mutex m_timeslotLock{};
+   timeslot *m_timeslotPool{nullptr,};
 
    void check_expired(steady_time now);
 };

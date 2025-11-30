@@ -41,7 +41,6 @@
 #endif
 
 #include <cstddef> ///< for size_t
-#include <memory> ///< for std::make_unique, std::unique_ptr
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code
 
@@ -70,10 +69,7 @@ public:
 private:
    random_generator m_randomGenerator{};
    sha1_context m_sha1Context{};
-   std::unique_ptr<websocket_client_handshake_response_parser> m_responseParser
-   {
-      std::make_unique<websocket_client_handshake_response_parser>()
-   };
+   websocket_client_handshake_response_parser m_responseParser{};
 };
 
 }

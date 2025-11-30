@@ -61,8 +61,8 @@
 #include <cstddef> ///< for size_t, std::byte
 #include <cstdint> ///< for uint16_t, uint32_t, uint64_t, uint8_t
 #include <cstring> ///< for std::memcpy
-#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_unique
-#include <new> ///< for std::align_val_t, std::launder
+#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at
+#include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
@@ -88,7 +88,7 @@ struct zlib_allocator final
       auto *memory{allocator.bytes,};
       allocator.bytes += allocSize;
       allocator.bytesCapacity -= allocSize;
-      return std::launder(memory);
+      return memory;
    }
 
    static void deallocate(voidpf, voidpf) noexcept
@@ -104,44 +104,26 @@ wss_client_context::wss_client_context_impl::wss_client_context_impl(
    uint32_t const inboundBufferSize,
    uint32_t const outboundBufferSize
 ) :
-   //m_deflatePool
-   //{
-   //   std::make_unique<memory_pool>(
-   //      1,
-   //      std::align_val_t{alignof(z_stream),},
-   //      sizeof(z_stream) + sizeof(zlib_allocator) + sizeof(deflate_state) + 256 * 1024
-   //   ),
-   //},
    m_inflatePool
    {
-      std::make_unique<memory_pool>(
-         1,
-         std::align_val_t{alignof(z_stream),},
-         sizeof(z_stream) + sizeof(zlib_allocator) + sizeof(inflate_state) + 32 * 1024
-      ),
+      1,
+      std::align_val_t{alignof(z_stream),},
+      sizeof(z_stream) + sizeof(zlib_allocator) + sizeof(inflate_state) + 32 * 1024,
    },
-   m_inboundFramePool
-   {
-      std::make_unique<memory_pool>(sessionListCapacity + 1, std::align_val_t{alignof(websocket_frame_data),}, sizeof(websocket_frame_data) + inboundBufferSize),
-   },
+   m_inboundFramePool{sessionListCapacity + 1, std::align_val_t{alignof(websocket_frame_data),}, sizeof(websocket_frame_data) + inboundBufferSize,},
    m_outboundFramePool
    {
-      std::make_unique<memory_pool>(
-         sessionListCapacity,
-         std::align_val_t{std::max(alignof(sec_websocket_key), alignof(websocket_frame_data)),},
-         std::max(sizeof(websocket_frame_data) + outboundBufferSize, sizeof(sec_websocket_key))
-      ),
+      sessionListCapacity,
+      std::align_val_t{std::max(alignof(sec_websocket_key), alignof(websocket_frame_data)),},
+      std::max(sizeof(websocket_frame_data) + outboundBufferSize, sizeof(sec_websocket_key)),
    },
-   m_sessionPool
-   {
-      std::make_unique<memory_pool>(sessionListCapacity, std::align_val_t{alignof(websocket_client_session),}, sizeof(websocket_client_session)),
-   }
+   m_sessionPool{sessionListCapacity, std::align_val_t{alignof(websocket_client_session),}, sizeof(websocket_client_session),}
 {}
 
 websocket_client_session &wss_client_context::wss_client_context_impl::acquire_session()
 {
-   auto &session{m_sessionPool->pop_object<websocket_client_session>(),};
-   session.handshakeKey = std::addressof(m_outboundFramePool->pop_object<sec_websocket_key>());
+   auto &session{m_sessionPool.pop_object<websocket_client_session>(),};
+   session.handshakeKey = std::addressof(m_outboundFramePool.pop_object<sec_websocket_key>());
    return session;
 }
 
@@ -194,7 +176,7 @@ size_t wss_client_context::wss_client_context_impl::format_frame(
    next_websocket_frame_mask(frameMask);
    if (std::addressof(outboundFrame) == session.outboundFrame)
    {
-      m_outboundFramePool->push_object(*session.outboundFrame);
+      m_outboundFramePool.push_object(*session.outboundFrame);
       session.outboundFrame = nullptr;
    }
    else
@@ -234,19 +216,19 @@ std::error_code wss_client_context::wss_client_context_impl::handle_handshake_co
          std::string_view{std::bit_cast<char const *>(dataChunk.bytes), dataChunk.bytesLength}
       ),
    };
-   m_outboundFramePool->push_object(*session.handshakeKey);
+   m_outboundFramePool.push_object(*session.handshakeKey);
    session.handshakeKey = nullptr;
    return errorCode;
 }
 
-void wss_client_context::wss_client_context_impl::ready_to_close(websocket_client_session &session, uint16_t closureReason) const
+void wss_client_context::wss_client_context_impl::ready_to_close(websocket_client_session &session, uint16_t closureReason)
 {
    if (false == session.closed)
    {
       auto &outboundConnectionCloseFrame
       {
          (nullptr == session.outboundFrame)
-            ? m_outboundFramePool->pop_object<websocket_frame_data>(websocket_frame_data{})
+            ? m_outboundFramePool.pop_object<websocket_frame_data>(websocket_frame_data{})
             : *session.outboundFrame
          ,
       };
@@ -265,12 +247,12 @@ void wss_client_context::wss_client_context_impl::release_session(websocket_clie
 {
    if (nullptr != session.inboundFrame)
    {
-      m_inboundFramePool->push_object(*session.inboundFrame);
+      m_inboundFramePool.push_object(*session.inboundFrame);
       session.inboundFrame = nullptr;
    }
    if (nullptr != session.outboundFrame)
    {
-      m_outboundFramePool->push_object(*session.outboundFrame);
+      m_outboundFramePool.push_object(*session.outboundFrame);
       session.outboundFrame = nullptr;
    }
    if (nullptr != session.inflateContext)
@@ -280,10 +262,10 @@ void wss_client_context::wss_client_context_impl::release_session(websocket_clie
    }
    if (nullptr != session.handshakeKey)
    {
-      m_outboundFramePool->push_object(*session.handshakeKey);
+      m_outboundFramePool.push_object(*session.handshakeKey);
       session.handshakeKey = nullptr;
    }
-   m_sessionPool->push_object(session);
+   m_sessionPool.push_object(session);
 }
 
 void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
@@ -300,7 +282,7 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
       {
          assert(websocket_frame_opcode_connection_close == session.inboundFrame->header.opcode);
          assert(websocket_frame_opcode_continuation == inboundConnectionCloseFrame.header.opcode);
-         m_inboundFramePool->push_object(*session.inboundFrame);
+         m_inboundFramePool.push_object(*session.inboundFrame);
          session.inboundFrame = nullptr;
       }
       else
@@ -309,7 +291,7 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
       }
       if (nullptr != session.outboundFrame)
       {
-         m_outboundFramePool->push_object(*session.outboundFrame);
+         m_outboundFramePool.push_object(*session.outboundFrame);
          session.outboundFrame = nullptr;
       }
    }
@@ -318,7 +300,7 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
       session.closed = true;
       if (nullptr == session.outboundFrame)
       {
-         session.outboundFrame = std::addressof(m_outboundFramePool->pop_object<websocket_frame_data>(websocket_frame_data{}));
+         session.outboundFrame = std::addressof(m_outboundFramePool.pop_object<websocket_frame_data>(websocket_frame_data{}));
       }
       auto &outboundFrame = *session.outboundFrame;
       outboundFrame.frameLength = 0;
@@ -331,13 +313,13 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
          assert(session.inboundFrame->frameLength == session.inboundFrame->bytesLength);
          if (
             (session.inboundFrame->bytesLength + inboundConnectionCloseFrame.bytesLength)
-               > (m_outboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data))
+               > (m_outboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data))
          ) [[unlikely]]
          {
             log_error(
                std::source_location::current(),
                "[wss_client] {} byte frame buffer is too small for {} byte message",
-               m_outboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data),
+               m_outboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data),
                session.inboundFrame->bytesLength + inboundConnectionCloseFrame.bytesLength
             );
             unreachable();
@@ -354,7 +336,7 @@ void wss_client_context::wss_client_context_impl::handle_connection_close_frame(
          );
          outboundFrame.frameLength = session.inboundFrame->frameLength;
          outboundFrame.bytesLength = session.inboundFrame->bytesLength;
-         m_inboundFramePool->push_object(*session.inboundFrame);
+         m_inboundFramePool.push_object(*session.inboundFrame);
          session.inboundFrame = nullptr;
       }
       else
@@ -392,7 +374,7 @@ std::error_code wss_client_context::wss_client_context_impl::handle_incomplete_f
          return make_error_code(websocket_error::frame_opcode_not_specified);
       }
       session.inboundFrame = std::addressof(
-         m_inboundFramePool->pop_object<websocket_frame_data>(websocket_frame_data{.header = inboundIncompleteFrame.header,})
+         m_inboundFramePool.pop_object<websocket_frame_data>(websocket_frame_data{.header = inboundIncompleteFrame.header,})
       );
       session.inboundFrame->bytes = std::bit_cast<std::byte *>(session.inboundFrame + 1);
    }
@@ -401,7 +383,7 @@ std::error_code wss_client_context::wss_client_context_impl::handle_incomplete_f
       assert((std::byte{0,}) == inboundIncompleteFrame.header.rsv1);
       if (websocket_frame_opcode_continuation != inboundIncompleteFrame.header.opcode) [[unlikely]]
       {
-         m_inboundFramePool->push_object(*session.inboundFrame);
+         m_inboundFramePool.push_object(*session.inboundFrame);
          session.inboundFrame = nullptr;
          return make_error_code(websocket_error::frame_not_finalized);
       }
@@ -409,13 +391,13 @@ std::error_code wss_client_context::wss_client_context_impl::handle_incomplete_f
    }
    if (
       (session.inboundFrame->bytesLength + inboundIncompleteFrame.bytesLength)
-         > (m_inboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data))
+         > (m_inboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data))
    ) [[unlikely]]
    {
       log_error(
          std::source_location::current(),
          "[wss_client] {} byte frame buffer is too small for {} byte message",
-         m_inboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data),
+         m_inboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data),
          session.inboundFrame->bytesLength + inboundIncompleteFrame.bytesLength
       );
       unreachable();
@@ -444,7 +426,7 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
    assert(nullptr != inboundPingFrame.bytes);
    if ((false == session.closed) && (nullptr == session.outboundFrame)) [[likely]]
    {
-      auto &outboundFrame{m_outboundFramePool->pop_object<websocket_frame_data>(websocket_frame_data{}),};
+      auto &outboundFrame{m_outboundFramePool.pop_object<websocket_frame_data>(websocket_frame_data{}),};
       outboundFrame.bytes = std::bit_cast<std::byte *>(std::addressof(outboundFrame) + 1);
       if ((nullptr != session.inboundFrame) && (std::addressof(inboundPingFrame) != session.inboundFrame)) [[unlikely]]
       {
@@ -453,13 +435,13 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
          assert(session.inboundFrame->frameLength == session.inboundFrame->bytesLength);
          if (
             (session.inboundFrame->bytesLength + inboundPingFrame.bytesLength)
-               > (m_outboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data))
+               > (m_outboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data))
          ) [[unlikely]]
          {
             log_error(
                std::source_location::current(),
                "[wss_client] {} byte frame buffer is too small for {} byte message",
-               m_outboundFramePool->memory_chunk_size() - sizeof(websocket_frame_data),
+               m_outboundFramePool.memory_chunk_size() - sizeof(websocket_frame_data),
                session.inboundFrame->bytesLength + inboundPingFrame.bytesLength
             );
             unreachable();
@@ -477,7 +459,7 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
          );
          outboundFrame.frameLength = session.inboundFrame->frameLength;
          outboundFrame.bytesLength = session.inboundFrame->bytesLength;
-         m_inboundFramePool->push_object(*session.inboundFrame);
+         m_inboundFramePool.push_object(*session.inboundFrame);
          session.inboundFrame = nullptr;
       }
       else
@@ -500,18 +482,16 @@ void wss_client_context::wss_client_context_impl::handle_ping_frame(
 
 z_stream &wss_client_context::wss_client_context_impl::pop_inflate_stream(int const windowBits)
 {
-   auto &zlibStream{m_inflatePool->pop_object<z_stream>(),};
+   auto &zlibStream{m_inflatePool.pop_object<z_stream>(),};
    auto *zlibAllocator
    {
-      std::launder(
-         std::construct_at<zlib_allocator>(
-            std::bit_cast<zlib_allocator *>(std::addressof(zlibStream) + 1),
-            zlib_allocator
-            {
-               .bytes = std::bit_cast<std::byte *>(std::addressof(zlibStream) + 1) + sizeof(zlib_allocator),
-               .bytesCapacity = m_inflatePool->memory_chunk_size() - sizeof(z_stream) - sizeof(zlib_allocator),
-            }
-         )
+      std::construct_at<zlib_allocator>(
+         std::bit_cast<zlib_allocator *>(std::addressof(zlibStream) + 1),
+         zlib_allocator
+         {
+            .bytes = std::bit_cast<std::byte *>(std::addressof(zlibStream) + 1) + sizeof(zlib_allocator),
+            .bytesCapacity = m_inflatePool.memory_chunk_size() - sizeof(z_stream) - sizeof(zlib_allocator),
+         }
       ),
    };
    zlibStream.opaque = zlibAllocator;
@@ -544,7 +524,7 @@ void wss_client_context::wss_client_context_impl::push_inflate_stream(z_stream &
    zlibStream.zfree = nullptr;
    std::destroy_at(std::bit_cast<zlib_allocator *>(zlibStream.opaque));
    zlibStream.opaque = nullptr;
-   m_inflatePool->push_object(zlibStream);
+   m_inflatePool.push_object(zlibStream);
 }
 
 namespace
