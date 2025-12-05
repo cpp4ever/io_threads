@@ -23,23 +23,25 @@
    SOFTWARE.
 ]]
 
-add_subdirectory(CMakeTargets EXCLUDE_FROM_ALL)
+if(NOT TARGET libzstd_static)
+   include(CMakeThirdpartyTargets)
+   include(FetchContent)
 
-include(llhttp.cmake)
-include(zlib.cmake)
-if(IO_THREADS_SSL_LIBRARY STREQUAL "openssl")
-   include(openssl.cmake)
-   include(zstd.cmake)
-elseif(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
-   include(schannel.cmake)
-endif()
-if(IO_THREADS_DEV)
-   include(boost.cmake)
-   include(boost.wintls.cmake)
-   if(NOT IO_THREADS_ENABLE_COVERAGE)
-      include(CMakeSanitizer.cmake)
+   set(ZSTD_BUILD_CONTRIB OFF CACHE BOOL "Disable contrib utilities" FORCE)
+   set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Disable command-line programs" FORCE)
+   set(ZSTD_BUILD_TESTS OFF CACHE BOOL "Disable test targets" FORCE)
+   FetchContent_Declare(
+      zstd
+      # Download Step Options
+      URL https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.zst
+      URL_HASH SHA256=5b331d961d6989dc21bb03397fc7a2a4d86bc65a14adc5ffbbce050354e30fd2
+      DOWNLOAD_EXTRACT_TIMESTAMP ON
+      SOURCE_SUBDIR build/cmake
+   )
+   FetchContent_MakeAvailable(zstd)
+   if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      # Enable Language Extensions
+      set_target_properties(libzstd_static PROPERTIES C_EXTENSIONS ON)
    endif()
-   include(googletest.cmake)
+   organize_thirdparty_target(libzstd_static thirdparty)
 endif()
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} PARENT_SCOPE)

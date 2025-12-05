@@ -69,7 +69,7 @@ jobs:
     - name: Install
       run: |
         sudo apt-get update
-        sudo apt-get install ${{matrix.packages}} cmake libssl-dev liburing-dev libzstd-dev ninja-build
+        sudo apt-get install ${{matrix.packages}} cmake libssl-dev liburing-dev ninja-build
         sudo sysctl vm.mmap_rnd_bits=30
         ${{matrix.cc}} --version
         ${{matrix.cxx}} --version
