@@ -96,10 +96,17 @@ public:
       return m_peerAddress;
    }
 
+#if (defined(__linux__))
    [[maybe_unused, nodiscard]] io_threads::quality_of_service quality_of_service() const noexcept
    {
       return m_qualityOfService;
    }
+
+   [[maybe_unused, nodiscard]] bool quickack() const noexcept
+   {
+      return m_quickack;
+   }
+#endif
 
    [[maybe_unused, nodiscard]] std::chrono::milliseconds user_timeout() const noexcept
    {
@@ -123,7 +130,20 @@ public:
    [[maybe_unused, nodiscard]] tcp_client_config with_quality_of_service(io_threads::quality_of_service const value) const noexcept
    {
       auto config{*this};
+#if (defined(__linux__))
       config.m_qualityOfService = value;
+#else
+      (void)value;
+#endif
+      return config;
+   }
+
+   [[maybe_unused, nodiscard]] tcp_client_config with_quickack() const noexcept
+   {
+      auto config{*this};
+#if (defined(__linux__))
+      config.m_quickack = true;
+#endif
       return config;
    }
 
@@ -135,11 +155,14 @@ public:
    }
 
 private:
-   std::optional<tcp_keep_alive> m_keepAlive{std::nullopt};
-   bool m_nodelay{false};
+   std::optional<tcp_keep_alive> m_keepAlive{std::nullopt,};
+   bool m_nodelay{false,};
+#if (defined(__linux__))
+   bool m_quickack{false,};
    io_threads::quality_of_service m_qualityOfService{io_threads::quality_of_service::dscp_cs0,};
+#endif
    tcp_client_address m_peerAddress;
-   std::chrono::milliseconds m_userTimeout{std::chrono::milliseconds::zero()};
+   std::chrono::milliseconds m_userTimeout{std::chrono::milliseconds::zero(),};
 };
 
 }

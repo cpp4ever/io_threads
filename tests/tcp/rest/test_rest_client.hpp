@@ -89,6 +89,7 @@ void test_rest_client(tcp_client_thread const testThread, test_client &testClien
          tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value(),},}
             .with_keep_alive(testTcpKeepAlive)
             .with_nodelay()
+            .with_quickack()
             .with_user_timeout(testTimeout)
          ,
       };

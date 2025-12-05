@@ -482,6 +482,7 @@ TEST_F(tls_client, badssl)
          tcp_client_config{tcp_client_address{testIPv4Addresses.front(),},}
             .with_keep_alive(testTcpKeepAlive)
             .with_nodelay()
+            .with_quickack()
             .with_user_timeout(testTimeout)
       };
       testClient.expect_ready_to_connect(testClientConfig);
@@ -561,6 +562,7 @@ TEST_F(tls_client, goodssl)
          tcp_client_config{tcp_client_address{testIPv4Addresses.front(),},}
             .with_keep_alive(testTcpKeepAlive)
             .with_nodelay()
+            .with_quickack()
             .with_user_timeout(testTimeout)
          ,
       };

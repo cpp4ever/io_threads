@@ -43,6 +43,7 @@ struct tcp_socket_options final
    int tcpKeepIdle{0,};
    int tcpKeepIntvl{0,};
    int tcpNoDelay{0,};
+   int tcpQuickack{0,};
    int tcpUserTimeout{0,};
    sockaddr_inet address{};
 };

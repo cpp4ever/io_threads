@@ -49,6 +49,7 @@ enum struct tcp_socket_operation_type : uint8_t
    setopt_tcp_keepidle,
    setopt_tcp_keepintvl,
    setopt_tcp_nodelay,
+   setopt_tcp_quickack,
    setopt_tcp_syncnt,
    setopt_tcp_user_timeout,
    connect,
@@ -73,6 +74,7 @@ enum struct tcp_socket_operation_type : uint8_t
    case tcp_socket_operation_type::setopt_tcp_keepidle: return "[tcp_client] failed to set TCP_KEEPIDLE socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_tcp_keepintvl: return "[tcp_client] failed to set TCP_KEEPINTVL socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_tcp_nodelay: return "[tcp_client] failed to set TCP_NODELAY socket option: ({}) - {}";
+   case tcp_socket_operation_type::setopt_tcp_quickack: return "[tcp_client] failed to set TCP_QUICKACK socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_tcp_syncnt: return "[tcp_client] failed to set TCP_SYNCNT socket option: ({}) - {}";
    case tcp_socket_operation_type::setopt_tcp_user_timeout: return "[tcp_client] failed to set TCP_USER_TIMEOUT socket option: ({}) - {}";
    case tcp_socket_operation_type::connect: return "[tcp_client] failed to connect TCP socket: ({}) - {}";

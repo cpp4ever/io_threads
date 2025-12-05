@@ -47,7 +47,7 @@
 #include <liburing.h> ///< for IORING_CQE_F_MORE, IORING_CQE_F_NOTIF, IO_URING_VERSION_MAJOR, IO_URING_VERSION_MINOR
 #include <linux/time_types.h> ///< for __kernel_timespec
 #include <netinet/ip.h> ///< for IP_TOS, IPPROTO_IP
-#include <netinet/tcp.h> ///< for IPPROTO_TCP, TCP_NODELAY, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_SYNCNT, TCP_USER_TIMEOUT
+#include <netinet/tcp.h> ///< for IPPROTO_TCP, TCP_NODELAY, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_QUICKACK, TCP_SYNCNT, TCP_USER_TIMEOUT
 #include <signal.h> ///< for sigfillset, sigset_t
 #include <sys/socket.h> ///< for setsockopt, SHUT_RDWR, SO_BINDTODEVICE, SO_KEEPALIVE, SOL_SOCKET
 #include <unistd.h> ///< for close
@@ -464,14 +464,14 @@ private:
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_nodelay:
       {
-         if (0 < tcpSocketOptions.tcpUserTimeout)
+         if (1 == tcpSocketOptions.tcpQuickack)
          {
-            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_syncnt;
-            m_tcpClientUring->prep_setsockopt(tcpSocketOperation, IPPROTO_TCP, TCP_SYNCNT, m_tcpSynCnt);
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_quickack;
+            m_tcpClientUring->prep_setsockopt(tcpSocketOperation, IPPROTO_TCP, TCP_QUICKACK, tcpSocketOptions.tcpQuickack);
             break;
          }
       } [[fallthrough]];
-      case tcp_socket_operation_type::setopt_tcp_syncnt:
+      case tcp_socket_operation_type::setopt_tcp_quickack:
       {
          assert(0 <= tcpSocketOptions.tcpUserTimeout);
          if (0 < tcpSocketOptions.tcpUserTimeout)
@@ -482,6 +482,15 @@ private:
          }
       } [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_user_timeout:
+      {
+         if (0 < tcpSocketOptions.tcpUserTimeout)
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_syncnt;
+            m_tcpClientUring->prep_setsockopt(tcpSocketOperation, IPPROTO_TCP, TCP_SYNCNT, m_tcpSynCnt);
+            break;
+         }
+      } [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_syncnt:
       {
          tcpSocketOperation.type = tcp_socket_operation_type::connect;
 #else
@@ -569,19 +578,32 @@ private:
             close(result);
             break;
          }
+         assert(0 <= tcpSocketOptions.tcpQuickack);
+         assert(1 >= tcpSocketOptions.tcpQuickack);
+         if (
+            true
+            && (1 == tcpSocketOptions.tcpQuickack)
+            && (-1 == setsockopt(result, IPPROTO_TCP, TCP_QUICKACK, std::addressof(tcpSocketOptions.tcpQuickack), sizeof(tcpSocketOptions.tcpQuickack)))
+         ) [[unlikely]]
+         {
+            tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_quickack;
+            handle_socket_error(tcpSocketOperation, errno);
+            close(result);
+            break;
+         }
          assert(0 <= tcpSocketOptions.tcpUserTimeout);
          if (0 < tcpSocketOptions.tcpUserTimeout)
          {
-            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_SYNCNT, std::addressof(m_tcpSynCnt), sizeof(m_tcpSynCnt))) [[unlikely]]
+            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_USER_TIMEOUT, std::addressof(tcpSocketOptions.tcpUserTimeout), sizeof(tcpSocketOptions.tcpUserTimeout))) [[unlikely]]
             {
-               tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_syncnt;
+               tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_user_timeout;
                handle_socket_error(tcpSocketOperation, errno);
                close(result);
                break;
             }
-            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_USER_TIMEOUT, std::addressof(tcpSocketOptions.tcpUserTimeout), sizeof(tcpSocketOptions.tcpUserTimeout))) [[unlikely]]
+            if (-1 == setsockopt(result, IPPROTO_TCP, TCP_SYNCNT, std::addressof(m_tcpSynCnt), sizeof(m_tcpSynCnt))) [[unlikely]]
             {
-               tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_user_timeout;
+               tcpSocketOperation.type = tcp_socket_operation_type::setopt_tcp_syncnt;
                handle_socket_error(tcpSocketOperation, errno);
                close(result);
                break;
@@ -850,6 +872,7 @@ private:
       case tcp_socket_operation_type::setopt_tcp_keepidle: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepintvl: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_nodelay: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_quickack: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_syncnt: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_user_timeout: [[fallthrough]];
       case tcp_socket_operation_type::connect:
@@ -1008,6 +1031,7 @@ private:
       case tcp_socket_operation_type::setopt_tcp_keepidle: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_keepintvl: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_nodelay: [[fallthrough]];
+      case tcp_socket_operation_type::setopt_tcp_quickack: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_syncnt: [[fallthrough]];
       case tcp_socket_operation_type::setopt_tcp_user_timeout: [[fallthrough]];
       case tcp_socket_operation_type::connect:
@@ -1131,6 +1155,7 @@ private:
       assert(tcp_socket_operation_type::setopt_tcp_keepidle != tcpSocketOperationType);
       assert(tcp_socket_operation_type::setopt_tcp_keepintvl != tcpSocketOperationType);
       assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperationType);
+      assert(tcp_socket_operation_type::setopt_tcp_quickack != tcpSocketOperationType);
       assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperationType);
       assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperationType);
       assert(tcp_socket_operation_type::connect != tcpSocketOperationType);
@@ -1179,6 +1204,7 @@ private:
       assert(tcp_socket_operation_type::setopt_tcp_keepidle != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_keepintvl != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_quickack != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::recv != tcpSocketOperation.type);
@@ -1267,6 +1293,7 @@ private:
       assert(tcp_socket_operation_type::setopt_tcp_keepidle != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_keepintvl != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_nodelay != tcpSocketOperation.type);
+      assert(tcp_socket_operation_type::setopt_tcp_quickack != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_syncnt != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::setopt_tcp_user_timeout != tcpSocketOperation.type);
       assert(tcp_socket_operation_type::connect != tcpSocketOperation.type);

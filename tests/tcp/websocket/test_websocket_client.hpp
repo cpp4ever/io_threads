@@ -87,6 +87,7 @@ void test_websocket_client(test_client &testClient)
          tcp_client_config{tcp_client_address{testLoopbackNetworkInterface.value(), testSocketAddress.value(),},}
             .with_keep_alive(testTcpKeepAlive)
             .with_nodelay()
+            .with_quickack()
             .with_user_timeout(testTimeout)
          ,
       };
