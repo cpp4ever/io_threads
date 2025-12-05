@@ -26,6 +26,7 @@
 #pragma once
 
 #include <gtest/gtest.h>
+#include <io_threads/cpu_id.hpp>
 
 #include <random>
 #include <string>
@@ -46,6 +47,9 @@ public:
 
    testsuite &operator = (testsuite &&) = delete;
    testsuite &operator = (testsuite const &) = delete;
+
+   [[nodiscard]] cpu_id first_cpu();
+   [[nodiscard]] cpu_id next_cpu(cpu_id cpuId);
 
    [[nodiscard]] bool random_bool()
    {

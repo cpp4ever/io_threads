@@ -27,7 +27,8 @@
 #include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
-#include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::cpu_id, io_threads::io_ring
+#include "io_threads/cpu_id.hpp" ///< for io_threads::cpu_id
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::io_ring
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener

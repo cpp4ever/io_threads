@@ -41,14 +41,16 @@ using file_writer = testsuite;
 
 TEST_F(file_writer, file_writer_thread)
 {
-   constexpr cpu_id testThreadCpuAffinity{0,};
+   auto const testWorkerAffinity{first_cpu(),};
+   auto const testAsyncWorkersAffinity{next_cpu(testWorkerAffinity),};
+   auto const testKernelThreadAffinity{next_cpu(testAsyncWorkersAffinity),};
    constexpr size_t testFileListCapacity{1,};
    constexpr size_t testIoBufferSize{1,};
    file_writer_thread const testFileWriterThread1
    {
       thread_config{}
-         .with_worker_affinity(testThreadCpuAffinity)
-         .with_io_threads_affinity(testThreadCpuAffinity, testThreadCpuAffinity)
+         .with_worker_affinity(testWorkerAffinity)
+         .with_io_threads_affinity(testAsyncWorkersAffinity, testKernelThreadAffinity)
       ,
       testFileListCapacity,
       testIoBufferSize,
@@ -62,7 +64,7 @@ TEST_F(file_writer, file_writer_thread)
    file_writer_thread const testFileWriterThread2
    {
       thread_config{}
-         .with_worker_affinity(testThreadCpuAffinity)
+         .with_worker_affinity(testWorkerAffinity)
          .with_io_threads_affinity(testFileWriterThread1.share_io_threads())
       ,
       testFileListCapacity,

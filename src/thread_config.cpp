@@ -23,7 +23,8 @@
    SOFTWARE.
 */
 
-#include "io_threads/thread_config.hpp" ///< for io_threads::cpu_id, io_threads::io_ring, io_threads::thread_config
+#include "io_threads/cpu_id.hpp" ///< for io_threads::cpu_id
+#include "io_threads/thread_config.hpp" ///< for io_threads::io_ring, io_threads::thread_config
 
 #include <optional> ///< for std::nullopt, std::nullopt_t, std::optional
 

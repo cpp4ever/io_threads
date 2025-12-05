@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include "io_threads/cpu_id.hpp" ///< for io_threads::cpu_id
+
 #include <cstdint> ///< for uint32_t
 #include <optional> ///< for std::nullopt, std::nullopt_t, std::optional
 #if (defined(__linux__))
@@ -33,9 +35,6 @@
 
 namespace io_threads
 {
-
-enum struct cpu_id : uint32_t
-{};
 
 #if (defined(__linux__))
 enum struct io_ring : int

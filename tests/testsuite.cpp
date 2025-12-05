@@ -25,11 +25,109 @@
 
 #include "testsuite.hpp"
 
+#if (defined(__linux__))
+#  include <sched.h>
+#elif (defined(_WIN32) || defined(_WIN64))
+#  include <Windows.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 
 namespace io_threads::tests
 {
+
+cpu_id testsuite::first_cpu()
+{
+#if (defined(__linux__))
+   cpu_set_t processAffinityMask{};
+   CPU_ZERO(std::addressof(processAffinityMask));
+   EXPECT_EQ(0, sched_getaffinity(getpid(), sizeof(processAffinityMask), std::addressof(processAffinityMask)))
+      << std::error_code{errno, std::generic_category(),}
+   ;
+   auto const numberOfCpus{static_cast<uint32_t>(CPU_COUNT(std::addressof(processAffinityMask))),};
+   for (uint32_t cpuIndex{0,}; numberOfCpus > cpuIndex; ++cpuIndex)
+   {
+      if (CPU_ISSET(cpuIndex, std::addressof(processAffinityMask)))
+      {
+         return cpu_id{cpuIndex,};
+      }
+   }
+#elif (defined(_WIN32) || defined(_WIN64))
+   DWORD_PTR processAffinityMask{0,};
+   DWORD_PTR systemAffinityMask{0,};
+   EXPECT_EQ(TRUE, GetProcessAffinityMask(GetCurrentProcess(), std::addressof(processAffinityMask), std::addressof(systemAffinityMask)))
+      << std::error_code{static_cast<int>(GetLastError()), std::system_category(),}
+   ;
+   for (uint32_t cpuIndex{0,}; (sizeof(DWORD_PTR) * CHAR_BIT) > cpuIndex; ++cpuIndex)
+   {
+      if (auto const cpuMask{DWORD_PTR{1,} << cpuIndex,}; (processAffinityMask & cpuMask) == cpuMask)
+      {
+         return cpu_id{cpuIndex,};
+      }
+      else if (cpuMask > processAffinityMask)
+      {
+         break;
+      }
+   }
+#endif
+   return cpu_id{0,};
+}
+
+cpu_id testsuite::next_cpu(cpu_id const cpuId)
+{
+#if (defined(__linux__))
+   cpu_set_t processAffinityMask{};
+   CPU_ZERO(std::addressof(processAffinityMask));
+   EXPECT_EQ(0, sched_getaffinity(getpid(), sizeof(processAffinityMask), std::addressof(processAffinityMask)))
+      << std::error_code{errno, std::generic_category(),}
+   ;
+   auto const numberOfCpus{static_cast<uint32_t>(CPU_COUNT(std::addressof(processAffinityMask))),};
+   auto const cpuIndex{static_cast<uint32_t>(cpuId),};
+   auto firstIteration{true,};
+   for (auto nextCpuIndex{cpuIndex + 1,}; cpuIndex != nextCpuIndex; ++nextCpuIndex)
+   {
+      if (CPU_ISSET(cpuIndex, std::addressof(processAffinityMask)))
+      {
+         return cpu_id{nextCpuIndex,};
+      }
+      else if (numberOfCpus < nextCpuIndex)
+      {
+         if (false == firstIteration)
+         {
+            break;
+         }
+         firstIteration = false;
+         nextCpuIndex = 0;
+      }
+   }
+#elif (defined(_WIN32) || defined(_WIN64))
+   DWORD_PTR processAffinityMask{0,};
+   DWORD_PTR systemAffinityMask{0,};
+   EXPECT_EQ(TRUE, GetProcessAffinityMask(GetCurrentProcess(), std::addressof(processAffinityMask), std::addressof(systemAffinityMask)))
+      << std::error_code{static_cast<int>(GetLastError()), std::system_category(),}
+   ;
+   auto const cpuIndex{static_cast<uint32_t>(cpuId),};
+   auto firstIteration{true,};
+   for (auto nextCpuIndex{cpuIndex + 1,}; cpuIndex != nextCpuIndex; ++nextCpuIndex)
+   {
+      if (auto const nextCpuMask{DWORD_PTR{1,} << nextCpuIndex,}; (processAffinityMask & nextCpuMask) == nextCpuMask)
+      {
+         return cpu_id{nextCpuIndex,};
+      }
+      else if (nextCpuMask > processAffinityMask)
+      {
+         if (false == firstIteration)
+         {
+            break;
+         }
+         firstIteration = false;
+         nextCpuIndex = 0;
+      }
+   }
+#endif
+   return cpuId;
+}
 
 std::string testsuite::random_string(size_t const length)
 {

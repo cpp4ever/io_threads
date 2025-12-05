@@ -543,6 +543,9 @@ TEST_F(wss_client, ping_pong)
       .probeTimeout = testTimeout,
       .probesCount = 0,
    };
+   auto const testWorkerAffinity{first_cpu(),};
+   auto const testAsyncWorkersAffinity{next_cpu(testWorkerAffinity),};
+   auto const testKernelThreadAffinity{next_cpu(testAsyncWorkersAffinity),};
    constexpr auto testHeartbeatTimeouts{std::to_array({11, 13, 17, 19, 23, 29, 31, 37, 41, 43,}),};
    constexpr auto testSocketListCapacity{static_cast<uint32_t>(testHeartbeatTimeouts.size()),};
    constexpr uint32_t testRecvBufferSize{2 * 1024,};
@@ -555,7 +558,16 @@ TEST_F(wss_client, ping_pong)
    constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
    tls_client_context const testTlsContext
    {
-      tcp_client_thread{thread_config{}.with_worker_affinity(cpu_id{0,}), testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
+      tcp_client_thread
+      {
+         thread_config{}
+            .with_worker_affinity(testWorkerAffinity)
+            .with_io_threads_affinity(testAsyncWorkersAffinity, testKernelThreadAffinity)
+         ,
+         testSocketListCapacity,
+         testRecvBufferSize,
+         testSendBufferSize,
+      },
       testX509Store,
       test_domain,
       testTlsSessionListCapacity,

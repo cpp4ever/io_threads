@@ -41,15 +41,17 @@ using tcp_client = testsuite;
 
 TEST_F(tcp_client, tcp_client_thread)
 {
-   constexpr cpu_id testThreadCpuAffinity{0,};
+   auto const testWorkerAffinity{first_cpu(),};
+   auto const testAsyncWorkersAffinity{next_cpu(testWorkerAffinity),};
+   auto const testKernelThreadAffinity{next_cpu(testAsyncWorkersAffinity),};
    constexpr uint32_t testSocketListCapacity{1,};
    constexpr uint32_t testRecvBufferSize{1,};
    constexpr uint32_t testSendBufferSize{1,};
    tcp_client_thread const testTcpClientThread1
    {
       thread_config{}
-         .with_worker_affinity(testThreadCpuAffinity)
-         .with_io_threads_affinity(testThreadCpuAffinity, testThreadCpuAffinity)
+         .with_worker_affinity(testWorkerAffinity)
+         .with_io_threads_affinity(testAsyncWorkersAffinity, testKernelThreadAffinity)
       ,
       testSocketListCapacity,
       testRecvBufferSize,
@@ -64,7 +66,7 @@ TEST_F(tcp_client, tcp_client_thread)
    tcp_client_thread const testTcpClientThread2
    {
       thread_config{}
-         .with_worker_affinity(testThreadCpuAffinity)
+         .with_worker_affinity(testWorkerAffinity)
          .with_io_threads_affinity(testTcpClientThread1.share_io_threads())
       ,
       testSocketListCapacity,

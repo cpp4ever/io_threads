@@ -135,7 +135,7 @@ TEST_F(file_writer, not_found)
    {
       constexpr size_t testFileListCapacity{1,};
       constexpr size_t testIoBufferSize{1,};
-      file_writer_thread const testThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
+      file_writer_thread const testThread{thread_config{}.with_worker_affinity(first_cpu()), testFileListCapacity, testIoBufferSize,};
       test_file_writer testFileWriter{testThread,};
       testFileWriter.expect_error(testNotFoundErrorCode);
       auto const testFilePath{testDirectory / random_string(10).append(".test"),};
