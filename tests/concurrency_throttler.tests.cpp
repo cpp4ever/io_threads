@@ -65,14 +65,14 @@ TEST_F(throttler, concurrency_throttler)
    EXPECT_EQ(testNextSlotTime, testTime + testRollingTimeWindow);
    for (size_t testIteration{0,}; testLimit > testIteration; ++testIteration)
    {
-      testTimeslots[testIteration] = testThrottler.try_reserve(testTime + testRollingTimeWindow + std::chrono::milliseconds{testIteration,});
+      testTimeslots[testIteration] = testThrottler.try_reserve(testTime + testRollingTimeWindow + std::chrono::milliseconds{testIteration,} + std::chrono::nanoseconds{1,});
       ASSERT_TRUE(testTimeslots[testIteration]);
-      testTimeslots[testIteration].submit(testTime + testRollingTimeWindow + std::chrono::milliseconds{testIteration,});
+      testTimeslots[testIteration].submit(testTime + testRollingTimeWindow + std::chrono::milliseconds{testIteration,} + std::chrono::nanoseconds{1,});
    }
    ASSERT_FALSE(testThrottler.try_reserve(testTime));
    ASSERT_FALSE(testThrottler.try_reserve(testTime + testRollingTimeWindow));
-   ASSERT_FALSE(testThrottler.try_reserve(testTime + 2 * testRollingTimeWindow - std::chrono::nanoseconds{1,}));
-   auto testSlot{testThrottler.try_reserve(testTime + 2 * testRollingTimeWindow),};
+   ASSERT_FALSE(testThrottler.try_reserve(testTime + 2 * testRollingTimeWindow));
+   auto testSlot{testThrottler.try_reserve(testTime + 2 * testRollingTimeWindow + std::chrono::nanoseconds{2,}),};
    ASSERT_TRUE(testSlot);
    testSlot.cancel();
 }

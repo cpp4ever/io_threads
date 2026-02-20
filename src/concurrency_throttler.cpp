@@ -184,7 +184,7 @@ concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(st
 
 void concurrency_throttler::check_expired(steady_time const now)
 {
-   while ((false == m_busyTimeslots.empty()) && (now >= m_busyTimeslots.next_expiration_time()))
+   while ((false == m_busyTimeslots.empty()) && (now > m_busyTimeslots.next_expiration_time()))
    {
       auto &timeslot{m_busyTimeslots.pop(),};
       timeslot.next = m_freeTimeslots;
