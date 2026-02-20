@@ -64,7 +64,7 @@ jobs:
         cmake --version
         ninja --version
         pipx --version
-        pipx install git+https://github.com/gcovr/gcovr.git@8.4#egg=gcovr
+        pipx install git+https://github.com/gcovr/gcovr.git@8.6#egg=gcovr
         gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
@@ -80,7 +80,7 @@ jobs:
         cmake --version
         ninja --version
         pipx --version
-        pipx install git+https://github.com/gcovr/gcovr.git@8.4#egg=gcovr
+        pipx install git+https://github.com/gcovr/gcovr.git@8.6#egg=gcovr
         gcovr --version
         cmake -E make_directory ${{runner.workspace}}/build
 
