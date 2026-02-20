@@ -27,13 +27,15 @@ if(NOT TARGET zlibstatic)
    include(CMakeThirdpartyTargets)
    include(FetchContent)
 
-   set(SKIP_INSTALL_ALL OFF)
-   set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "Disable examples targets" FORCE)
+   set(ZLIB_BUILD_TESTING OFF CACHE BOOL "Disable examples targets" FORCE)
+   set(ZLIB_BUILD_SHARED OFF CACHE BOOL "Disable shared library target" FORCE)
+   set(ZLIB_BUILD_STATIC ON CACHE BOOL "Enable static library target" FORCE)
+   set(ZLIB_INSTALL OFF CACHE BOOL "Disable install targets" FORCE)
    FetchContent_Declare(
       zlib
       # Download Step Options
-      URL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz
-      URL_HASH SHA256=38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32
+      URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.xz
+      URL_HASH SHA256=d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3
       DOWNLOAD_EXTRACT_TIMESTAMP ON
    )
    FetchContent_MakeAvailable(zlib)
