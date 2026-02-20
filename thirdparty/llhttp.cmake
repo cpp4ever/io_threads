@@ -27,13 +27,13 @@ if(NOT TARGET llhttp_static)
    include(CMakeThirdpartyTargets)
    include(FetchContent)
 
-   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Disable shared libraries targets" FORCE)
-   set(BUILD_STATIC_LIBS ON CACHE BOOL "Enable static libraries targets" FORCE)
+   set(LLHTTP_BUILD_SHARED_LIBS OFF CACHE BOOL "Disable shared libraries targets" FORCE)
+   set(LLHTTP_BUILD_STATIC_LIBS ON CACHE BOOL "Enable static libraries targets" FORCE)
    FetchContent_Declare(
       llhttp
       # Download Step Options
-      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.3.0.tar.gz
-      URL_HASH SHA256=1a2b45cb8dda7082b307d336607023aa65549d6f060da1d246b1313da22b685a
+      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.3.1.tar.gz
+      URL_HASH SHA256=c14a93f287d3dbd6580d08af968294f8bcc61e1e1e3c34301549d00f3cf09365
       DOWNLOAD_EXTRACT_TIMESTAMP ON
    )
    FetchContent_MakeAvailable(llhttp)
