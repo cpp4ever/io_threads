@@ -38,17 +38,17 @@
 namespace io_threads
 {
 
-constexpr std::byte websocket_frame_opcode_continuation{0x0,};
-constexpr std::byte websocket_frame_opcode_text{0x1,};
-constexpr std::byte websocket_frame_opcode_binary{0x2,};
-constexpr std::byte websocket_frame_opcode_connection_close{0x8,};
-constexpr std::byte websocket_frame_opcode_ping{0x9,};
-constexpr std::byte websocket_frame_opcode_pong{0xA,};
-constexpr std::byte websocket_frame_mask_flag{1 << 7,};
-constexpr size_t websocket_frame_max_tiny_payload_size{125,};
-constexpr std::byte websocket_frame_short_payload_flag{126,};
-constexpr size_t websocket_frame_max_short_payload_size{64 * 1024,};
-constexpr std::byte websocket_frame_long_payload_flag{127,};
+constexpr inline std::byte websocket_frame_opcode_continuation{0x0,};
+constexpr inline std::byte websocket_frame_opcode_text{0x1,};
+constexpr inline std::byte websocket_frame_opcode_binary{0x2,};
+constexpr inline std::byte websocket_frame_opcode_connection_close{0x8,};
+constexpr inline std::byte websocket_frame_opcode_ping{0x9,};
+constexpr inline std::byte websocket_frame_opcode_pong{0xA,};
+constexpr inline std::byte websocket_frame_mask_flag{1 << 7,};
+constexpr inline size_t websocket_frame_max_tiny_payload_size{125,};
+constexpr inline std::byte websocket_frame_short_payload_flag{126,};
+constexpr inline size_t websocket_frame_max_short_payload_size{64 * 1024,};
+constexpr inline std::byte websocket_frame_long_payload_flag{127,};
 
 struct websocket_frame_header final
 {

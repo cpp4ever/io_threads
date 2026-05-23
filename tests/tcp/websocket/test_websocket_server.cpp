@@ -141,7 +141,7 @@ void test_websocket_server<test_websocket_stream>::async_socket_accept()
             }
             else if constexpr (std::is_same_v<test_websocket_stream, boost::beast::websocket::stream<test_tls_stream>>)
             {
-               constexpr auto handshakeTimeout = std::chrono::milliseconds{100};
+               constexpr std::chrono::milliseconds handshakeTimeout{100,};
                boost::beast::get_lowest_layer(client.stream).expires_after(handshakeTimeout);
                client.stream.next_layer().async_handshake(
 #if(defined(IO_THREADS_OPENSSL))

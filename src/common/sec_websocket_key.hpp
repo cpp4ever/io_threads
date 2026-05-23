@@ -35,8 +35,8 @@ namespace io_threads
 
 struct sec_websocket_key final
 {
-   static constexpr uint32_t sizeof_value{16,};
-   static constexpr uint32_t sizeof_base64_value{4 * ((sizeof_value + 2) / 3) + 1,};
+   static constexpr inline uint32_t sizeof_value{16,};
+   static constexpr inline uint32_t sizeof_base64_value{4 * ((sizeof_value + 2) / 3) + 1,};
 
    std::array<std::byte, sizeof_base64_value> bytes{std::byte{0,},};
    uint32_t bytesLength{0,};

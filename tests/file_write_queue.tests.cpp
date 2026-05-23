@@ -135,8 +135,8 @@ TEST_F(file_writer, file_write_queue)
       file_writer_thread const testThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
       std::vector<file_writer_test_data> testFileWriters;
       testFileWriters.reserve(testFileListCapacity);
-      constexpr size_t testMinStringLength = 1024; ///< 1 KiB
-      constexpr size_t testMaxStringLength = 5 * 1024; ///< 5 KiB
+      constexpr size_t testMinStringLength{1024,}; ///< 1 KiB
+      constexpr size_t testMaxStringLength{5 * 1024,}; ///< 5 KiB
       for (size_t testIndex = 0; testIndex < testFileListCapacity; ++testIndex)
       {
          auto testFilePath = testDirectory / random_string(10).append(".test");
@@ -152,7 +152,7 @@ TEST_F(file_writer, file_write_queue)
          testFileWriters.back().data.push_back(random_string(testMinStringLength, testMaxStringLength));
          testFileWriters.back().queue->push(testFileWriters.back().data.back());
       }
-      constexpr size_t testIterationsCount = testFileListCapacity * 10;
+      constexpr auto testIterationsCount{testFileListCapacity * 10,};
       for (size_t testIteration = 0; testIteration < testIterationsCount; ++testIteration)
       {
          auto &testData = testFileWriters[random_number<size_t>(0, testFileListCapacity - 1)];

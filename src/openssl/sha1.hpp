@@ -50,7 +50,7 @@
 namespace io_threads
 {
 
-constexpr size_t sha1_digest_size{20,};
+constexpr inline size_t sha1_digest_size{20,};
 using sha1_digest = std::array<std::byte, sha1_digest_size>;
 
 class sha1_context final

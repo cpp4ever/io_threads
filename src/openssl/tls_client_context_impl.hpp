@@ -705,8 +705,8 @@ private:
 
 bool tls1_3_available()
 {
-   constexpr auto openssl_v1_1_1_prerepease = 0x1010001FL;
-   constexpr auto openssl_v1_1_1_repease = 0x10100010L;
+   constexpr auto openssl_v1_1_1_prerepease{0x1010001FL,};
+   constexpr auto openssl_v1_1_1_repease{0x10100010L,};
    auto const opensslVersion{OpenSSL_version_num(),};
    return (openssl_v1_1_1_prerepease < opensslVersion) || (openssl_v1_1_1_repease == opensslVersion);
 }

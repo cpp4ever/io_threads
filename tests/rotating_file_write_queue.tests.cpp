@@ -156,8 +156,8 @@ TEST_F(file_writer, rotating_file_write_queue)
       constexpr size_t testIoBufferSize{2 * 1024,}; ///< 2 KiB
       file_writer_thread const testFileWriterThread{thread_config{}, testFileListCapacity, testIoBufferSize,};
       rotating_file_write_queue_mock testFileWriterQueue{testFileWriterThread,};
-      constexpr size_t testMinStringLength = 1024; ///< 1 KiB
-      constexpr size_t testMaxStringLength = 5 * 1024; ///< 5 KiB
+      constexpr size_t testMinStringLength{1024,}; ///< 1 KiB
+      constexpr size_t testMaxStringLength{5 * 1024,}; ///< 5 KiB
       auto const testFormatFileName = [] (system_time const timestamp) -> std::string
       {
          constexpr std::string_view testFilenameFormat{"{:%F}.test",};

@@ -34,7 +34,7 @@ namespace io_threads
 
 struct websocket_frame_mask final
 {
-   static constexpr size_t sizeof_value{4};
+   static constexpr inline size_t sizeof_value{4,};
    static_assert(sizeof(uint32_t) == sizeof_value);
 
    std::array<std::byte, sizeof_value> bytes{std::byte{0}};

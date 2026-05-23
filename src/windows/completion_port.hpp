@@ -61,15 +61,15 @@ namespace io_threads
 class completion_port final
 {
 private:
-   static constexpr BOOL alertable_wait{FALSE};
-   static constexpr ULONG completion_port_entries_count{1024 / sizeof(OVERLAPPED_ENTRY)};
-   static constexpr DWORD number_of_concurrent_threads{1};
-   static constexpr DWORD unknown_number_of_bytes_transferred{0};
+   static constexpr inline BOOL alertable_wait{FALSE,};
+   static constexpr inline ULONG completion_port_entries_count{1024 / sizeof(OVERLAPPED_ENTRY),};
+   static constexpr inline DWORD number_of_concurrent_threads{1,};
+   static constexpr inline DWORD unknown_number_of_bytes_transferred{0,};
 
 public:
    using entries = std::array<OVERLAPPED_ENTRY, completion_port_entries_count>;
-   static constexpr DWORD infinite_timeout{INFINITE};
-   static constexpr DWORD no_timeout{0};
+   static constexpr inline DWORD infinite_timeout{INFINITE,};
+   static constexpr inline DWORD no_timeout{0,};
 
    [[nodiscard]] completion_port() :
       m_completionPort
