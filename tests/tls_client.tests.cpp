@@ -331,7 +331,7 @@ TEST_F(tls_client, badssl)
 {
 #if (defined(IO_THREADS_OPENSSL))
    std::vector<std::error_code> const testExpiredErrorCodes{make_x509_error_code(X509_V_ERR_CERT_HAS_EXPIRED),};
-   std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(X509_V_ERR_HOSTNAME_MISMATCH),};
+   std::vector<std::error_code> const testWrongHostErrorCodes{make_x509_error_code(X509_V_ERR_HOSTNAME_MISMATCH), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
    std::vector<std::error_code> const testSelfSignedErrorCodes{make_x509_error_code(X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT),};
    std::vector<std::error_code> const testUntrustedRootErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN),};
    std::vector<std::error_code> const testSuperfishErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
@@ -339,17 +339,30 @@ TEST_F(tls_client, badssl)
    std::vector<std::error_code> const testDSDTestProviderErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
    std::vector<std::error_code> const testPreactCLIErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
    std::vector<std::error_code> const testWebpackDevServerErrorCodes{make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
+#  if (defined(SSL_R_TLS_ALERT_HANDSHAKE_FAILURE))
+   std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_TLS_ALERT_HANDSHAKE_FAILURE)),};
+   std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_TLS_ALERT_HANDSHAKE_FAILURE)),};
+#  else
    std::vector<std::error_code> const testRC4ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
    std::vector<std::error_code> const testRC4MD5ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testDH480ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_BAD_DH_VALUE)),};
-   std::vector<std::error_code> const testDH512ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
-   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+#  endif
+   std::vector<std::error_code> const testDH480ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_BAD_DH_VALUE)), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
+   std::vector<std::error_code> const testDH512ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
+   std::vector<std::error_code> const testDH1024ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
+#  if (defined(SSL_R_TLS_ALERT_HANDSHAKE_FAILURE))
+   std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_TLS_ALERT_HANDSHAKE_FAILURE)),};
+#  else
    std::vector<std::error_code> const testNullErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
+#  endif
    std::vector<std::error_code> const testTLSv1_0ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
    std::vector<std::error_code> const testTLSv1_1ErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
+#  if (defined(SSL_R_TLS_ALERT_HANDSHAKE_FAILURE))
+   std::vector<std::error_code> const test3DESErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_TLS_ALERT_HANDSHAKE_FAILURE)),};
+#  else
    std::vector<std::error_code> const test3DESErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE)),};
-   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_CERT_REVOKED),};
-   std::vector<std::error_code> const testCurveBallErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN),};
+#  endif
+   std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_CERT_REVOKED), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
+   std::vector<std::error_code> const testCurveBallErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN), make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
    std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
    std::vector<std::error_code> const testFREAKErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
 #elif (defined(IO_THREADS_SCHANNEL))
