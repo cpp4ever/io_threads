@@ -25,24 +25,28 @@
 
 if(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
    include(CMakeThirdpartyTargets)
-   include(FetchContent)
+   include(ExternalProject)
 
-   FetchContent_Declare(
+   ExternalProject_Add(
       wintls
-      EXCLUDE_FROM_ALL
-      SYSTEM
       # Download Step Options
-      GIT_PROGRESS ON
-      GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-      GIT_REPOSITORY https://github.com/laudrup/boost-wintls.git
-      GIT_SHALLOW ON
-      GIT_SUBMODULES_RECURSE ON
-      GIT_TAG v1.0.0
+      URL https://github.com/laudrup/boost-wintls/archive/refs/tags/v1.0.0.tar.gz
+      URL_HASH SHA256=e5aa70d508ad709f25d6d6a1802e956b5706fe2d2761b619303ef6a851267e69
+      DOWNLOAD_EXTRACT_TIMESTAMP ON
+      # Configure Step Options
+      CONFIGURE_COMMAND ""
+      # Build Step Options
+      BUILD_COMMAND ""
+      # Install Step Options
+      INSTALL_COMMAND ""
+      # Target Options
+      EXCLUDE_FROM_ALL ON
    )
-   FetchContent_MakeAvailable(wintls)
-   file(GLOB BOOST_WINTLS_HEADERS "${wintls_SOURCE_DIR}/include/*.hpp")
+   ExternalProject_Get_Property(wintls SOURCE_DIR)
+   file(GLOB BOOST_WINTLS_HEADERS "${SOURCE_DIR}/include/*.hpp")
    add_library(boost_wintls INTERFACE ${BOOST_WINTLS_HEADERS})
    add_library(Boost::wintls ALIAS boost_wintls)
-   target_include_directories(boost_wintls SYSTEM INTERFACE "${wintls_SOURCE_DIR}/include/")
+   add_dependencies(boost_wintls wintls)
+   target_include_directories(boost_wintls SYSTEM INTERFACE "${SOURCE_DIR}/include/")
    organize_thirdparty_target(boost_wintls thirdparty)
 endif()

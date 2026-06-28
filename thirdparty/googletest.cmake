@@ -35,12 +35,9 @@ FetchContent_Declare(
    EXCLUDE_FROM_ALL
    SYSTEM
    # Download Step Options
-   GIT_PROGRESS ON
-   GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-   GIT_REPOSITORY https://github.com/google/googletest.git
-   GIT_SHALLOW ON
-   GIT_SUBMODULES_RECURSE ON
-   GIT_TAG v1.17.0
+   URL https://github.com/google/googletest/releases/download/v1.17.0/googletest-1.17.0.tar.gz
+   URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c
+   DOWNLOAD_EXTRACT_TIMESTAMP ON
 )
 FetchContent_MakeAvailable(googletest)
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
