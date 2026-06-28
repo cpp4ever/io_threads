@@ -23,22 +23,20 @@
    SOFTWARE.
 ]]
 
-add_subdirectory(CMakeTargets EXCLUDE_FROM_ALL)
+if(NOT TARGET jitterentropy)
+   include(CMakeThirdpartyTargets)
+   include(FetchContent)
 
-include(llhttp.cmake)
-include(zlib.cmake)
-if(IO_THREADS_SSL_LIBRARY STREQUAL "openssl")
-   include(openssl.cmake)
-elseif(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
-   include(schannel.cmake)
+   set(EXTERNAL_CRYPTO OPENSSL CACHE STRING "Use an external libcrypto" FORCE)
+   FetchContent_Declare(
+      jitterentropy-library
+      EXCLUDE_FROM_ALL
+      SYSTEM
+      # Download Step Options
+      URL https://github.com/smuellerDD/jitterentropy-library/archive/refs/tags/v3.7.0.tar.gz
+      URL_HASH SHA256=f5eaccc9d2977c83308651be9379f09f34348398f419e8f8b5bbd95928c777ed
+      DOWNLOAD_EXTRACT_TIMESTAMP ON
+   )
+   FetchContent_MakeAvailable(jitterentropy-library)
+   organize_thirdparty_target(jitterentropy thirdparty)
 endif()
-if(IO_THREADS_DEV)
-   include(boost.cmake)
-   include(boost.wintls.cmake)
-   if(NOT IO_THREADS_ENABLE_COVERAGE)
-      include(CMakeSanitizer.cmake)
-   endif()
-   include(googletest.cmake)
-endif()
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} PARENT_SCOPE)

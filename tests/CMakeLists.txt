@@ -44,7 +44,7 @@ set_target_properties(
 setup_ssl_library(io_threads_tests)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/" FILES ${IO_THREADS_TESTS_HEADERS} ${IO_THREADS_TESTS_SOURCES})
 target_include_directories(io_threads_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(io_threads_tests PRIVATE Boost::beast gmock_main io_threads::io_threads)
+target_link_libraries(io_threads_tests PRIVATE Boost::beast gmock_main io_threads::io_threads $<$<PLATFORM_ID:Linux>:stdc++>)
 if(IO_THREADS_SSL_LIBRARY STREQUAL "openssl")
    target_compile_definitions(io_threads_tests PRIVATE IO_THREADS_CBC_ALLOWED=1 IO_THREADS_DH2048_ALLOWED=1)
 elseif(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
