@@ -60,7 +60,7 @@ enum struct tcp_socket_operation_type : uint8_t
    close,
 };
 
-[[nodiscard]] constexpr format_string<int, std::string> tcp_error_message(tcp_socket_operation_type const tcpSocketOperationType)
+[[nodiscard]] constexpr format_string<uint32_t, std::string> tcp_error_message(tcp_socket_operation_type const tcpSocketOperationType)
 {
    switch (tcpSocketOperationType)
    {
