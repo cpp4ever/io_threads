@@ -28,6 +28,8 @@ include(FetchContent)
 
 FetchContent_Declare(
    boost
+   EXCLUDE_FROM_ALL
+   SYSTEM
    # Download Step Options
    URL https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-cmake.tar.xz
    URL_HASH SHA256=aca59f889f0f32028ad88ba6764582b63c916ce5f77b31289ad19421a96c555f

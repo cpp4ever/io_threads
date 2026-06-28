@@ -33,6 +33,8 @@ if(NOT TARGET zlibstatic)
    set(ZLIB_INSTALL OFF CACHE BOOL "Disable install targets" FORCE)
    FetchContent_Declare(
       zlib
+      EXCLUDE_FROM_ALL
+      SYSTEM
       # Download Step Options
       URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.xz
       URL_HASH SHA256=d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3

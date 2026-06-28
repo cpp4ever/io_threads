@@ -32,6 +32,8 @@ if(NOT TARGET libzstd_static)
    set(ZSTD_BUILD_TESTS OFF CACHE BOOL "Disable test targets" FORCE)
    FetchContent_Declare(
       zstd
+      EXCLUDE_FROM_ALL
+      SYSTEM
       # Download Step Options
       URL https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.zst
       URL_HASH SHA256=5b331d961d6989dc21bb03397fc7a2a4d86bc65a14adc5ffbbce050354e30fd2

@@ -27,6 +27,8 @@ include(FetchContent)
 
 FetchContent_Declare(
    CMakeSanitizer
+   EXCLUDE_FROM_ALL
+   SYSTEM
    # Download Step Options
    GIT_PROGRESS ON
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT

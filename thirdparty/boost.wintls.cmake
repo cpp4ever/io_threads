@@ -29,6 +29,8 @@ if(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
 
    FetchContent_Declare(
       wintls
+      EXCLUDE_FROM_ALL
+      SYSTEM
       # Download Step Options
       GIT_PROGRESS ON
       GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
@@ -37,7 +39,7 @@ if(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
       GIT_SUBMODULES_RECURSE ON
       GIT_TAG v1.0.0
    )
-   FetchContent_Populate(wintls)
+   FetchContent_MakeAvailable(wintls)
    file(GLOB BOOST_WINTLS_HEADERS "${wintls_SOURCE_DIR}/include/*.hpp")
    add_library(boost_wintls INTERFACE ${BOOST_WINTLS_HEADERS})
    add_library(Boost::wintls ALIAS boost_wintls)

@@ -31,6 +31,8 @@ if(NOT TARGET llhttp_static)
    set(LLHTTP_BUILD_STATIC_LIBS ON CACHE BOOL "Enable static libraries targets" FORCE)
    FetchContent_Declare(
       llhttp
+      EXCLUDE_FROM_ALL
+      SYSTEM
       # Download Step Options
       URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.4.2.tar.gz
       URL_HASH SHA256=ba717a2f99f340a0ee9796aaf2b1acca057e1e37682ffd2bc4def4d3b6bc4005

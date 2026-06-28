@@ -32,6 +32,8 @@ set(INSTALL_GTEST OFF CACHE BOOL "Disable install targets" FORCE)
 set(gtest_disable_pthreads OFF CACHE BOOL "Enable pthreads" FORCE)
 FetchContent_Declare(
    googletest
+   EXCLUDE_FROM_ALL
+   SYSTEM
    # Download Step Options
    GIT_PROGRESS ON
    GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
