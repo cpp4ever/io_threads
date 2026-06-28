@@ -23,21 +23,15 @@
    SOFTWARE.
 ]]
 
-include(CMakeTargets.cmake)
-include(llhttp.cmake)
-include(zlib.cmake)
-if(IO_THREADS_SSL_LIBRARY STREQUAL "openssl")
-   include(openssl.cmake)
-elseif(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
-   include(schannel.cmake)
-endif()
-if(IO_THREADS_DEV)
-   include(boost.cmake)
-   include(boost.wintls.cmake)
-   if(NOT IO_THREADS_ENABLE_COVERAGE)
-      include(CMakeSanitizer.cmake)
-   endif()
-   include(googletest.cmake)
-endif()
+include(FetchContent)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} PARENT_SCOPE)
+FetchContent_Declare(
+   CMakeTargets
+   EXCLUDE_FROM_ALL
+   SYSTEM
+   # Download Step Options
+   URL https://github.com/cpp4ever/CMakeTargets/archive/refs/tags/v2026.06.19.tar.gz
+   URL_HASH SHA256=3537e9291f2633650f99384e3a004797b3abf01c488970e8b8329572a4175bff
+   DOWNLOAD_EXTRACT_TIMESTAMP ON
+)
+FetchContent_MakeAvailable(CMakeTargets)

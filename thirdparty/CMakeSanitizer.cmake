@@ -30,12 +30,9 @@ FetchContent_Declare(
    EXCLUDE_FROM_ALL
    SYSTEM
    # Download Step Options
-   GIT_PROGRESS ON
-   GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
-   GIT_REPOSITORY https://github.com/cpp4ever/CMakeSanitizer.git
-   GIT_SHALLOW ON
-   GIT_SUBMODULES_RECURSE ON
-   GIT_TAG v2026.06.28
+   URL https://github.com/cpp4ever/CMakeSanitizer/archive/refs/tags/v2026.06.29.tar.gz
+   URL_HASH SHA256=08e3cb337bba317cd69cceceba4dd91cdd528de312068c36876ad76158e976db
+   DOWNLOAD_EXTRACT_TIMESTAMP ON
 )
 FetchContent_MakeAvailable(CMakeSanitizer)
 include(CMakeCXXSanitizer)

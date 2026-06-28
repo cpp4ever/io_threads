@@ -35,10 +35,13 @@ if(IO_THREADS_SSL_LIBRARY STREQUAL "schannel")
       DOWNLOAD_EXTRACT_TIMESTAMP ON
       # Configure Step Options
       CONFIGURE_COMMAND ""
+      CONFIGURE_HANDLED_BY_BUILD ON
       # Build Step Options
       BUILD_COMMAND ""
       # Install Step Options
       INSTALL_COMMAND ""
+      # Test Step Options
+      TEST_COMMAND ""
       # Target Options
       EXCLUDE_FROM_ALL ON
    )
