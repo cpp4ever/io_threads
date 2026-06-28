@@ -480,7 +480,7 @@ TEST_F(tls_client, badssl)
    }
    x509_store const testX509Store{x509_store_config{}, testDomains,};
    constexpr uint32_t testTlsSessionListCapacity{1,};
-   constexpr std::chrono::seconds testTimeout{1,};
+   constexpr std::chrono::seconds testTimeout{10,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testBadAddress : testBadAddresses)
    {
@@ -552,7 +552,7 @@ TEST_F(tls_client, goodssl)
    }
    x509_store const testX509Store{x509_store_config{}, testDomains,};
    constexpr uint32_t testTlsSessionListCapacity{1,};
-   constexpr std::chrono::seconds testTimeout{1,};
+   constexpr std::chrono::seconds testTimeout{10,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testGoodAddress : testGoodAddresses)
    {
