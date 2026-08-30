@@ -30,7 +30,6 @@
 #include "io_threads/tls_client_context.hpp" ///< for io_threads::tls_client_context
 
 #include <cstddef> ///< for size_t
-#include <cstdint> ///< for uint32_t
 #include <memory> ///< for std::shared_ptr
 #include <system_error> ///< for std::error_code
 
@@ -39,15 +38,15 @@ namespace io_threads
 
 /// According to https://datatracker.ietf.org/doc/html/rfc5246#section-6.2.3
 ///   The length MUST NOT exceed 2^14 + 2048
-[[maybe_unused]] constexpr inline uint32_t tls1_2_packet_size_limit{16384 + 2048,};
+[[maybe_unused]] constexpr inline auto tls1_2_packet_size_limit{16384u + 2048u,};
 
 /// According to https://datatracker.ietf.org/doc/html/rfc8446#section-5.2
 ///   The length MUST NOT exceed 2^14 + 256 bytes
-[[maybe_unused]] constexpr inline uint32_t tls1_3_packet_size_limit{16384 + 256,};
+[[maybe_unused]] constexpr inline auto tls1_3_packet_size_limit{16384u + 256u,};
 
 /// According to https://datatracker.ietf.org/doc/html/rfc8449#section-1
 ///   Allocating up to 18K of memory for ciphertext is beyond the capacity of some implementations
-[[maybe_unused]] constexpr inline uint32_t tls_packet_size_limit{18432,};
+[[maybe_unused]] constexpr inline auto tls_packet_size_limit{18432u,};
 
 struct tls_client_session;
 
@@ -75,17 +74,17 @@ public:
 
 protected:
    void io_connected() override;
-   void io_disconnected(std::error_code const &errorCode) override;
+   void io_disconnected(std::error_code errorCode) override;
 
 private:
    tls_client_context const m_tlsClientContext;
    tls_client_session *m_tlsClientSession{nullptr};
 
-   [[nodiscard]] virtual std::error_code io_data_decrypted(data_chunk const &dataChunk) = 0;
-   [[nodiscard]] virtual std::error_code io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten) = 0;
-   [[nodiscard]] std::error_code io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten) final;
-   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten) final;
-   [[nodiscard]] std::error_code io_data_received(data_chunk const &dataChunk, size_t &bytesRead) final;
+   [[nodiscard]] virtual std::error_code io_data_decrypted(data_chunk dataChunk) = 0;
+   [[nodiscard]] virtual std::error_code io_data_to_encrypt(data_chunk dataChunk, size_t &bytesWritten) = 0;
+   [[nodiscard]] std::error_code io_data_to_send(data_chunk dataChunk, size_t &bytesWritten) final;
+   [[nodiscard]] std::error_code io_data_to_shutdown(data_chunk dataChunk, size_t &bytesWritten) final;
+   [[nodiscard]] std::error_code io_data_received(data_chunk dataChunk, size_t &bytesRead) final;
 };
 
 using tls_client [[maybe_unused]] = tls_client_context::tls_client;

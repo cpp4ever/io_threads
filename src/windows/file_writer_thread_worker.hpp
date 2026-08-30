@@ -83,6 +83,7 @@
 #include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
+#include <span> ///< for std::span
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code
 #include <thread> ///< for std::thread, std::this_thread
@@ -312,8 +313,7 @@ private:
 
    void handle_ready_to_close(file_writer &fileWriter)
    {
-      auto *fileDescriptor{fileWriter.m_fileDescriptor,};
-      if (nullptr != fileDescriptor) [[likely]]
+      if (auto *fileDescriptor{fileWriter.m_fileDescriptor,}; nullptr != fileDescriptor) [[likely]]
       {
          assert(INVALID_HANDLE_VALUE != fileDescriptor->handle);
          if (nullptr == fileDescriptor->outputBufferInFlight)
@@ -417,14 +417,9 @@ private:
    {
       auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(completionPortEntries, timeout),};
       assert(numberOfCompletionPortEntriesRemoved <= completionPortEntries.size());
-      auto completionPortEntry{completionPortEntries.begin()};
-      for (
-         auto const completionPortEntriesEnd{completionPortEntry + numberOfCompletionPortEntriesRemoved,};
-         completionPortEntriesEnd != completionPortEntry;
-         ++completionPortEntry
-      )
+      for (auto &completionPortEntry : std::span{completionPortEntries}.subspan(0, numberOfCompletionPortEntriesRemoved))
       {
-         handle_completion_port_entry(*completionPortEntry, stopRequested);
+         handle_completion_port_entry(completionPortEntry, stopRequested);
       }
       return numberOfCompletionPortEntriesRemoved;
    }

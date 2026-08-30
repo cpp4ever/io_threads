@@ -52,7 +52,7 @@ tls_client_context::tls_client_context(tls_client_context const &rhs) noexcept =
 tls_client_context::tls_client_context(
    tcp_client_thread executor,
    x509_store const &x509Store,
-   std::string_view const &domainName,
+   std::string_view const domainName,
    uint32_t const tlsSessionListCapacity
 ) :
    m_executor{std::move(executor),}
@@ -103,7 +103,7 @@ void tls_client::io_connected()
    m_tlsClientSession = std::addressof(m_tlsClientContext.m_impl->acquire_session());
 }
 
-void tls_client::io_disconnected(std::error_code const &)
+void tls_client::io_disconnected(std::error_code const)
 {
    if (nullptr != m_tlsClientSession)
    {
@@ -112,7 +112,7 @@ void tls_client::io_disconnected(std::error_code const &)
    }
 }
 
-std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t &bytesWritten)
+std::error_code tls_client::io_data_to_send(data_chunk const dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
@@ -134,7 +134,7 @@ std::error_code tls_client::io_data_to_send(data_chunk const &dataChunk, size_t 
    return m_tlsClientContext.m_impl->encrypt_message(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
-std::error_code tls_client::io_data_to_shutdown(data_chunk const &dataChunk, size_t &bytesWritten)
+std::error_code tls_client::io_data_to_shutdown(data_chunk const dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != dataChunk.bytes);
    assert(0 < dataChunk.bytesLength);
@@ -142,7 +142,7 @@ std::error_code tls_client::io_data_to_shutdown(data_chunk const &dataChunk, siz
    return m_tlsClientContext.m_impl->shutdown(*m_tlsClientSession, dataChunk, bytesWritten);
 }
 
-std::error_code tls_client::io_data_received(data_chunk const &encryptedDataChunk, size_t &bytesRead)
+std::error_code tls_client::io_data_received(data_chunk const encryptedDataChunk, size_t &bytesRead)
 {
    auto *encryptedBytes = encryptedDataChunk.bytes;
    auto encryptedBytesLength = encryptedDataChunk.bytesLength;

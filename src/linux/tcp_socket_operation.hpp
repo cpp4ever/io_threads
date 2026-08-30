@@ -90,7 +90,7 @@ enum struct tcp_socket_operation_type : uint8_t
 
 inline void log_socket_error(
    tcp_socket_operation_type const tcpSocketOperationType,
-   std::error_code const &errorCode,
+   std::error_code const errorCode,
    std::source_location const &sourceLocation = std::source_location::current()
 )
 {

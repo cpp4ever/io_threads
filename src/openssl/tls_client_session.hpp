@@ -107,7 +107,7 @@ inline void reset_wbio(tls_client_session &tlsClientSession)
    }
 }
 
-inline void set_rbio(tls_client_session &tlsClientSession, data_chunk const &dataChunk)
+inline void set_rbio(tls_client_session &tlsClientSession, data_chunk const dataChunk)
 {
    assert(nullptr != tlsClientSession.rbio);
    assert(nullptr != tlsClientSession.rbioBufMem);
@@ -125,7 +125,7 @@ inline void set_rbio(tls_client_session &tlsClientSession, data_chunk const &dat
    }
 }
 
-inline void set_wbio(tls_client_session &tlsClientSession, data_chunk const &dataChunk)
+inline void set_wbio(tls_client_session &tlsClientSession, data_chunk const dataChunk)
 {
    assert(nullptr != tlsClientSession.wbio);
    assert(nullptr != tlsClientSession.wbioBufMem);

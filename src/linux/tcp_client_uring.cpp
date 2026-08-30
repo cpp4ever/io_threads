@@ -94,7 +94,9 @@
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t
 #include <optional> ///< for std::nullopt_t, std::optional
+#include <ranges> ///< for std::views::iota
 #include <source_location> ///< for std::source_location
+#include <utility> ///< for std::ignore
 #include <variant> ///< for std::visit
 #include <vector> ///< for std::vector
 
@@ -416,8 +418,9 @@ public:
          [] (auto &tcpTransferOperationPool, auto &registeredBuffers, auto const socketListCapacity, auto const tcpSocketOperationType)
          {
             tcp_socket_operation *tcpTransferOperations{nullptr,};
-            for (uint32_t index{0,}; socketListCapacity > index; ++index)
+            for (auto const index : std::views::iota(0u, socketListCapacity))
             {
+               std::ignore = index;
                auto &tcpTransferOperation
                {
                   tcpTransferOperationPool.template pop_object<tcp_socket_operation>(

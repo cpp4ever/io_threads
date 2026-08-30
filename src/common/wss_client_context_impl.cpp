@@ -63,6 +63,7 @@
 #include <cstring> ///< for std::memcpy
 #include <memory> ///< for std::addressof, std::construct_at, std::destroy_at
 #include <new> ///< for std::align_val_t
+#include <ranges> ///< for std::views::iota
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
@@ -129,7 +130,7 @@ websocket_client_session &wss_client_context::wss_client_context_impl::acquire_s
 
 size_t wss_client_context::wss_client_context_impl::format_frame(
    websocket_client_session &session,
-   data_chunk const &dataChunk,
+   data_chunk const dataChunk,
    websocket_frame_data const &outboundFrame
 )
 {
@@ -162,16 +163,18 @@ size_t wss_client_context::wss_client_context_impl::format_frame(
    auto outboundBytesLength{outboundFrame.bytesLength,};
    while (frameMask.bytes.size() < outboundBytesLength)
    {
-      for (size_t frameMaskByteIndex{0,}; frameMask.bytes.size() > frameMaskByteIndex; ++frameMaskByteIndex, ++bytesWritten)
+      for (auto const frameMaskByteIndex : std::views::iota(size_t{0,}, frameMask.bytes.size()))
       {
          dataChunk.bytes[bytesWritten] = outboundBytes[frameMaskByteIndex] ^ frameMask.bytes[frameMaskByteIndex];
+         ++bytesWritten;
       }
       outboundBytes += frameMask.bytes.size();
       outboundBytesLength -= static_cast<uint32_t>(frameMask.bytes.size());
    }
-   for (size_t frameMaskByteIndex{0,}; frameMaskByteIndex < outboundBytesLength; ++frameMaskByteIndex, ++bytesWritten)
+   for (auto const frameMaskByteIndex : std::views::iota(size_t{0,}, outboundBytesLength))
    {
       dataChunk.bytes[bytesWritten] = outboundBytes[frameMaskByteIndex] ^ frameMask.bytes[frameMaskByteIndex];
+      ++bytesWritten;
    }
    next_websocket_frame_mask(frameMask);
    if (std::addressof(outboundFrame) == session.outboundFrame)
@@ -188,9 +191,9 @@ size_t wss_client_context::wss_client_context_impl::format_frame(
 
 size_t wss_client_context::wss_client_context_impl::format_handshake_request(
    websocket_client_session &session,
-   data_chunk const &dataChunk,
+   data_chunk const dataChunk,
    websocket_client_config const &config,
-   std::string_view const &host
+   std::string_view const host
 )
 {
    assert(nullptr != session.handshakeKey);
@@ -203,7 +206,7 @@ size_t wss_client_context::wss_client_context_impl::format_handshake_request(
 
 std::error_code wss_client_context::wss_client_context_impl::handle_handshake_completion(
    websocket_client_session &session,
-   data_chunk const &dataChunk
+   data_chunk const dataChunk
 )
 {
    assert(nullptr != session.handshakeKey);

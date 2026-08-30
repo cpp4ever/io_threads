@@ -35,6 +35,8 @@
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::addressof, std::allocator, std::construct_at, std::destroy_at
 #include <mutex> ///< for std::mutex, std::scoped_lock
+#include <new> ///< for std::launder
+#include <ranges> ///< for std::ranges::range, std::ranges::subrange
 #include <system_error> ///< for std::error_code
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_constructible_v, std::is_pointer_v, std::is_reference_v
 #include <utility> ///< for std::forward, std::move
@@ -64,7 +66,7 @@ struct file_write_task final
 };
 
 template<typename type>
-class [[maybe_unused]] file_write_task_allocator final
+class file_write_task_allocator final
 {
 public:
    [[maybe_unused, nodiscard]] file_write_task_allocator() noexcept = default;
@@ -78,13 +80,13 @@ public:
       requires(true == std::is_constructible_v<type, types...>)
    [[maybe_unused, nodiscard]] file_write_task<type> &allocate(types &&...values)
    {
-      return *std::construct_at<file_write_task<type>>(m_allocator.allocate(1), std::forward<types>(values)...);
+      return *std::construct_at<file_write_task<type>>(m_allocator.allocate(1u), std::forward<types>(values)...);
    }
 
    [[maybe_unused]] void deallocate(file_write_task<type> &task)
    {
       std::destroy_at(std::addressof(task));
-      m_allocator.deallocate(std::addressof(task), 1);
+      m_allocator.deallocate(std::addressof(task), 1u);
    }
 
 private:
@@ -133,6 +135,7 @@ public:
    ~file_write_queue() override
    {
       assert(false == m_opened.load(std::memory_order_acquire));
+      io_free_tasks();
    }
 
    file_write_queue &operator = (file_write_queue &&) = delete;
@@ -151,27 +154,39 @@ public:
       }
    }
 
-   template<typename forward_iterator, typename iterator>
-   [[maybe_unused]] void push_batch(forward_iterator first, iterator const last)
+   template<typename range>
+      requires(std::ranges::range<range>)
+   [[maybe_unused]] void push_batch(range &&batch)
    {
-      if (last != first)
+      file_write_task<type> *firstTask{nullptr,};
+      auto *lastTask{firstTask,};
+      for (auto &value : batch)
       {
-         file_write_task<type> &firstTask{m_taskAllocator.allocate(*first),};
-         auto *lastTask{std::addressof(firstTask),};
-         for (++first; last != first; ++first)
+         if (nullptr == firstTask)
          {
-            lastTask->next = std::addressof(m_taskAllocator.allocate(*first));
+            firstTask = std::addressof(m_taskAllocator.allocate(value));
+            lastTask = firstTask;
+         }
+         else
+         {
+            lastTask->next = std::addressof(m_taskAllocator.allocate(value));
             lastTask = lastTask->next;
          }
-         if (auto const wakeupIo{push_unordered_task(firstTask),}; (true == wakeupIo) && (true == m_opened.load(std::memory_order_relaxed)))
-         {
-            ready_to_write();
-         }
+      }
+      if ((nullptr != firstTask) && (true == push_unordered_task(*firstTask)) && (true == m_opened.load(std::memory_order_relaxed)))
+      {
+         ready_to_write();
       }
    }
 
+   template<typename forward_iterator, typename sentinel>
+   [[maybe_unused]] void push_batch(forward_iterator &&first, sentinel &&last)
+   {
+      push_batch(std::ranges::subrange{std::forward<forward_iterator>(first), std::forward<sentinel>(last),});
+   }
+
 protected:
-   void io_closed([[maybe_unused]] std::error_code const &errorCode) override
+   void io_closed([[maybe_unused]] std::error_code errorCode) override
    {
       assert(
          false
@@ -179,20 +194,7 @@ protected:
          || (false == m_opened.load(std::memory_order_acquire))
          || (false == io_has_tasks())
       );
-      auto *tasks{m_orderedTasks,};
-      m_orderedTasks = nullptr;
-      do
-      {
-         while (nullptr != tasks)
-         {
-            auto *task{tasks,};
-            tasks = task->next;
-            task->next = nullptr;
-            m_taskAllocator.deallocate(*task);
-         }
-         tasks = pop_unordered_tasks();
-      } while (nullptr != tasks);
-      m_lastTaskOffset = 0;
+      io_free_tasks();
       m_opened.store(false, std::memory_order_release);
    }
 
@@ -207,8 +209,28 @@ private:
    std::mutex m_tasksLock{};
    task_allocator m_taskAllocator;
    file_write_task<type> *m_orderedTasks{nullptr,};
-   size_t m_lastTaskOffset{0,};
+   size_t m_lastTaskOffset{0u,};
    type_serializer m_typeSerializer;
+
+   void io_free_tasks()
+   {
+      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      auto *tasks{std::launder(m_orderedTasks),};
+      m_orderedTasks = nullptr;
+      do
+      {
+         while (nullptr != tasks)
+         {
+            auto *task{std::launder(tasks),};
+            tasks = std::launder(task->next);
+            task->next = nullptr;
+            m_taskAllocator.deallocate(*task);
+         }
+         tasks = std::launder(m_unorderedTasks);
+         m_unorderedTasks = nullptr;
+      } while (nullptr != tasks);
+      m_lastTaskOffset = 0u;
+   }
 
    [[maybe_unused, nodiscard]] bool io_has_tasks()
    {
@@ -220,33 +242,37 @@ private:
       return true;
    }
 
-   [[nodiscard]] size_t io_ready_to_write(data_chunk const &dataChunk) final
+   [[nodiscard]] size_t io_ready_to_write(data_chunk dataChunk) final
    {
       m_typeSerializer.reset(dataChunk);
-      size_t iteration{0,};
+      auto iteration{0u,};
       do
       {
-         while ((nullptr != m_orderedTasks) && (true == m_typeSerializer.update(m_orderedTasks->value, m_lastTaskOffset)))
+         auto *orderedTasks{std::launder(m_orderedTasks),};
+         m_orderedTasks = nullptr;
+         while ((nullptr != orderedTasks) && (true == m_typeSerializer.update(orderedTasks->value, m_lastTaskOffset)))
          {
-            auto *task{m_orderedTasks,};
-            m_orderedTasks = task->next;
+            auto *task{std::launder(orderedTasks),};
+            orderedTasks = std::launder(task->next);
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
-            m_lastTaskOffset = 0;
+            m_lastTaskOffset = 0u;
          }
-         if ((nullptr != m_orderedTasks) || (0 != m_lastTaskOffset))
+         if ((nullptr != orderedTasks) || (0u != m_lastTaskOffset))
          {
+            m_orderedTasks = std::launder(orderedTasks);
             break;
          }
          auto *unorderedTasks{pop_unordered_tasks(),};
          while (nullptr != unorderedTasks)
          {
-            auto *task{unorderedTasks,};
-            unorderedTasks = task->next;
-            task->next = m_orderedTasks;
-            m_orderedTasks = task;
+            auto *task{std::launder(unorderedTasks),};
+            unorderedTasks = std::launder(task->next);
+            task->next = std::launder(orderedTasks);
+            orderedTasks = std::launder(task);
          }
-      } while ((nullptr != m_orderedTasks) && (0 == iteration++));
+         m_orderedTasks = std::launder(orderedTasks);
+      } while ((nullptr != m_orderedTasks) && (0u == iteration++));
       auto const bytesWritten{m_typeSerializer.finish(),};
       assert((0 < bytesWritten) || (nullptr == m_orderedTasks));
       return bytesWritten;
@@ -255,7 +281,7 @@ private:
    [[nodiscard]] file_write_task<type> *pop_unordered_tasks()
    {
       [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
-      auto *unorderedTasks{m_unorderedTasks,};
+      auto *unorderedTasks{std::launder(m_unorderedTasks),};
       m_unorderedTasks = nullptr;
       return unorderedTasks;
    }
@@ -268,8 +294,8 @@ private:
          continue;
       }
       [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
-      bool wakeupIo{nullptr == m_unorderedTasks,};
-      lastTask->next = m_unorderedTasks;
+      auto const wakeupIo{nullptr == m_unorderedTasks,};
+      lastTask->next = std::launder(m_unorderedTasks);
       m_unorderedTasks = std::addressof(task);
       return wakeupIo;
    }

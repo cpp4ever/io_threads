@@ -44,7 +44,7 @@
 namespace io_threads
 {
 
-void log_openssl_errors(std::string_view const &prefix, std::source_location const &sourceLocation)
+void log_openssl_errors(std::string_view const prefix, std::source_location const &sourceLocation)
 {
    std::stringstream sink{};
    unsigned long errorCode{0,};

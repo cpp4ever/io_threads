@@ -33,6 +33,7 @@
 #include <deque>
 #include <fstream>
 #include <future>
+#include <ranges>
 
 namespace io_threads::tests
 {
@@ -107,7 +108,7 @@ public:
 private:
    std::unique_ptr<internal_state> m_internalState{nullptr,};
 
-   MOCK_METHOD(void, io_closed, (std::error_code const &), (override));
+   MOCK_METHOD(void, io_closed, (std::error_code), (override));
    MOCK_METHOD(file_writer_config, io_ready_to_open, (), (override));
 };
 
@@ -137,7 +138,7 @@ TEST_F(file_writer, file_write_queue)
       testFileWriters.reserve(testFileListCapacity);
       constexpr size_t testMinStringLength{1024,}; ///< 1 KiB
       constexpr size_t testMaxStringLength{5 * 1024,}; ///< 5 KiB
-      for (size_t testIndex = 0; testIndex < testFileListCapacity; ++testIndex)
+      for ([[maybe_unused]] auto const testIndex : std::views::iota(size_t{0,}, testFileListCapacity))
       {
          auto testFilePath = testDirectory / random_string(10).append(".test");
          testFileWriters.push_back(
@@ -153,9 +154,9 @@ TEST_F(file_writer, file_write_queue)
          testFileWriters.back().queue->push(testFileWriters.back().data.back());
       }
       constexpr auto testIterationsCount{testFileListCapacity * 10,};
-      for (size_t testIteration = 0; testIteration < testIterationsCount; ++testIteration)
+      for ([[maybe_unused]] auto const testIteration : std::views::iota(size_t{0,}, testIterationsCount))
       {
-         auto &testData = testFileWriters[random_number<size_t>(0, testFileListCapacity - 1)];
+         auto &testData{testFileWriters[random_number<size_t>(0, testFileListCapacity - 1)],};
          testData.data.push_back(random_string(testMinStringLength, testMaxStringLength));
          testData.queue->push(testData.data.back());
       }

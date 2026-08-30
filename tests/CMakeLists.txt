@@ -92,4 +92,4 @@ if(NOT IO_THREADS_ENABLE_COVERAGE)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(io_threads_tests PROPERTIES ${IO_THREADS_CTEST_PROPERTIES})
+gtest_discover_tests(io_threads_tests PROPERTIES ${IO_THREADS_CTEST_PROPERTIES} DISCOVERY_TIMEOUT 30)

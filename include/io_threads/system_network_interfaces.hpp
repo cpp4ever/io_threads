@@ -48,10 +48,10 @@ public:
    [[maybe_unused]] system_network_interfaces &operator = (system_network_interfaces &&rhs) noexcept = default;
    [[maybe_unused]] system_network_interfaces &operator = (system_network_interfaces const &rhs) = delete;
 
-   [[maybe_unused, nodiscard]] std::optional<network_interface> find(std::string_view const &interfaceNameOrIp) const
+   [[maybe_unused, nodiscard]] std::optional<network_interface> find(std::string_view const interfaceNameOrIp) const
    {
       if (
-         auto const interfaceIterator{m_mapStringToNetworkInterface.find(interfaceNameOrIp)};
+         auto const interfaceIterator{m_mapStringToNetworkInterface.find(interfaceNameOrIp),};
          m_mapStringToNetworkInterface.end() != interfaceIterator
       )
       {
@@ -67,7 +67,7 @@ public:
 
 private:
    map_string_to_network_interface m_mapStringToNetworkInterface{};
-   std::optional<network_interface> m_loopbackNetworkInterface{std::nullopt};
+   std::optional<network_interface> m_loopbackNetworkInterface{std::nullopt,};
 };
 
 using system_network_interfaces [[maybe_unused]] = network_interface::system_network_interfaces;

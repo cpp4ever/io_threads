@@ -57,7 +57,7 @@ public:
    }
 
 protected:
-   virtual void io_closed(std::error_code const &errorCode) = 0;
+   virtual void io_closed(std::error_code errorCode) = 0;
    virtual void io_opened() = 0;
 
    void ready_to_close();
@@ -69,7 +69,7 @@ private:
    file_writer_thread const m_fileWriterThread;
 
    [[nodiscard]] virtual file_writer_config io_ready_to_open() = 0;
-   [[nodiscard]] virtual size_t io_ready_to_write(data_chunk const &dataChunk) = 0;
+   [[nodiscard]] virtual size_t io_ready_to_write(data_chunk dataChunk) = 0;
 };
 
 using file_writer [[maybe_unused]] = file_writer_thread::file_writer;

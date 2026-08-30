@@ -77,15 +77,15 @@ public:
 
    [[nodiscard]] size_t format_frame(
       websocket_client_session &session,
-      data_chunk const &dataChunk,
+      data_chunk dataChunk,
       websocket_frame_data const &outboundFrame
    );
 
    [[nodiscard]] size_t format_handshake_request(
       websocket_client_session &session,
-      data_chunk const &dataChunk,
+      data_chunk dataChunk,
       websocket_client_config const &config,
-      std::string_view const &host
+      std::string_view host
    );
 
    template<typename frame_handler>
@@ -146,7 +146,7 @@ public:
 
    [[nodiscard]] std::error_code handle_handshake_completion(
       websocket_client_session &session,
-      data_chunk const &dataChunk
+      data_chunk dataChunk
    );
 
    void ready_to_close(websocket_client_session &session, uint16_t closureReason);
@@ -242,7 +242,7 @@ private:
    template<typename inflated_frame_handler>
    [[nodiscard]] std::error_code inflate_frame(
       websocket_client_session &session,
-      websocket_frame const &frame,
+      websocket_frame const frame,
       inflated_frame_handler &&inflatedFrameHandler
    )
    {

@@ -31,6 +31,8 @@
 
 #include <io_threads/wss_client.hpp>
 
+#include <ranges>
+
 namespace io_threads::tests
 {
 
@@ -286,9 +288,9 @@ private:
       m_connected.store(true, std::memory_order_relaxed);
    }
 
-   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame const &, bool), (final));
+   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame, bool), (final));
    MOCK_METHOD(websocket_frame, io_frame_to_send, (), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
    MOCK_METHOD(websocket_client_config, io_ready_to_handshake, (), (final));
 };
@@ -506,9 +508,9 @@ private:
       ;
    }
 
-   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame const &, bool), (final));
+   MOCK_METHOD(std::error_code, io_frame_received, (websocket_frame, bool), (final));
    MOCK_METHOD(websocket_frame, io_frame_to_send, (), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
    MOCK_METHOD(websocket_client_config, io_ready_to_handshake, (), (final));
 };
@@ -617,14 +619,14 @@ TEST_F(wss_client, ping_pong)
       };
       websocket_client_config const testWebsocketConfig{"/test?name=ping_pong",};
       auto const testConnectTime{steady_clock::now() + testConnectTimeout,};
-      for (uint32_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
+      for (auto const testIndex : std::views::iota(uint32_t{0,}, testWssSessionListCapacity))
       {
          testClients[testIndex]->start(testTcpConfig, testWebsocketConfig, std::chrono::milliseconds{testHeartbeatTimeouts[testIndex],}, testConnectTime);
       }
       std::array<std::future_status, testWssSessionListCapacity> testFutureStatuses{};
       std::array<uint32_t, testWssSessionListCapacity> testResults{};
       std::array<uint32_t, testWssSessionListCapacity> expectedResults{};
-      for (uint32_t testIndex{0,}; testWssSessionListCapacity > testIndex; ++testIndex)
+      for (auto const testIndex : std::views::iota(uint32_t{0,}, testWssSessionListCapacity))
       {
          auto const [testFutureStatus, testResult, expectedResult]{testClients[testIndex]->wait_for(testTimeout)};
          testFutureStatuses[testIndex] = testFutureStatus;

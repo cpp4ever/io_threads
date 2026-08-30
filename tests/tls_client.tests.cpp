@@ -32,6 +32,8 @@
 #include <io_threads/dns_resolver.hpp>
 #include <io_threads/tls_client.hpp>
 
+#include <ranges>
+
 namespace io_threads::tests
 {
 
@@ -267,9 +269,9 @@ private:
       m_connected.store(true, std::memory_order_relaxed);
    }
 
-   MOCK_METHOD(std::error_code, io_data_decrypted, (data_chunk const &), (final));
-   MOCK_METHOD(std::error_code, io_data_to_encrypt, (data_chunk const &, size_t &), (final));
-   MOCK_METHOD(void, io_disconnected, (std::error_code const &), (final));
+   MOCK_METHOD(std::error_code, io_data_decrypted, (data_chunk), (final));
+   MOCK_METHOD(std::error_code, io_data_to_encrypt, (data_chunk, size_t &), (final));
+   MOCK_METHOD(void, io_disconnected, (std::error_code), (final));
    MOCK_METHOD(tcp_client_config, io_ready_to_connect, (), (final));
 };
 
@@ -363,7 +365,7 @@ TEST_F(tls_client, badssl)
 #  endif
    std::vector<std::error_code> const testRevokedErrorCodes{make_x509_error_code(X509_V_ERR_CERT_REVOKED), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
    std::vector<std::error_code> const testCurveBallErrorCodes{make_x509_error_code(X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN), make_x509_error_code(X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY),};
-   std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)),};
+   std::vector<std::error_code> const testLogjamErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_DH_KEY_TOO_SMALL)), make_x509_error_code(X509_V_ERR_INVALID_PURPOSE),};
    std::vector<std::error_code> const testFREAKErrorCodes{make_tls_error_code(ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_PROTOCOL)),};
 #elif (defined(IO_THREADS_SCHANNEL))
    std::vector<std::error_code> const testExpiredErrorCodes{make_x509_error_code(SEC_E_CERT_EXPIRED),};
@@ -484,6 +486,7 @@ TEST_F(tls_client, badssl)
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
    for (auto const &testBadAddress : testBadAddresses)
    {
+      SCOPED_TRACE(std::format("{}:{}", testBadAddress.host, testBadAddress.port));
       auto testIPv4Addresses{dns_resolver::resolve_ipv4(testBadAddress.host, testBadAddress.port),};
       ASSERT_FALSE(testIPv4Addresses.empty());
       tls_client_context const testTlsContext{testThread, testX509Store, testBadAddress.host, testTlsSessionListCapacity,};
@@ -499,7 +502,7 @@ TEST_F(tls_client, badssl)
             .with_user_timeout(testTimeout)
       };
       testClient.expect_ready_to_connect(testClientConfig);
-      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout)) << testBadAddress.host;
+      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
    }
 }
 
@@ -542,24 +545,18 @@ TEST_F(tls_client, goodssl)
    tcp_client_thread const testThread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,};
    std::vector<domain_address> testDomains;
    testDomains.reserve(testGoodAddresses.size());
-   for (auto const &testGoodAddress : testGoodAddresses)
+   auto const testAddressFilter{[] (auto const &testAddress) { return (false == testAddress.tls1_3Required) || (true == tls1_3_available()); },};
+   for (auto const &testGoodAddress : testGoodAddresses | std::views::filter(testAddressFilter))
    {
-      if ((true == testGoodAddress.tls1_3Required) && (false == tls1_3_available()))
-      {
-         continue;
-      }
       testDomains.push_back(domain_address{.hostname = std::string{testGoodAddress.host,}, .port = testGoodAddress.port,});
    }
    x509_store const testX509Store{x509_store_config{}, testDomains,};
    constexpr uint32_t testTlsSessionListCapacity{1,};
    constexpr std::chrono::seconds testTimeout{10,};
    constexpr tcp_keep_alive testTcpKeepAlive{.idleTimeout = testTimeout, .probeTimeout = testTimeout, .probesCount = 0,};
-   for (auto const &testGoodAddress : testGoodAddresses)
+   for (auto const &testGoodAddress : testGoodAddresses | std::views::filter(testAddressFilter))
    {
-      if ((true == testGoodAddress.tls1_3Required) && (false == tls1_3_available()))
-      {
-         continue;
-      }
+      SCOPED_TRACE(std::format("{}:{}", testGoodAddress.host, testGoodAddress.port));
       auto const testIPv4Addresses{dns_resolver::resolve_ipv4(testGoodAddress.host, testGoodAddress.port),};
       tls_client_context const testTlsContext{testThread, testX509Store, testGoodAddress.host, testTlsSessionListCapacity,};
       test_tls_client testClient{testTlsContext,};
@@ -580,7 +577,7 @@ TEST_F(tls_client, goodssl)
          ,
       };
       testClient.expect_ready_to_connect(testClientConfig);
-      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout)) << testGoodAddress.host;
+      ASSERT_EQ(std::future_status::ready, testClient.wait_for(testTimeout));
    }
 }
 #endif

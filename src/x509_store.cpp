@@ -31,8 +31,8 @@
 #endif
 
 #include <memory> ///< for std::make_shared
+#include <span> ///< for std::span
 #include <string_view> ///< for std::string_view
-#include <vector> ///< for std::vector
 
 namespace io_threads
 {
@@ -44,15 +44,15 @@ x509_store::x509_store(x509_store_config const &config) :
    m_impl{std::make_shared<x509_store_impl>(config),}
 {}
 
-x509_store::x509_store(x509_store_config const &config, std::vector<domain_address> const &domainAddresses) :
+x509_store::x509_store(x509_store_config const &config, std::span<domain_address> const domainAddresses) :
    m_impl{std::make_shared<x509_store_impl>(config, domainAddresses),}
 {}
 
-x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat) :
+x509_store::x509_store(std::string_view const x509Data, x509_format const x509DataFormat) :
    x509_store{x509Data, x509DataFormat, std::string_view{"",},}
 {}
 
-x509_store::x509_store(std::string_view const &x509Data, x509_format const x509DataFormat, std::string_view const &x509DataPassword) :
+x509_store::x509_store(std::string_view const x509Data, x509_format const x509DataFormat, std::string_view const x509DataPassword) :
    m_impl{std::make_shared<x509_store_impl>(x509Data, x509DataFormat, x509DataPassword),}
 {}
 

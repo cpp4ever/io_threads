@@ -41,9 +41,9 @@ enum struct websocket_frame_type : uint8_t
 
 struct websocket_frame final
 {
-   std::byte *bytes{nullptr};
-   size_t bytesLength{0};
-   websocket_frame_type type{websocket_frame_type::none};
+   std::byte *bytes{nullptr,};
+   size_t bytesLength{0u,};
+   websocket_frame_type type{websocket_frame_type::none,};
 };
 
 }

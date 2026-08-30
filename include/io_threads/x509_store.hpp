@@ -32,9 +32,9 @@
 #include <filesystem> ///< for std::filesystem::path
 #include <memory> ///< for std::shared_ptr
 #include <optional> ///< for std::nullopt, std::optional
+#include <span> ///< for std::span
 #include <string> ///< for std::string
 #include <string_view> ///< for std::string_view
-#include <vector> ///< for std::vector
 
 namespace io_threads
 {
@@ -69,13 +69,9 @@ public:
    [[nodiscard]] x509_store(x509_store &&rhs) noexcept;
    [[nodiscard]] x509_store(x509_store const &rhs) noexcept;
    [[nodiscard]] explicit x509_store(x509_store_config const &config);
-   [[nodiscard]] x509_store(x509_store_config const &config, std::vector<domain_address> const &domainAddresses);
-   [[nodiscard]] x509_store(std::string_view const &x509Data, x509_format x509DataFormat);
-   [[nodiscard]] x509_store(
-      std::string_view const &x509Data,
-      x509_format x509DataFormat,
-      std::string_view const &x509DataPassword
-   );
+   [[nodiscard]] x509_store(x509_store_config const &config, std::span<domain_address> domainAddresses);
+   [[nodiscard]] x509_store(std::string_view x509Data, x509_format x509DataFormat);
+   [[nodiscard]] x509_store(std::string_view x509Data, x509_format x509DataFormat, std::string_view x509DataPassword);
    ~x509_store();
 
    x509_store &operator = (x509_store &&) = delete;

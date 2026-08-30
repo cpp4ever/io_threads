@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ranges>
 
 namespace io_threads::tests
 {
@@ -45,8 +46,7 @@ cpu_id testsuite::first_cpu()
    EXPECT_EQ(0, sched_getaffinity(getpid(), sizeof(processAffinityMask), std::addressof(processAffinityMask)))
       << std::error_code{errno, std::generic_category(),}
    ;
-   auto const numberOfCpus{static_cast<uint32_t>(CPU_COUNT(std::addressof(processAffinityMask))),};
-   for (uint32_t cpuIndex{0,}; numberOfCpus > cpuIndex; ++cpuIndex)
+   for (auto const cpuIndex : std::views::iota(uint32_t{0,}, static_cast<uint32_t>(CPU_COUNT(std::addressof(processAffinityMask)))))
    {
       if (CPU_ISSET(cpuIndex, std::addressof(processAffinityMask)))
       {
@@ -59,7 +59,7 @@ cpu_id testsuite::first_cpu()
    EXPECT_EQ(TRUE, GetProcessAffinityMask(GetCurrentProcess(), std::addressof(processAffinityMask), std::addressof(systemAffinityMask)))
       << std::error_code{static_cast<int>(GetLastError()), std::system_category(),}
    ;
-   for (uint32_t cpuIndex{0,}; (sizeof(DWORD_PTR) * CHAR_BIT) > cpuIndex; ++cpuIndex)
+   for (auto const cpuIndex : std::views::iota(uint32_t{0,}, sizeof(DWORD_PTR) * CHAR_BIT))
    {
       if (auto const cpuMask{DWORD_PTR{1,} << cpuIndex,}; (processAffinityMask & cpuMask) == cpuMask)
       {

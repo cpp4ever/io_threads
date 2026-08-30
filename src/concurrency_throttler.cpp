@@ -30,6 +30,8 @@
 #include <cstddef> ///< for size_t
 #include <memory> ///< for std::addressof
 #include <mutex> ///< for std::scoped_lock
+#include <ranges> ///< for std::views::iota
+#include <utility> ///< for std::ignore
 
 namespace io_threads
 {
@@ -138,9 +140,11 @@ concurrency_throttler::concurrency_throttler(time_duration const rollingTimeWind
    assert(quota > 0);
    m_timeslotPool = std::bit_cast<timeslot *>(::operator new(quota * sizeof(timeslot), std::align_val_t{alignof(timeslot),}));
    auto *nextTimeslot{m_timeslotPool,};
-   for (size_t index{0,}; quota > index; ++index, ++nextTimeslot)
+   for (auto const index : std::views::iota(size_t{0,}, quota))
    {
+      std::ignore = index;
       m_freeTimeslots = std::construct_at(nextTimeslot, timeslot{.next = m_freeTimeslots,});
+      ++nextTimeslot;
    }
 }
 

@@ -106,7 +106,7 @@ public:
 private:
    std::unique_ptr<internal_state> m_internalState{nullptr,};
 
-   MOCK_METHOD(void, io_closed, (std::error_code const &), (override));
+   MOCK_METHOD(void, io_closed, (std::error_code), (override));
 
    void io_opened() override
    {
@@ -114,7 +114,7 @@ private:
    }
 
    MOCK_METHOD(file_writer_config, io_ready_to_open, (), (override));
-   MOCK_METHOD(size_t, io_ready_to_write, (data_chunk const &), (override));
+   MOCK_METHOD(size_t, io_ready_to_write, (data_chunk), (override));
 };
 
 using test_file_writer = testing::StrictMock<file_writer_mock>;

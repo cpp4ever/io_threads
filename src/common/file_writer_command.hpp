@@ -32,11 +32,11 @@ namespace io_threads
 
 enum struct file_writer_command : intptr_t
 {
-   unknown = 0,
-   execute,
-   ready_to_open,
-   ready_to_write,
-   ready_to_close,
+   unknown [[maybe_unused]] = 0,
+   execute [[maybe_unused]],
+   ready_to_open [[maybe_unused]],
+   ready_to_write [[maybe_unused]],
+   ready_to_close [[maybe_unused]],
 };
 
 }

@@ -30,16 +30,16 @@
 #include <cstdint> ///< for uint8_t
 #include <chrono> ///< for std::chrono::milliseconds, std::chrono::seconds
 #include <optional> ///< for std::nullopt, std::optional
-#include <utility> ///< for std::move
+#include <utility> ///< for std::ignore, std::move
 
 namespace io_threads
 {
 
 struct tcp_keep_alive final
 {
-   std::chrono::seconds idleTimeout{std::chrono::seconds::zero()};
-   std::chrono::seconds probeTimeout{std::chrono::seconds::zero()};
-   uint8_t probesCount{0};
+   std::chrono::seconds idleTimeout{std::chrono::seconds::zero(),};
+   std::chrono::seconds probeTimeout{std::chrono::seconds::zero(),};
+   uint8_t probesCount{0,};
 };
 
 enum struct quality_of_service : uint8_t
@@ -75,7 +75,7 @@ public:
    [[maybe_unused, nodiscard]] tcp_client_config(tcp_client_config const &) noexcept = default;
 
    [[maybe_unused, nodiscard]] explicit tcp_client_config(tcp_client_address peerAddress) noexcept :
-      m_peerAddress{std::move(peerAddress)}
+      m_peerAddress{std::move(peerAddress),}
    {}
 
    [[maybe_unused]] tcp_client_config &operator = (tcp_client_config &&) noexcept = default;
@@ -115,32 +115,32 @@ public:
 
    [[maybe_unused, nodiscard]] tcp_client_config with_keep_alive(tcp_keep_alive const value) const noexcept
    {
-      auto config{*this};
+      auto config{*this,};
       config.m_keepAlive = value;
       return config;
    }
 
    [[maybe_unused, nodiscard]] tcp_client_config with_nodelay() const noexcept
    {
-      auto config{*this};
+      auto config{*this,};
       config.m_nodelay = true;
       return config;
    }
 
    [[maybe_unused, nodiscard]] tcp_client_config with_quality_of_service(io_threads::quality_of_service const value) const noexcept
    {
-      auto config{*this};
+      auto config{*this,};
 #if (defined(__linux__))
       config.m_qualityOfService = value;
 #else
-      (void)value;
+      std::ignore = value;
 #endif
       return config;
    }
 
    [[maybe_unused, nodiscard]] tcp_client_config with_quickack() const noexcept
    {
-      auto config{*this};
+      auto config{*this,};
 #if (defined(__linux__))
       config.m_quickack = true;
 #endif
@@ -149,7 +149,7 @@ public:
 
    [[maybe_unused, nodiscard]] tcp_client_config with_user_timeout(std::chrono::milliseconds const value) const noexcept
    {
-      auto config{*this};
+      auto config{*this,};
       config.m_userTimeout = value;
       return config;
    }

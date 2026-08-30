@@ -37,6 +37,7 @@
 #include <cstdint> ///< for uint8_t
 #include <memory> ///< for std::addressof, std::allocator, std::construct_at, std::destroy_at
 #include <mutex> ///< for std::mutex, std::scoped_lock
+#include <new> ///< for std::launder
 #include <system_error> ///< for std::error_code
 #include <type_traits> ///< for std::is_constructible_v, std::is_nothrow_constructible_v, std::is_pointer_v, std::is_reference_v
 #include <utility> ///< for std::forward, std::move
@@ -81,13 +82,13 @@ public:
       requires(true == std::is_constructible_v<type, types...>)
    [[maybe_unused, nodiscard]] rotating_file_write_task<type> &allocate(types &&...values)
    {
-      return *std::construct_at<rotating_file_write_task<type>>(m_allocator.allocate(1), std::forward<types>(values)...);
+      return *std::construct_at<rotating_file_write_task<type>>(m_allocator.allocate(1u), std::forward<types>(values)...);
    }
 
    [[maybe_unused]] void deallocate(rotating_file_write_task<type> &task)
    {
       std::destroy_at(std::addressof(task));
-      m_allocator.deallocate(std::addressof(task), 1);
+      m_allocator.deallocate(std::addressof(task), 1u);
    }
 
 private:
@@ -200,12 +201,12 @@ private:
    std::mutex m_tasksLock{};
    task_allocator m_taskAllocator;
    rotating_file_write_task<type> *m_orderedTasks{nullptr,};
-   size_t m_lastTaskOffset{0,};
+   size_t m_lastTaskOffset{0u,};
    type_serializer m_typeSerializer;
 
    [[nodiscard]] virtual system_time get_timestamp(type const &value) = 0;
 
-   void io_closed(std::error_code const &errorCode) final
+   void io_closed(std::error_code errorCode) final
    {
       if (false == bool{errorCode,})
       {
@@ -221,14 +222,14 @@ private:
          assert(nullptr == m_orderedTasks);
          assert(nullptr == m_unorderedTasks);
       }
-      auto *tasks{m_orderedTasks,};
+      auto *tasks{std::launder(m_orderedTasks),};
       m_orderedTasks = nullptr;
       do
       {
          while (nullptr != tasks)
          {
-            auto *task{tasks,};
-            tasks = task->next;
+            auto *task{std::launder(tasks),};
+            tasks = std::launder(task->next);
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
          }
@@ -237,7 +238,7 @@ private:
          assert((true == bool{errorCode,}) || (true == m_stopRequested));
          m_stopRequested = false;
          m_currentDay = std::chrono::days::zero();
-         tasks = m_unorderedTasks;
+         tasks = std::launder(m_unorderedTasks);
          m_unorderedTasks = nullptr;
       } while (nullptr != tasks);
       m_lastTaskOffset = 0;
@@ -255,7 +256,7 @@ private:
    }
 
    virtual void io_queue_started() = 0;
-   virtual void io_queue_stopped(std::error_code const &errorCode) = 0;
+   virtual void io_queue_stopped(std::error_code errorCode) = 0;
 
    [[nodiscard]] file_writer_config io_ready_to_open() final
    {
@@ -269,19 +270,21 @@ private:
       return make_config(m_orderedTasks->timestamp);
    }
 
-   [[nodiscard]] size_t io_ready_to_write(data_chunk const &dataChunk) final
+   [[nodiscard]] size_t io_ready_to_write(data_chunk const dataChunk) final
    {
       m_typeSerializer.reset(dataChunk);
-      size_t iteration{0,};
+      auto iteration{0u,};
       do
       {
-         while (nullptr != m_orderedTasks)
+         auto *orderedTasks{std::launder(m_orderedTasks),};
+         while (nullptr != orderedTasks)
          {
-            if (std::chrono::floor<std::chrono::days>(m_orderedTasks->timestamp).time_since_epoch() > m_currentDay) [[unlikely]]
+            if (std::chrono::floor<std::chrono::days>(orderedTasks->timestamp).time_since_epoch() > m_currentDay) [[unlikely]]
             {
-               assert(0 == m_lastTaskOffset);
-               if (auto const bytesWritten{m_typeSerializer.finish(),}; 0 < bytesWritten)
+               assert(0u == m_lastTaskOffset);
+               if (auto const bytesWritten{m_typeSerializer.finish(),}; 0u < bytesWritten)
                {
+                  m_orderedTasks = std::launder(orderedTasks);
                   return bytesWritten;
                }
                [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
@@ -294,22 +297,25 @@ private:
                {
                   assert(status::closing == m_status);
                }
-               return 0;
+               m_orderedTasks = std::launder(orderedTasks);
+               return 0u;
             }
-            if (false == m_typeSerializer.update(m_orderedTasks->value, m_lastTaskOffset))
+            if (false == m_typeSerializer.update(orderedTasks->value, m_lastTaskOffset))
             {
                break;
             }
-            auto *task{m_orderedTasks,};
-            m_orderedTasks = task->next;
+            auto *task{std::launder(orderedTasks),};
+            orderedTasks = std::launder(task->next);
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
-            m_lastTaskOffset = 0;
+            m_lastTaskOffset = 0u;
          }
-         if ((nullptr != m_orderedTasks) || (0 != m_lastTaskOffset))
+         if ((nullptr != orderedTasks) || (0u != m_lastTaskOffset))
          {
+            m_orderedTasks = std::launder(orderedTasks);
             break;
          }
+         m_orderedTasks = nullptr;
          [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
          update_ordered_tasks();
       } while ((nullptr != m_orderedTasks) && (0 == iteration++));
@@ -327,17 +333,19 @@ private:
    void update_ordered_tasks()
    {
       assert(nullptr == m_orderedTasks);
-      assert(0 == m_lastTaskOffset);
-      if (auto *unorderedTasks{m_unorderedTasks,}; nullptr != unorderedTasks)
+      assert(0u == m_lastTaskOffset);
+      if (auto *unorderedTasks{std::launder(m_unorderedTasks),}; nullptr != unorderedTasks)
       {
          m_unorderedTasks = nullptr;
+         auto *orderedTasks{std::launder(m_orderedTasks),};
          while (nullptr != unorderedTasks)
          {
-            auto *task{unorderedTasks,};
-            unorderedTasks = task->next;
-            task->next = m_orderedTasks;
-            m_orderedTasks = task;
+            auto *task{std::launder(unorderedTasks),};
+            unorderedTasks = std::launder(task->next);
+            task->next = std::launder(orderedTasks);
+            orderedTasks = std::launder(task);
          }
+         m_orderedTasks = std::launder(orderedTasks);
       }
       else if (status::busy == m_status)
       {

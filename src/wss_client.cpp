@@ -67,7 +67,7 @@ void wss_client::io_connected()
    super::io_connected();
 }
 
-void wss_client::io_disconnected(std::error_code const &errorCode)
+void wss_client::io_disconnected(std::error_code const errorCode)
 {
    super::io_disconnected(errorCode);
    if (nullptr != m_websocketClientSession) [[likely]]
@@ -91,7 +91,7 @@ void wss_client::ready_to_close(websocket_closure_reason const closureReason)
    ready_to_disconnect();
 }
 
-std::error_code wss_client::io_data_decrypted(data_chunk const &dataChunk)
+std::error_code wss_client::io_data_decrypted(data_chunk const dataChunk)
 {
    assert(nullptr != m_websocketClientSession);
    if (nullptr == m_websocketClientSession->handshakeKey) [[likely]]
@@ -110,7 +110,7 @@ std::error_code wss_client::io_data_decrypted(data_chunk const &dataChunk)
    return std::error_code{};
 }
 
-std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size_t &bytesWritten)
+std::error_code wss_client::io_data_to_encrypt(data_chunk const dataChunk, size_t &bytesWritten)
 {
    assert(nullptr != m_websocketClientSession);
    if (nullptr == m_websocketClientSession->handshakeKey) [[likely]]
@@ -149,7 +149,7 @@ std::error_code wss_client::io_data_to_encrypt(data_chunk const &dataChunk, size
    return std::error_code{};
 }
 
-std::error_code wss_client::io_handle_frame(data_chunk const &dataChunk)
+std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
 {
    auto *inboundBytes = dataChunk.bytes;
    auto inboundBytesLength = dataChunk.bytesLength;

@@ -27,6 +27,8 @@
 
 #include <io_threads/throttling_queue.hpp>
 
+#include <ranges>
+
 namespace io_threads::tests
 {
 
@@ -47,11 +49,11 @@ TEST_F(throttler, throttling_queue)
          constexpr std::chrono::seconds testRollingTimeWindow{1,};
          throttling_queue testThrottler{testRollingTimeWindow, static_cast<size_t>(testLimit),};
          auto const testTime{steady_clock::now(),};
-         for (auto testIteration{0,}; testQueueCapacity > testIteration; ++testIteration)
+         for (auto const testIteration : std::views::iota(0, testQueueCapacity))
          {
             EXPECT_EQ(testTime + testRollingTimeWindow * ((testIteration >= testLimit) ? 1 : 0), testThrottler.enqueue(testTime));
          }
-         for (auto testIteration{0,}; testQueueCapacity > testIteration; ++testIteration)
+         for (auto const testIteration : std::views::iota(0, testQueueCapacity))
          {
             EXPECT_EQ(
                testTime + testRollingTimeWindow * ((testIteration >= testLimit) ? 3 : 2),

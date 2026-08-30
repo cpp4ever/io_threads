@@ -33,6 +33,8 @@
 #include <memory> ///< for std::construct_at, std::destroy_at
 #include <mutex> ///< for std::scoped_lock
 #include <new> ///< for operator delete, operator new, std::align_val_t
+#include <ranges> ///< for std::views::iota
+#include <utility> ///< for std::ignore
 
 namespace io_threads
 {
@@ -44,8 +46,9 @@ throttling_queue::throttling_queue(time_duration const rollingTimeWindow, size_t
    assert(0 < quota);
    m_timeslotPool = std::bit_cast<timeslot *>(::operator new(quota * sizeof(timeslot), std::align_val_t{alignof(timeslot),}));
    auto *nextTimeslot{m_timeslotPool,};
-   for (size_t index{0,}; quota > index; ++index, ++nextTimeslot)
+   for (auto const index : std::views::iota(size_t{0,}, quota))
    {
+      std::ignore = index;
       if (nullptr == m_timeslotHead)
       {
          assert(nullptr == m_timeslotTail);
@@ -58,6 +61,7 @@ throttling_queue::throttling_queue(time_duration const rollingTimeWindow, size_t
          m_timeslotTail = m_timeslotTail->next;
          assert(nullptr == m_timeslotTail->next);
       }
+      ++nextTimeslot;
    }
 }
 

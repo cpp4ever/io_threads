@@ -68,7 +68,7 @@ constexpr void log_error(
 
 inline void log_system_error(
    format_string<uint32_t, std::string> const &fmt,
-   std::error_code const &errorCode,
+   std::error_code const errorCode,
    std::source_location const &sourceLocation = std::source_location::current()
 )
 {

@@ -43,7 +43,7 @@ public:
    tls_client_context() = delete;
    [[nodiscard]] tls_client_context(tls_client_context &&rhs) noexcept;
    [[nodiscard]] tls_client_context(tls_client_context const &rhs) noexcept;
-   [[nodiscard]] tls_client_context(tcp_client_thread executor, x509_store const &x509Store, std::string_view const &domainName, uint32_t tlsSessionListCapacity);
+   [[nodiscard]] tls_client_context(tcp_client_thread executor, x509_store const &x509Store, std::string_view domainName, uint32_t tlsSessionListCapacity);
    ~tls_client_context();
 
    tls_client_context &operator = (tls_client_context &&) = delete;

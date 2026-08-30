@@ -32,8 +32,8 @@ namespace io_threads
 
 struct data_chunk final
 {
-   std::byte *bytes{nullptr};
-   size_t bytesLength{0};
+   std::byte *bytes{nullptr,};
+   size_t bytesLength{0ull,};
 };
 
 }

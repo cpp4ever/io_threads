@@ -125,6 +125,7 @@
 #include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
+#include <span> ///< for std::span
 #include <stop_token> ///< for std::stop_token
 #include <string_view> ///< for std::string_view
 #include <system_error> ///< for std::error_code, std::system_category
@@ -982,14 +983,9 @@ private:
    {
       auto const numberOfCompletionPortEntriesRemoved{m_completionPort.get_queued_completion_statuses(completionPortEntries, timeout),};
       assert(numberOfCompletionPortEntriesRemoved <= completionPortEntries.size());
-      auto completionPortEntry{completionPortEntries.begin()};
-      for (
-         auto const completionPortEntriesEnd{completionPortEntry + numberOfCompletionPortEntriesRemoved};
-         completionPortEntriesEnd != completionPortEntry;
-         ++completionPortEntry
-      )
+      for (auto &completionPortEntry : std::span{completionPortEntries}.subspan(0, numberOfCompletionPortEntriesRemoved))
       {
-         handle_completion_port_entry(*completionPortEntry, stopRequested);
+         handle_completion_port_entry(completionPortEntry, stopRequested);
       }
       return numberOfCompletionPortEntriesRemoved;
    }

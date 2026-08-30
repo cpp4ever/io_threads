@@ -44,21 +44,21 @@ public:
    http_response_parser &operator = (http_response_parser &&) = delete;
    http_response_parser &operator = (http_response_parser const &) = delete;
 
-   [[nodiscard]] std::error_code parse(std::string_view const &httpResponse);
+   [[nodiscard]] std::error_code parse(std::string_view httpResponse);
 
 private:
    struct http_response_parser_context;
 
    llhttp_settings_t m_llhttpSettings{};
    llhttp_t m_llhttp{};
-   size_t m_contentLength{0,};
+   size_t m_contentLength{0u,};
 
-   [[nodiscard]] virtual std::error_code handle_body(std::string_view const &content, size_t contentLength) = 0;
-   [[nodiscard]] virtual std::error_code handle_header(std::string_view const &headerField, std::string_view const &headerValue) = 0;
+   [[nodiscard]] virtual std::error_code handle_body(std::string_view content, size_t contentLength) = 0;
+   [[nodiscard]] virtual std::error_code handle_header(std::string_view headerField, std::string_view headerValue) = 0;
    [[nodiscard]] virtual std::error_code handle_headers_complete() = 0;
    [[nodiscard]] virtual std::error_code handle_message_begin() = 0;
    [[nodiscard]] virtual std::error_code handle_message_complete() = 0;
-   [[nodiscard]] virtual std::error_code handle_status(int statusCode, std::string_view const &status) = 0;
+   [[nodiscard]] virtual std::error_code handle_status(int statusCode, std::string_view status) = 0;
 
    [[nodiscard]] static int on_body(llhttp_t *llhttp, char const *at, size_t length);
    [[nodiscard]] static int on_header_field(llhttp_t *llhttp, char const *at, size_t length);

@@ -48,11 +48,12 @@
 #include <cstring> ///< for std::memcpy
 #include <memory> ///< for std::addressof, std::unique_ptr
 #include <new> ///< for std::align_val_t
+#include <ranges> ///< for std::views::iota
 #include <source_location> ///< for std::source_location
 #include <string> ///< for std::string, std::wstring
 #include <string_view> ///< for std::string_view, std::wstring_view
 #include <system_error> ///< for std::error_code, std::system_category
-#include <utility> ///< for std::pair
+#include <utility> ///< for std::ignore, std::pair
 
 template<>
 struct std::default_delete<OCSP_BASICRESP>
@@ -130,7 +131,7 @@ public:
 
    [[nodiscard]] tls_client_context_impl(
       std::shared_ptr<x509_store_impl> const &x509Store,
-      std::string_view const &domainName,
+      std::string_view const domainName,
       uint32_t const tlsSessionListCapacity
    ) :
       m_sslContext{x509Store->create_ssl_context(),},
@@ -186,8 +187,9 @@ public:
          unreachable();
       }
       m_utilityBuffer.resize(tls_packet_size_limit, std::byte{0,});
-      for (uint32_t tlsClientSessionIndex{0,}; tlsSessionListCapacity > tlsClientSessionIndex; ++tlsClientSessionIndex)
+      for (auto const tlsClientSessionIndex : std::views::iota(0u, tlsSessionListCapacity))
       {
+         std::ignore = tlsClientSessionIndex;
          std::unique_ptr<SSL> ssl{SSL_new(m_sslContext.get()),};
          if (nullptr == ssl) [[unlikely]]
          {
@@ -280,7 +282,7 @@ public:
       return tlsClientSession;
    }
 
-   [[nodiscard]] std::error_code check_session_status(tls_client_session &tlsClientSession, data_chunk const &dataChunk, size_t &bytesWritten)
+   [[nodiscard]] std::error_code check_session_status(tls_client_session &tlsClientSession, data_chunk const dataChunk, size_t &bytesWritten)
    {
       bytesWritten = 0;
       if (nullptr != tlsClientSession.securityBuffer) [[unlikely]] ///< handshake or shutdown
@@ -307,7 +309,7 @@ public:
 
    [[nodiscard]] std::error_code decrypt_message(
       tls_client_session &tlsClientSession,
-      data_chunk const &inboundDataChunk,
+      data_chunk const inboundDataChunk,
       data_chunk &decryptedDataChunk,
       size_t &bytesProcessed
    )
@@ -482,7 +484,7 @@ public:
 
    [[nodiscard]] std::error_code encrypt_message(
       tls_client_session &tlsClientSession,
-      data_chunk const &dataChunk,
+      data_chunk const dataChunk,
       size_t &bytesWritten
    )
    {
@@ -544,7 +546,7 @@ public:
       m_tlsClientSessions = std::addressof(tlsClientSession);
    }
 
-   [[nodiscard]] std::error_code shutdown(tls_client_session &tlsClientSession, data_chunk const &dataChunk, size_t &bytesWritten)
+   [[nodiscard]] std::error_code shutdown(tls_client_session &tlsClientSession, data_chunk const dataChunk, size_t &bytesWritten)
    {
       assert(tls_client_status::none != tlsClientSession.status);
       assert(nullptr != dataChunk.bytes);
@@ -580,7 +582,7 @@ public:
       return errorCode;
    }
 
-   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &, data_chunk const &dataChunk)
+   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &, data_chunk const dataChunk)
    {
       assert(SSL3_RT_MAX_ENCRYPTED_OVERHEAD < dataChunk.bytesLength);
       return data_chunk
@@ -660,7 +662,7 @@ private:
          return -1;
       }
       std::unique_ptr<OCSP_CERTID> ocspCertificateId{nullptr,};
-      for (int x509Index{0,}; sk_X509_num(clientCertificateChain) > x509Index; ++x509Index)
+      for (auto const x509Index : std::views::iota(0, sk_X509_num(clientCertificateChain)))
       {
          auto *clientCertificate{sk_X509_value(clientCertificateChain, x509Index),};
          if (X509_check_issued(clientCertificate, peerCertificate.get()) == X509_V_OK)

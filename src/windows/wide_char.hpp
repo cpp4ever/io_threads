@@ -47,7 +47,7 @@ namespace io_threads
 
 [[nodiscard]] inline std::error_code utf8_to_wide_char(
    std::wstring &wideCharString,
-   std::string_view const &utf8String
+   std::string_view const utf8String
 )
 {
    wideCharString.clear();

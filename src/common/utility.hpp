@@ -36,7 +36,8 @@ namespace io_threads
 {
 
 #if (202102L <= __cpp_lib_to_underlying)
-using to_underlying = std::to_underlying
+template<typename type>
+using to_underlying = std::to_underlying<type>
 #else
 template<typename type> requires(true == std::is_enum_v<type>)
 [[nodiscard]] constexpr std::underlying_type_t<type> to_underlying(type const value) noexcept

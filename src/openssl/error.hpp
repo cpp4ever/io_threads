@@ -34,7 +34,7 @@
 namespace io_threads
 {
 
-void log_openssl_errors(std::string_view const &prefix, std::source_location const &sourceLocation = std::source_location::current());
+void log_openssl_errors(std::string_view const prefix, std::source_location const &sourceLocation = std::source_location::current());
 
 [[nodiscard]] std::error_code make_ssl_error_code(int value);
 [[nodiscard]] std::error_code make_ssl_error_code(SSL &ssl, int returnCode);

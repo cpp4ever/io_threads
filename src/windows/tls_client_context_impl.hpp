@@ -246,7 +246,7 @@ public:
 
    [[nodiscard]] std::error_code check_session_status(
       tls_client_session &session,
-      data_chunk const &dataChunk,
+      data_chunk const dataChunk,
       size_t &bytesWritten
    )
    {
@@ -275,7 +275,7 @@ public:
 
    [[nodiscard]] std::error_code decrypt_message(
       tls_client_session &session,
-      data_chunk const &inboundDataChunk,
+      data_chunk const inboundDataChunk,
       data_chunk &decryptedDataChunk,
       size_t &bytesProcessed
    )
@@ -320,6 +320,7 @@ public:
          std::error_code errorCode{};
          switch (returnCode)
          {
+
          [[likely]] case SEC_E_OK: [[fallthrough]];
          case SEC_I_RENEGOTIATE: [[fallthrough]];
          case SEC_I_CONTEXT_EXPIRED:
@@ -328,6 +329,7 @@ public:
             {
                switch (securityBuffer.BufferType)
                {
+
                case SECBUFFER_EMPTY:
                {
                   assert(0 == securityBuffer.cbBuffer);
@@ -383,6 +385,7 @@ public:
                   log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", securityBuffer.BufferType);
                   unreachable();
                }
+
                }
             }
             if (SEC_I_CONTEXT_EXPIRED == returnCode) [[unlikely]]
@@ -418,6 +421,7 @@ public:
             }
          }
          break;
+
          }
          return errorCode;
       }
@@ -437,7 +441,7 @@ public:
 
    [[nodiscard]] std::error_code encrypt_message(
       tls_client_session &session,
-      data_chunk const &dataChunk,
+      data_chunk const dataChunk,
       size_t &bytesWritten
    )
    {
@@ -488,6 +492,7 @@ public:
          {
             switch (securityBuffer.BufferType)
             {
+
             case SECBUFFER_EMPTY:
             {
                assert(0 == securityBuffer.cbBuffer);
@@ -508,6 +513,7 @@ public:
                log_error(std::source_location::current(), "[tls_client] unexpected security buffer type: {}", securityBuffer.BufferType);
                unreachable();
             }
+
             }
          }
       }
@@ -536,7 +542,7 @@ public:
       m_clientSessionPool.push_object(session);
    }
 
-   [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const &dataChunk, size_t &bytesWritten)
+   [[nodiscard]] std::error_code shutdown(tls_client_session &session, data_chunk const dataChunk, size_t &bytesWritten)
    {
       assert(tls_client_status::none != session.status);
       assert(nullptr != dataChunk.bytes);
@@ -640,7 +646,7 @@ public:
       return errorCode;
    }
 
-   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &tlsClientSession, data_chunk const &dataChunk)
+   [[nodiscard]] static data_chunk prepare_to_encrypt(tls_client_session const &tlsClientSession, data_chunk const dataChunk)
    {
       auto const streamSizes{tlsClientSession.streamSizes,};
       assert(0 < streamSizes.cbMaximumMessage);
@@ -737,7 +743,7 @@ private:
 
    [[nodiscard]] std::error_code handle_handshake(
       tls_client_session &session,
-      data_chunk const &inboundDataChunk,
+      data_chunk const inboundDataChunk,
       size_t &bytesProcessed
    )
    {
@@ -817,6 +823,7 @@ private:
       bytesProcessed = inboundDataChunk.bytesLength;
       switch (returnCode)
       {
+
       case SEC_E_OK:
       {
          bytesProcessed = handle_handshake_step(session, inboundDataChunk, inboundSecurityBuffers, outboundSecurityBuffers);
@@ -891,6 +898,7 @@ private:
          tokenSecurityBuffer = alertSecurityBuffer = nullptr;
       }
       break;
+
       }
       assert(nullptr == tokenSecurityBuffer);
       assert(nullptr == alertSecurityBuffer);
@@ -924,7 +932,7 @@ private:
 
    [[nodiscard]] size_t handle_handshake_step(
       tls_client_session &session,
-      data_chunk const &inboundDataChunk,
+      data_chunk const inboundDataChunk,
       std::array<SecBuffer, 2> const &inboundSecurityBuffers,
       std::array<SecBuffer, 3> const &outboundSecurityBuffers
    )
@@ -934,6 +942,7 @@ private:
       {
          switch (inboundSecurityBuffer.BufferType)
          {
+
          case SECBUFFER_EMPTY:
          {
             assert(0 == inboundSecurityBuffer.cbBuffer);
@@ -960,12 +969,14 @@ private:
             log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", inboundSecurityBuffer.BufferType);
             unreachable();
          }
+
          }
       }
       for (auto const &outboundSecurityBuffer : outboundSecurityBuffers)
       {
          switch (outboundSecurityBuffer.BufferType)
          {
+
          case SECBUFFER_EMPTY:
          {
             assert(0 == outboundSecurityBuffer.cbBuffer);
@@ -997,6 +1008,7 @@ private:
             log_error(std::source_location::current(), "[tls_client] unexpected security buffer type {}", outboundSecurityBuffer.BufferType);
             unreachable();
          }
+
          }
       }
       return bytesProcessed;
@@ -1022,7 +1034,7 @@ private:
       ;
    }
 
-   void set_domain_name(std::string_view const &value)
+   void set_domain_name(std::string_view const value)
    {
       if (auto const errorCode{utf8_to_wide_char(m_domainName.first, value),}; true == bool{errorCode}) [[unlikely]]
       {

@@ -67,8 +67,8 @@ private:
 
 std::ostream &operator << (std::ostream &sink, socket_address const &socketAddress);
 
-[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view const &ipport, std::error_code &errorCode);
-[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view const &ip, uint16_t port, std::error_code &errorCode);
+[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view ipport, std::error_code &errorCode);
+[[nodiscard]] std::optional<socket_address> make_socket_address(std::string_view ip, uint16_t port, std::error_code &errorCode);
 
 }
 

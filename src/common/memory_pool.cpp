@@ -34,6 +34,8 @@
 #include <cstring> ///< for std::memset
 #include <memory> ///< for std::construct_at, std::destroy_at
 #include <new> ///< for operator delete, operator new, std::align_val_t
+#include <ranges> ///< for std::views::iota
+#include <utility> ///< for std::ignore
 
 namespace io_threads
 {
@@ -59,13 +61,14 @@ memory_pool::memory_pool(
    m_tailMemoryChunk = m_headMemoryChunk + bytesLength;
    std::memset(m_headMemoryChunk, 0, bytesLength);
 #endif
-   for (size_t index{0,}; initialPoolCapacity > index; ++index)
+   for (auto const memoryChunkIndex : std::views::iota(size_t{0,}, initialPoolCapacity))
    {
 #if (defined(NDEBUG))
-      auto *memoryChunk{std::bit_cast<memory_chunk *>(m_headMemoryChunk + bytesStep * index),};
+      auto *memoryChunk{std::bit_cast<memory_chunk *>(m_headMemoryChunk + bytesStep * memoryChunkIndex),};
       assert(m_tailMemoryChunk > memoryChunk);
-      assert((memoryChunk + bytesStep * (index + 1)) <= m_tailMemoryChunk);
+      assert((memoryChunk + bytesStep * (memoryChunkIndex + 1)) <= m_tailMemoryChunk);
 #else
+      std::ignore = memoryChunkIndex;
       auto *memoryChunk{allocate_memory_chunk(),};
       std::memset(std::bit_cast<void *>(memoryChunk), 0, memory_chunk_size());
 #endif

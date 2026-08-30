@@ -34,6 +34,7 @@
 #include <format>
 #include <fstream>
 #include <future>
+#include <ranges>
 
 namespace io_threads::tests
 {
@@ -131,7 +132,7 @@ private:
 
    MOCK_METHOD(system_time, get_timestamp, (std::string_view const &), (final));
    MOCK_METHOD(void, io_queue_started, (), (final));
-   MOCK_METHOD(void, io_queue_stopped, (std::error_code const &), (final));
+   MOCK_METHOD(void, io_queue_stopped, (std::error_code), (final));
    MOCK_METHOD(file_writer_config, make_config, (system_time), (final));
 };
 
@@ -190,14 +191,14 @@ TEST_F(file_writer, rotating_file_write_queue)
       };
       constexpr size_t testDaysCount{3,};
       constexpr size_t testMessagesPerDay{143,};
-      for (size_t testIteration{0}; (testDaysCount * testMessagesPerDay) > testIteration; ++testIteration)
+      for ([[maybe_unused]] auto const testIteration : std::views::iota(size_t{0,}, testDaysCount * testMessagesPerDay))
       {
          testFileWriterQueue.push(testGenerateNextDataChunk());
       }
       testFileWriterQueue.expect_close();
       EXPECT_EQ(std::future_status::ready, testFileWriterQueue.wait_for(std::chrono::minutes{1,}));
       std::string testDataChunk;
-      for (size_t testIndex{0,}; testDaysCount > testIndex; ++testIndex)
+      for (auto const testIndex : std::views::iota(size_t{0,}, testDaysCount))
       {
          std::ifstream testFile
          {

@@ -73,6 +73,7 @@
 #include <cassert> ///< for assert
 #include <memory> ///< for std::addressof
 #include <source_location> ///< for std::source_location
+#include <span> ///< for std::span
 #include <string> ///< for std::wstring
 #include <string_view> ///< for std::string_view
 
@@ -92,14 +93,14 @@ public:
       m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
-   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::vector<domain_address> const &) noexcept :
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address> const) noexcept :
       m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
    [[nodiscard]] x509_store_impl(
-      std::string_view const &x509Data,
+      std::string_view const x509Data,
       [[maybe_unused]] x509_format const x509DataFormat,
-      std::string_view const &x509DataPassword
+      std::string_view const x509DataPassword
    ) :
       m_revocationCheckEnabled{false,}
    {

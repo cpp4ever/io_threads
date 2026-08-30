@@ -52,7 +52,7 @@ public:
       return bytesWritten;
    }
 
-   void reset(data_chunk const &dataChunk) noexcept
+   void reset(data_chunk const dataChunk) noexcept
    {
       assert(nullptr != dataChunk.bytes);
       assert(0 < dataChunk.bytesLength);
@@ -62,7 +62,7 @@ public:
       m_dataChunk = dataChunk;
    }
 
-   [[nodiscard]] bool update(std::string_view const &value, size_t &offset)
+   [[nodiscard]] bool update(std::string_view const value, size_t &offset)
    {
       assert(value.size() > offset);
       if (m_bytesWritten == m_dataChunk.bytesLength)

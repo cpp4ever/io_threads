@@ -62,6 +62,8 @@
 #include <cstring> ///< for std::memcpy
 #include <map> ///< for std::map
 #include <memory> ///< for std::default_delete, std::unique_ptr
+#include <ranges> ///< for std::views::iota, std::views::values
+#include <span> ///< for std::span
 
 template<>
 struct std::default_delete<SSL_CTX>
@@ -167,7 +169,7 @@ public:
       X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
    }
 
-   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::vector<domain_address> const &domainAddresses) :
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address> const domainAddresses) :
       x509_store_impl{config,}
    {
       if (true == config.enableRevocationCheck)
@@ -192,20 +194,17 @@ public:
          X509_STORE_set_lookup_crls(m_x509Store.get(), nullptr);
          X509_STORE_set_ex_data(m_x509Store.get(), 0, nullptr);
          /// Update the store cache with downloaded CRLs
-         for (auto const &[url, x509Crl] : mapUrlToX509Crl)
+         for (auto const &x509Crl : mapUrlToX509Crl | std::views::values | std::views::filter([] (auto const &x509Crl) { return nullptr != x509Crl; }))
          {
-            if (nullptr != x509Crl)
-            {
-               add_crl_to_store(m_x509Store.get(), x509Crl.get());
-            }
+            add_crl_to_store(m_x509Store.get(), x509Crl.get());
          }
       }
    }
 
    [[nodiscard]] x509_store_impl(
-      std::string_view const &x509Data,
+      std::string_view const x509Data,
       [[maybe_unused]] x509_format const x509Format,
-      std::string_view const &x509DataPassword
+      std::string_view const x509DataPassword
    ) :
       m_enableCertificateVerification{true,}
    {
@@ -225,7 +224,7 @@ public:
       X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
       BIO *bio{BIO_new_mem_buf(x509Data.data(), static_cast<int>(x509Data.size())),};
       auto *x509InfoStack = PEM_X509_INFO_read_bio(bio, nullptr, pem_password_callback, std::bit_cast<void *>(std::addressof(x509DataPassword)));
-      for (int x509InfoIndex{0,}; sk_X509_INFO_num(x509InfoStack) > x509InfoIndex; ++x509InfoIndex)
+      for (auto const x509InfoIndex : std::views::iota(0, std::max(0, sk_X509_INFO_num(x509InfoStack))))
       {
          if (auto *x509Info{sk_X509_INFO_value(x509InfoStack, x509InfoIndex),}; nullptr != x509Info)
          {
@@ -329,7 +328,7 @@ private:
       assert(nullptr != x509Store);
       auto *mapUrlToX509Crl{std::bit_cast<map_url_to_x509_crl *>(X509_STORE_get_ex_data(x509Store, 0)),};
       assert(nullptr != mapUrlToX509Crl);
-      auto const *x509 = X509_STORE_CTX_get_current_cert(x509StoreContext);
+      auto const *x509{X509_STORE_CTX_get_current_cert(x509StoreContext),};
       assert(nullptr != x509);
       auto *x509CrlStack{sk_X509_CRL_new_null(),};
       if (nullptr == x509CrlStack) [[unlikely]]
@@ -349,7 +348,7 @@ private:
    )
    {
       auto *crlDistributionPointStack{static_cast<STACK_OF(DIST_POINT) *>(X509_get_ext_d2i(x509, NID, nullptr, nullptr)),};
-      for (int crlDistributionPointIndex{0,}; sk_DIST_POINT_num(crlDistributionPointStack) > crlDistributionPointIndex; ++crlDistributionPointIndex)
+      for (auto const crlDistributionPointIndex : std::views::iota(0, std::max(0, sk_DIST_POINT_num(crlDistributionPointStack))))
       {
          if (
             auto const *crlDistributionPoint{sk_DIST_POINT_value(crlDistributionPointStack, crlDistributionPointIndex),};
@@ -359,8 +358,8 @@ private:
             && (0 == crlDistributionPoint->distpoint->type)
          )
          {
-            auto const *generalNameStack{crlDistributionPoint->distpoint->name.fullname};
-            for (int generalNameIndex{0,}; sk_GENERAL_NAME_num(generalNameStack) > generalNameIndex; ++generalNameIndex)
+            auto const *generalNameStack{crlDistributionPoint->distpoint->name.fullname,};
+            for (auto const generalNameIndex : std::views::iota(0, std::max(0, sk_GENERAL_NAME_num(generalNameStack))))
             {
                download_crl(mapUrlToX509Crl, x509CrlStack, sk_GENERAL_NAME_value(generalNameStack, generalNameIndex));
             }
