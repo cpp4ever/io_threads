@@ -34,8 +34,8 @@ if(NOT TARGET llhttp_static)
       EXCLUDE_FROM_ALL
       SYSTEM
       # Download Step Options
-      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.4.2.tar.gz
-      URL_HASH SHA256=ba717a2f99f340a0ee9796aaf2b1acca057e1e37682ffd2bc4def4d3b6bc4005
+      URL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.4.3.tar.gz
+      URL_HASH SHA256=1eb813c7437b31a87496a1cd3ed79f00746720f5e7e29c79b42c02cb69f36c39
       DOWNLOAD_EXTRACT_TIMESTAMP ON
    )
    FetchContent_MakeAvailable(llhttp)
