@@ -122,7 +122,7 @@
 #include <cstdint> ///< for intptr_t, uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
+#include <memory> ///< for std::addressof
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <span> ///< for std::span
@@ -314,7 +314,7 @@ public:
       uint32_t const socketListCapacity,
       uint32_t const recvBufferSize,
       uint32_t const sendBufferSize,
-      std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
+      std::promise<tcp_client_thread_worker &> &workerPromise
    )
    {
       [[maybe_unused]] static winsock_scope const winsockScope{};
@@ -330,26 +330,26 @@ public:
             {
                check_winapi_error("[tcp_client] failed to pin thread to cpu core: ({}) - {}");
             }
-            auto const threadWorker{std::make_shared<tcp_client_thread_worker>(socketListCapacity, recvBufferSize, sendBufferSize),};
+            tcp_client_thread_worker threadWorker{socketListCapacity, recvBufferSize, sendBufferSize,};
             workerPromise.set_value(threadWorker);
             bool stopRequested{false,};
             completion_port::entries completionPortEntries{};
             while (false == stopRequested) [[likely]]
             {
-               threadWorker->process_deferred_tasks();
+               threadWorker.process_deferred_tasks();
                auto timeoutMilliseconds{completion_port::infinite_timeout,};
-               if (auto const *deferredTask{threadWorker->m_deferredTaskHead,}; nullptr != deferredTask)
+               if (auto const *deferredTask{threadWorker.m_deferredTaskHead,}; nullptr != deferredTask)
                {
                   auto const now{steady_clock::now(),};
                   timeoutMilliseconds = static_cast<DWORD>(std::chrono::ceil<std::chrono::milliseconds>(std::max(deferredTask->notBeforeTime, now) - now).count());
                };
-               while (completionPortEntries.size() == threadWorker->poll(completionPortEntries, timeoutMilliseconds, stopRequested))
+               while (completionPortEntries.size() == threadWorker.poll(completionPortEntries, timeoutMilliseconds, stopRequested))
                {
                   /// Do while there are entries to poll
                   timeoutMilliseconds = completion_port::no_timeout;
                }
             }
-            while (0 != threadWorker->poll(completionPortEntries, completion_port::no_timeout, stopRequested))
+            while (0 != threadWorker.poll(completionPortEntries, completion_port::no_timeout, stopRequested))
             {
                /// Until all entries are polled
             }

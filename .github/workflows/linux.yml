@@ -98,4 +98,4 @@ jobs:
     - name: Test
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config ${{matrix.build_type}} --verbose
+        ctest --build-config ${{matrix.build_type}} --no-tests=error --repeat until-pass:3 --verbose

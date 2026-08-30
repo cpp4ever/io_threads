@@ -56,6 +56,11 @@ public:
       m_uringCommandsPool{commandQueueCapacity, std::align_val_t{alignof(uring_command)}, sizeof(uring_command)}
    {}
 
+   ~uring_command_queue()
+   {
+      std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,}; ///< Avoids race conditions
+   }
+
    uring_command_queue &operator = (uring_command_queue &&) = delete;
    uring_command_queue &operator = (uring_command_queue const &) = delete;
 

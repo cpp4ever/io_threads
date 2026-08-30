@@ -66,16 +66,16 @@ public:
       assert(socketListCapacity > 0);
       assert(recvBufferSize > 0);
       assert(sendBufferSize > 0);
-      std::promise<std::shared_ptr<tcp_client::tcp_client_thread_worker>> workerPromise{};
+      std::promise<tcp_client::tcp_client_thread_worker &> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
       m_thread = tcp_client::tcp_client_thread_worker::start(threadConfig, socketListCapacity, recvBufferSize, sendBufferSize, workerPromise);
-      m_worker = workerFuture.get();
+      m_worker = std::addressof(workerFuture.get());
    }
 
    ~tcp_client_thread_impl()
    {
       m_worker->stop();
-      m_worker.reset();
+      m_worker = nullptr;
       m_thread.join();
    }
 
@@ -120,7 +120,7 @@ public:
 #endif
 
 private:
-   std::shared_ptr<tcp_client::tcp_client_thread_worker> m_worker{nullptr,};
+   tcp_client::tcp_client_thread_worker *m_worker{nullptr,};
    std::thread m_thread{};
 };
 

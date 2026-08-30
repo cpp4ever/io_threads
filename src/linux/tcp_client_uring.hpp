@@ -53,6 +53,7 @@ public:
 
    virtual void prep_close(tcp_socket_operation &tcpSocketOperation) = 0;
    virtual void prep_connect(tcp_socket_operation &tcpSocketOperation, sockaddr const &socketAddress) = 0;
+   virtual void prep_poll() = 0;
    virtual void prep_recv(tcp_socket_operation &tcpRecvOperation) = 0;
    virtual void prep_send(tcp_socket_operation &tcpSendOperation, uint32_t bytesLength) = 0;
 #if ((2 < IO_URING_VERSION_MAJOR) || ((2 == IO_URING_VERSION_MAJOR) && (6 <= IO_URING_VERSION_MINOR)))

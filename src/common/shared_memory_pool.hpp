@@ -47,6 +47,11 @@ public:
       m_pool{initialPoolCapacity, memoryChunkAlignment, memoryChunkSize,}
    {}
 
+   ~shared_memory_pool()
+   {
+      std::scoped_lock const poolGuard{m_poolLock,}; ///< Avoids race conditions
+   }
+
    shared_memory_pool &operator = (shared_memory_pool &&) = delete;
    shared_memory_pool &operator = (shared_memory_pool const &) = delete;
 

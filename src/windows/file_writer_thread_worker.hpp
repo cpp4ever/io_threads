@@ -80,7 +80,7 @@
 #include <cstdint> ///< for intptr_t, uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr
+#include <memory> ///< for std::addressof
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <span> ///< for std::span
@@ -191,7 +191,7 @@ public:
       thread_config const &threadConfig,
       uint32_t const fileListCapacity,
       uint32_t const ioBufferSize,
-      std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
+      std::promise<file_writer_thread_worker &> &workerPromise
    )
    {
       return std::thread
@@ -206,20 +206,20 @@ public:
             {
                check_winapi_error("[file_writer] failed to pin thread to cpu core: ({}) - {}");
             }
-            auto const threadWorker{std::make_shared<file_writer_thread_worker>(fileListCapacity, ioBufferSize),};
+            file_writer_thread_worker threadWorker{fileListCapacity, ioBufferSize,};
             workerPromise.set_value(threadWorker);
             bool stopRequested{false,};
             completion_port::entries completionPortEntries{};
             while (false == stopRequested) [[likely]]
             {
                auto timeoutMilliseconds{completion_port::infinite_timeout,};
-               while (completionPortEntries.size() == threadWorker->poll(completionPortEntries, timeoutMilliseconds, stopRequested))
+               while (completionPortEntries.size() == threadWorker.poll(completionPortEntries, timeoutMilliseconds, stopRequested))
                {
                   /// Do while there are entries to poll
                   timeoutMilliseconds = completion_port::no_timeout;
                }
             }
-            while (0 != threadWorker->poll(completionPortEntries, completion_port::no_timeout, stopRequested))
+            while (0 != threadWorker.poll(completionPortEntries, completion_port::no_timeout, stopRequested))
             {
                /// Until all entries are polled
             }

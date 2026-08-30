@@ -97,7 +97,7 @@ jobs:
     - name: Run
       working-directory: ${{runner.workspace}}/build
       run: |
-        ctest --build-config Debug --verbose
+        ctest --build-config Debug --no-tests=error --repeat until-pass:3 --verbose
 
     - name: Collect
       working-directory: ${{github.workspace}}

@@ -62,7 +62,7 @@
 #include <cstring> ///< for std::memcpy, std::memmove, std::memset, strnlen
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::make_shared, std::shared_ptr, std::unique_ptr
+#include <memory> ///< for std::addressof, std::construct_at, std::destroy_at, std::unique_ptr
 #include <new> ///< for std::align_val_t
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
@@ -211,8 +211,8 @@ public:
 
    void stop()
    {
-      m_uringCommandQueue.push(to_underlying(tcp_client_command::unknown), 0);
-      m_tcpClientUring->wake();
+      std::scoped_lock const stopGuard{m_stopLock,}; ///< Avoids race conditions in the dtor
+      m_tcpClientUring->stop();
    }
 
    [[nodiscard]] static std::thread start(
@@ -220,7 +220,7 @@ public:
       uint32_t const socketListCapacity,
       uint32_t const recvBufferSize,
       uint32_t const sendBufferSize,
-      std::promise<std::shared_ptr<tcp_client_thread_worker>> &workerPromise
+      std::promise<tcp_client_thread_worker &> &workerPromise
    )
    {
       return std::thread
@@ -235,21 +235,19 @@ public:
                   unreachable();
                }
             }
-            auto const threadWorker
+            tcp_client_thread_worker threadWorker
             {
-               std::make_shared<tcp_client_thread_worker>(
-                  tcp_client_uring::construct(
-                     threadConfig.async_workers_affinity(),
-                     threadConfig.kernel_thread_affinity(),
-                     socketListCapacity,
-                     recvBufferSize,
-                     std::max<uint32_t>(sizeof(tcp_socket_options), sendBufferSize)
-                  ),
-                  socketListCapacity
+               tcp_client_uring::construct(
+                  threadConfig.async_workers_affinity(),
+                  threadConfig.kernel_thread_affinity(),
+                  socketListCapacity,
+                  recvBufferSize,
+                  std::max<uint32_t>(sizeof(tcp_socket_options), sendBufferSize)
                ),
+               socketListCapacity,
             };
             workerPromise.set_value(threadWorker);
-            threadWorker->run();
+            threadWorker.run();
          }
       };
    }
@@ -265,6 +263,7 @@ private:
    std::unique_ptr<tcp_client_uring> const m_tcpClientUring;
    tcp_deferred_task *m_deferredTaskHead{nullptr,};
    tcp_deferred_task *m_deferredTaskTail{nullptr,};
+   std::mutex m_stopLock{};
 
    void cancel_deferred_task(tcp_client &tcpClient);
    void enqueue_deferred_task(tcp_deferred_task &deferredTask);
@@ -274,12 +273,6 @@ private:
       assert(std::this_thread::get_id() == m_threadId);
       switch (commandId)
       {
-      [[unlikely]] case to_underlying(tcp_client_command::unknown):
-      {
-         assert(0 == commandTarget);
-         m_tcpClientUring->stop();
-      }
-      break;
 
       case to_underlying(tcp_client_command::deferred):
       {
@@ -339,6 +332,7 @@ private:
          unreachable();
       }
       break;
+
       }
    }
 
@@ -1392,6 +1386,7 @@ private:
 
    void run()
    {
+      m_tcpClientUring->prep_poll();
       __kernel_timespec ioTimeout{};
       intptr_t tasksCount{0,};
       sigset_t sigmask{};
@@ -1417,6 +1412,7 @@ private:
             tasksCount = m_tcpClientUring->poll(*this, nullptr, sigmask);
          }
       } while (tasksCount > 0);
+      std::scoped_lock const stopGuard{m_stopLock,}; ///< Avoids race conditions in the dtor
    }
 
    void send(tcp_socket_descriptor &tcpSocketDescriptor)

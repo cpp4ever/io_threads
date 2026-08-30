@@ -60,7 +60,7 @@
 #include <cstring> ///< for std::memcpy
 #include <functional> ///< for std::function
 #include <future> ///< for std::promise
-#include <memory> ///< for std::addressof, std::make_shared, std::shared_ptr, std::unique_ptr
+#include <memory> ///< for std::addressof, std::unique_ptr
 #include <source_location> ///< for std::source_location
 #include <stop_token> ///< for std::stop_token
 #include <system_error> ///< for std::error_code, std::generic_category
@@ -134,15 +134,15 @@ public:
 
    void stop()
    {
-      m_uringCommandQueue.push(to_underlying(file_writer_command::unknown), 0);
-      m_fileWriterUring->wake();
+      std::scoped_lock const stopGuard{m_stopLock,}; ///< Avoids race conditions in the dtor
+      m_fileWriterUring->stop();
    }
 
    [[nodiscard]] static std::thread start(
       thread_config const &threadConfig,
       uint32_t const fileListCapacity,
       uint32_t const ioBufferSize,
-      std::promise<std::shared_ptr<file_writer_thread_worker>> &workerPromise
+      std::promise<file_writer_thread_worker &> &workerPromise
    )
    {
       return std::thread
@@ -157,17 +157,15 @@ public:
                   unreachable();
                }
             }
-            auto const threadWorker
+            file_writer_thread_worker threadWorker
             {
-               std::make_shared<file_writer_thread_worker>(
-                  file_writer_uring::construct(
-                     threadConfig.async_workers_affinity(),
-                     threadConfig.kernel_thread_affinity(),
-                     fileListCapacity,
-                     std::max<uint32_t>(PATH_MAX + 1, ioBufferSize)
-                  ),
-                  fileListCapacity
+               file_writer_uring::construct(
+                  threadConfig.async_workers_affinity(),
+                  threadConfig.kernel_thread_affinity(),
+                  fileListCapacity,
+                  std::max<uint32_t>(PATH_MAX + 1, ioBufferSize)
                ),
+               fileListCapacity,
             };
             workerPromise.set_value(threadWorker);
             sigset_t sigmask{};
@@ -176,11 +174,12 @@ public:
                log_system_error("[file_writer] failed to initialize sigmask: ({}) - {}", errno);
                unreachable();
             }
-            threadWorker->m_fileWriterUring->run(*threadWorker, sigmask);
-            threadWorker->m_fileWriterUring->unregister_file_descriptors(threadWorker->m_fileDescriptors);
-            threadWorker->m_fileDescriptors = nullptr;
-            threadWorker->m_fileWriterUring->unregister_buffers(threadWorker->m_registeredBuffers);
-            threadWorker->m_registeredBuffers = nullptr;
+            threadWorker.m_fileWriterUring->run(threadWorker, sigmask);
+            std::scoped_lock const stopGuard{threadWorker.m_stopLock,}; ///< Avoids race conditions in the dtor
+            threadWorker.m_fileWriterUring->unregister_file_descriptors(threadWorker.m_fileDescriptors);
+            threadWorker.m_fileDescriptors = nullptr;
+            threadWorker.m_fileWriterUring->unregister_buffers(threadWorker.m_registeredBuffers);
+            threadWorker.m_registeredBuffers = nullptr;
          }
       };
    }
@@ -191,6 +190,7 @@ private:
    std::unique_ptr<file_writer_uring> const m_fileWriterUring;
    registered_buffer *m_registeredBuffers{nullptr,};
    file_descriptor *m_fileDescriptors{nullptr,};
+   std::mutex m_stopLock{};
 
    void close_file(file_writer &fileWriter)
    {
@@ -210,12 +210,6 @@ private:
       assert(std::this_thread::get_id() == m_threadId);
       switch (commandId)
       {
-      [[unlikely]] case to_underlying(file_writer_command::unknown):
-      {
-         assert(0 == commandTarget);
-         m_fileWriterUring->stop();
-      }
-      break;
 
       case to_underlying(file_writer_command::execute):
       {
@@ -244,6 +238,7 @@ private:
          handle_ready_to_close(*std::bit_cast<file_writer *>(commandTarget));
       }
       break;
+
       }
    }
 

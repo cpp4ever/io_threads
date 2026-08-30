@@ -24,13 +24,14 @@
 */
 
 #if (defined(__linux__))
-#include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
+#include "common/logger.hpp" ///< for io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/cpu_id.hpp" ///< for io_threads::cpu_id
 #include "io_threads/thread_config.hpp" ///< for io_threads::io_affinity, io_threads::io_ring
 #include "linux/file_descriptor.hpp" ///< for io_threads::file_descriptor, io_threads::registered_buffer
 #include "linux/file_writer_uring.hpp" ///< for io_threads::file_writer_uring
+#include "linux/uring_alarm.hpp" ///< for io_threads::submission_queue_entry, io_threads::uring_alarm
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 #include <fcntl.h> ///< for AT_FDCWD
@@ -40,23 +41,20 @@
 ///   io_uring_cqe,
 ///   io_uring_cqe_get_data,
 ///   io_uring_for_each_cqe,
-///   io_uring_get_sqe,
 ///   io_uring_params,
 ///   io_uring_prep_close_direct,
 ///   io_uring_prep_fsync,
 ///   io_uring_prep_openat_direct,
-///   io_uring_prep_read_fixed,
 ///   io_uring_prep_write_fixed,
 ///   io_uring_queue_exit,
 ///   io_uring_queue_init_params,
 ///   io_uring_register_buffers,
 ///   io_uring_register_files,
-///   io_uring_register_files_update,
 ///   io_uring_register_iowq_aff,
 ///   io_uring_register_iowq_max_workers,
 ///   io_uring_register_ring_fd,
 ///   io_uring_ring_dontfork,
-///   io_uring_sqe_set_data,
+///   io_uring_sqe,
 ///   io_uring_submit_and_wait_timeout,
 ///   io_uring_unregister_buffers,
 ///   io_uring_unregister_files,
@@ -74,21 +72,19 @@
 #include <liburing.h>
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
 #include <signal.h> ///< for sigset_t
-#include <sys/eventfd.h> ///< for EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
 #include <sys/types.h> ///< for mode_t
 #include <sys/uio.h> ///< for iovec
-#include <unistd.h> ///< for close
 
 #include <array> ///< for std::array
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cerrno> ///< for errno
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memset
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t
-#include <optional> ///< for std::nullopt_t, std::optional
-#include <source_location> ///< for std::source_location
+#include <optional> ///< for std::nullopt_t
+#include <ranges> ///< for std::views::iota
+#include <span> ///< for std::span
 #include <variant> ///< for std::visit
 #include <vector> ///< for std::vector
 
@@ -120,8 +116,8 @@ public:
       assert(0 < ioBufferSize);
       io_uring_params ioRingParams;
       std::memset(std::addressof(ioRingParams), 0, sizeof(ioRingParams));
-      ioRingParams.sq_entries = ioRingQueueCapacity + 1;
-      ioRingParams.cq_entries = ioRingQueueCapacity * 2 + 1;
+      ioRingParams.sq_entries = ioRingQueueCapacity + uring_alarm::number_of_alarms;
+      ioRingParams.cq_entries = ioRingQueueCapacity * 2u + uring_alarm::number_of_alarms;
       ioRingParams.flags = IORING_SETUP_CQSIZE | IORING_SETUP_SINGLE_ISSUER;
 #if (defined(IORING_SETUP_NO_SQARRAY))
       ioRingParams.flags |= IORING_SETUP_NO_SQARRAY;
@@ -163,7 +159,7 @@ public:
       );
       ioRingParams.features = IORING_FEAT_SINGLE_MMAP;
       if (
-         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity + 1, std::addressof(m_ring), std::addressof(ioRingParams)),};
+         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity + uring_alarm::number_of_alarms, std::addressof(m_ring), std::addressof(ioRingParams)),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -194,7 +190,7 @@ public:
          },
          asyncWorkersAffinity
       );
-      std::array<uint32_t, 2> iowqMaxWorkers = {ioRingQueueCapacity, ioRingQueueCapacity,};
+      std::array<uint32_t, 2u> iowqMaxWorkers{ioRingQueueCapacity, ioRingQueueCapacity,};
       if (auto const returnCode{io_uring_register_iowq_max_workers(std::addressof(m_ring), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[file_writer] failed to register IO workers limits: ({}) - {}", -returnCode);
@@ -203,21 +199,13 @@ public:
       {
          log_system_error("[file_writer] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
       }
-      if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
-      {
-         log_system_error("[file_writer] failed to create eventfd: ({}) - {}", errno);
-         unreachable();
-      }
    }
 
    ~file_writer_uring_impl() override
    {
       assert(0 == m_tasksCount);
-      assert(-1 != m_eventfd);
-      if (-1 == close(m_eventfd)) [[unlikely]]
-      {
-         log_system_error("[file_writer] failed to destroy eventfd: ({}) - {}", errno);
-      }
+      assert(true == m_registeredBuffers.empty());
+      assert(true == m_registeredFiles.empty());
       if (auto const returnCode{io_uring_unregister_iowq_aff(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[file_writer] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
@@ -291,29 +279,28 @@ public:
    {
       assert(0 < fileListCapacity);
       assert(true == m_registeredBuffers.empty());
-      m_registeredBuffers.reserve(fileListCapacity + 1);
+      m_registeredBuffers.resize(fileListCapacity + uring_alarm::number_of_alarms, iovec{.iov_base = nullptr, .iov_len = 0,});
+      m_alarm.register_buffers(std::span{m_registeredBuffers,}.subspan(0, uring_alarm::number_of_alarms));
       registered_buffer *registeredBuffers{nullptr,};
-      for (auto registeredBufferIndex{fileListCapacity,}; 0 < registeredBufferIndex; --registeredBufferIndex)
+      for (auto const registeredBufferIndex : std::views::iota(uring_alarm::number_of_alarms, fileListCapacity + uring_alarm::number_of_alarms))
       {
          registeredBuffers = std::addressof(
             m_registeredBufferPool.pop_object<registered_buffer>(
                registered_buffer{.next = registeredBuffers, .index = registeredBufferIndex,}
             )
          );
-      }
-      m_registeredBuffers.push_back(iovec{.iov_base = std::addressof(m_eventfdValue), .iov_len = sizeof(m_eventfdValue),});
-      for (auto *registeredBuffer = registeredBuffers; nullptr != registeredBuffer; registeredBuffer = registeredBuffer->next)
-      {
-         m_registeredBuffers.push_back(
-            iovec{.iov_base = registeredBuffer->bytes, .iov_len = registered_buffer_capacity(*registeredBuffer),}
-         );
+         m_registeredBuffers[registeredBufferIndex] = iovec
+         {
+            .iov_base = registeredBuffers->bytes,
+            .iov_len = registered_buffer_capacity(*registeredBuffers),
+         };
       }
       if (
          auto const returnCode{io_uring_register_buffers(std::addressof(m_ring), m_registeredBuffers.data(), m_registeredBuffers.size()),};
          0 > returnCode
       ) [[unlikely]]
       {
-         log_system_error("[file_writer] failed to register memory buffers: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to register buffers: ({}) - {}", -returnCode);
          unreachable();
       }
       return registeredBuffers;
@@ -323,7 +310,16 @@ public:
    {
       assert(0 < fileListCapacity);
       assert(true == m_registeredFiles.empty());
-      m_registeredFiles.resize(fileListCapacity + 1, -1);
+      m_registeredFiles.resize(fileListCapacity + uring_alarm::number_of_alarms, -1);
+      file_descriptor *fileDescriptors{nullptr,};
+      for (auto const registeredFileIndex : std::views::iota(uring_alarm::number_of_alarms, fileListCapacity + uring_alarm::number_of_alarms))
+      {
+         fileDescriptors = std::addressof(
+            m_fileDescriptorPool.pop_object<file_descriptor>(
+               file_descriptor{.registeredFileIndex = registeredFileIndex, .next = fileDescriptors,}
+            )
+         );
+      }
       if (
          auto const returnCode{io_uring_register_files(std::addressof(m_ring), m_registeredFiles.data(), static_cast<uint32_t>(m_registeredFiles.size())),};
          0 > returnCode
@@ -331,15 +327,6 @@ public:
       {
          log_system_error("[file_writer] failed to register files: ({}) - {}", -returnCode);
          unreachable();
-      }
-      file_descriptor *fileDescriptors{nullptr,};
-      for (auto registeredFileIndex{fileListCapacity,}; 0 < registeredFileIndex; --registeredFileIndex)
-      {
-         fileDescriptors = std::addressof(
-            m_fileDescriptorPool.pop_object<file_descriptor>(
-               file_descriptor{.registeredFileIndex = registeredFileIndex, .next = fileDescriptors,}
-            )
-         );
       }
       return fileDescriptors;
    }
@@ -355,7 +342,7 @@ public:
       assert(false == m_registeredBuffers.empty());
       if (auto const returnCode{io_uring_unregister_buffers(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
-         log_system_error("[file_writer] failed to unregister memory buffers: ({}) - {}", -returnCode);
+         log_system_error("[file_writer] failed to unregister buffers: ({}) - {}", -returnCode);
          unreachable();
       }
       while (nullptr != registeredBuffers)
@@ -376,6 +363,7 @@ public:
       {
          log_system_error("[file_writer] failed to unregister files: ({}) - {}", -returnCode);
       }
+      m_registeredFiles.clear();
       while (nullptr != fileDescriptors)
       {
          auto *fileDescriptor{fileDescriptors,};
@@ -387,13 +375,11 @@ public:
          fileDescriptor->next = nullptr;
          m_fileDescriptorPool.push_object(*fileDescriptor);
       }
-      m_registeredFiles.clear();
    }
 
    void run(uring_listener &uringListener, sigset_t &sigmask) override
    {
-      register_eventfd();
-      prep_read_eventfd();
+      m_tasksCount += m_alarm.start(m_ring);
       while (0 < m_tasksCount) [[likely]]
       {
          poll(uringListener, sigmask);
@@ -402,18 +388,12 @@ public:
 
    void stop() override
    {
-      assert(true == m_running);
-      m_running = false;
+      m_alarm.wake(uring_thread_alarm);
    }
 
    void wake() override
    {
-      assert(-1 != m_eventfd);
-      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
-      {
-         log_system_error("[file_writer] failed to raise eventfd: ({}) - {}", errno);
-         unreachable();
-      }
+      m_alarm.wake(uring_client_alarm);
    }
 
    [[nodiscard]] io_ring share_io_threads() const noexcept override
@@ -423,10 +403,9 @@ public:
 
 private:
    io_uring m_ring{};
-   intptr_t m_tasksCount{0,};
-   int m_eventfd{-1,};
+   intptr_t m_tasksCount{0l,};
+   uring_alarm m_alarm{};
    bool m_running{true,};
-   eventfd_t m_eventfdValue{0,};
    memory_pool m_registeredBufferPool;
    std::vector<iovec> m_registeredBuffers{};
    memory_pool m_fileDescriptorPool;
@@ -443,33 +422,41 @@ private:
          log_system_error("[file_writer] failed to submit prepared tasks: ({}) - {}", -returnCode);
          unreachable();
       }
-      uint32_t completionQueueHead;
-      uint32_t numberOfCompletionQueueEntriesRemoved{0,};
+      auto completionQueueHead{0u,};
+      auto numberOfCompletionQueueEntriesRemoved{0u,};
       io_uring_for_each_cqe(std::addressof(m_ring), completionQueueHead, completionQueueEntry)
       {
-         assert(0 < m_tasksCount);
+         assert(0l < m_tasksCount);
          if (IORING_CQE_F_MORE != (IORING_CQE_F_MORE & completionQueueEntry->flags))
          {
             --m_tasksCount;
          }
          auto *userdata{io_uring_cqe_get_data(completionQueueEntry),};
          assert(nullptr != userdata);
-         if (this == userdata)
+         if ((true == m_alarm.client_alarm(userdata)) || (true == m_alarm.thread_alarm(userdata)))
          {
             assert(0 == completionQueueEntry->flags);
             if (0 > completionQueueEntry->res) [[unlikely]]
             {
-               log_system_error("[file_writer] failed to handle eventfd: ({}) - {}", -completionQueueEntry->res);
+               log_system_error("[file_writer] failed to handle alarm: ({}) - {}", -completionQueueEntry->res);
                unreachable();
             }
-            uringListener.handle_event_completion();
-            if (true == m_running) [[likely]]
+            if (true == m_alarm.client_alarm(userdata)) [[likely]]
             {
-               prep_read_eventfd();
+               uringListener.handle_event_completion();
+               if (true == m_running) [[likely]]
+               {
+                  m_tasksCount += m_alarm.set(m_ring);
+               }
+               else if (0 < completionQueueEntry->res)
+               {
+                  m_tasksCount += m_alarm.stop(m_ring);
+               }
             }
-            else if (0 < completionQueueEntry->res)
+            else
             {
-               prep_close_eventfd();
+               m_running = false;
+               m_alarm.wake(uring_client_alarm);
             }
          }
          else
@@ -481,50 +468,11 @@ private:
       io_uring_cq_advance(std::addressof(m_ring), numberOfCompletionQueueEntriesRemoved);
    }
 
-   void prep_close_eventfd()
-   {
-      io_uring_prep_close_direct(std::addressof(submission_queue_entry(this)), 0);
-   }
-
-   void prep_read_eventfd()
-   {
-      auto &submissionQueueEntry{submission_queue_entry(this),};
-      io_uring_prep_read_fixed(
-         std::addressof(submissionQueueEntry),
-         0,
-         std::addressof(m_eventfdValue),
-         sizeof(m_eventfdValue),
-         0,
-         0
-      );
-      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
-   }
-
-   void register_eventfd()
-   {
-      assert(-1 != m_eventfd);
-      if (
-         auto const returnCode{io_uring_register_files_update(std::addressof(m_ring), 0, std::addressof(m_eventfd), 1),};
-         0 > returnCode
-      ) [[unlikely]]
-      {
-         log_system_error("[file_writer] failed to register eventfd: ({}) - {}", -returnCode);
-         unreachable();
-      }
-   }
-
    [[nodiscard]] io_uring_sqe &submission_queue_entry(void *userdata)
    {
-      assert(nullptr != userdata);
-      auto *submissionQueueEntry{io_uring_get_sqe(std::addressof(m_ring)),};
-      if (nullptr == submissionQueueEntry) [[unlikely]]
-      {
-         log_error(std::source_location::current(), "[file_writer] failed to get submission queue entry, it must be a bug");
-         unreachable();
-      }
-      io_uring_sqe_set_data(submissionQueueEntry, userdata);
+      auto &submissionQueueEntry{io_threads::submission_queue_entry(m_ring, userdata),};
       ++m_tasksCount;
-      return *submissionQueueEntry;
+      return submissionQueueEntry;
    }
 };
 

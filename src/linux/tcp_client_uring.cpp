@@ -24,7 +24,7 @@
 */
 
 #if (defined(__linux__))
-#include "common/logger.hpp" ///< for io_threads::log_error, io_threads::log_system_error
+#include "common/logger.hpp" ///< for io_threads::log_system_error
 #include "common/memory_pool.hpp" ///< for io_threads::memory_pool
 #include "common/utility.hpp" ///< for io_threads::to_underlying, io_threads::unreachable
 #include "io_threads/cpu_id.hpp" ///< for io_threads::cpu_id
@@ -32,6 +32,7 @@
 #include "linux/tcp_client_uring.hpp" ///< for io_threads::tcp_client_uring
 #include "linux/tcp_socket_descriptor.hpp" ///< for io_threads::tcp_socket_descriptor
 #include "linux/tcp_socket_operation.hpp" ///< for io_threads::tcp_socket_operation, io_threads::tcp_socket_operation_type
+#include "linux/uring_alarm.hpp" ///< for io_threads::submission_queue_entry, io_threads::uring_alarm
 #include "linux/uring_listener.hpp" ///< for io_threads::uring_listener
 
 /// for
@@ -40,7 +41,6 @@
 ///   io_uring_cqe,
 ///   io_uring_cqe_get_data,
 ///   io_uring_for_each_cqe,
-///   io_uring_get_sqe,
 ///   io_uring_params,
 ///   io_uring_prep_close_direct,
 ///   io_uring_prep_cmd_sock,
@@ -54,12 +54,11 @@
 ///   io_uring_queue_init_params,
 ///   io_uring_register_buffers,
 ///   io_uring_register_files,
-///   io_uring_register_files_update,
 ///   io_uring_register_iowq_aff,
 ///   io_uring_register_iowq_max_workers,
 ///   io_uring_register_ring_fd,
 ///   io_uring_ring_dontfork,
-///   io_uring_sqe_set_data,
+///   io_uring_sqe,
 ///   io_uring_submit_and_wait_timeout,
 ///   io_uring_unregister_buffers,
 ///   io_uring_unregister_files,
@@ -75,27 +74,27 @@
 ///   IORING_SETUP_SINGLE_ISSUER,
 ///   IORING_SETUP_SQ_AFF,
 ///   IORING_SETUP_SQPOLL,
-///   IOSQE_FIXED_FILE
+///   IOSQE_FIXED_FILE,
+///   SOCKET_URING_OP_SETSOCKOPT
 #include <liburing.h>
 #include <linux/time_types.h> ///< for __kernel_timespec
-#include <netinet/in.h> ///< for IPPROTO_TCP
+#include <netinet/in.h> ///< for IPPROTO_TCP, sockaddr_in, sockaddr_in6
 #include <sched.h> ///< for CPU_SET, cpu_set_t, CPU_ZERO
 #include <signal.h> ///< for sigset_t
-#include <sys/eventfd.h> ///< for EFD_NONBLOCK, eventfd, eventfd_t, eventfd_write
-#include <sys/socket.h> ///< for AF_INET, AF_INET6, MSG_DONTWAIT, MSG_NOSIGNAL, sa_family_t, SOCK_NONBLOCK, SOCK_STREAM
+#include <sys/socket.h> ///< for AF_INET, AF_INET6, MSG_DONTWAIT, MSG_NOSIGNAL, sa_family_t, sockaddr, SOCK_NONBLOCK, SOCK_STREAM
 #include <sys/uio.h> ///< for iovec
 
 #include <array> ///< for std::array
 #include <bit> ///< for std::bit_cast
 #include <cassert> ///< for assert
-#include <cerrno> ///< for errno, ETIME
+#include <cerrno> ///< for ETIME
 #include <cstdint> ///< for int32_t, intptr_t, uint32_t
 #include <cstring> ///< for std::memset
 #include <memory> ///< for std::addressof, std::make_unique, std::unique_ptr
 #include <new> ///< for std::align_val_t
-#include <optional> ///< for std::nullopt_t, std::optional
+#include <optional> ///< for std::nullopt_t
 #include <ranges> ///< for std::views::iota
-#include <source_location> ///< for std::source_location
+#include <span> ///< for std::span
 #include <utility> ///< for std::ignore
 #include <variant> ///< for std::visit
 #include <vector> ///< for std::vector
@@ -131,8 +130,8 @@ public:
       assert(0 < sendBufferSize);
       io_uring_params ioRingParams;
       std::memset(std::addressof(ioRingParams), 0, sizeof(ioRingParams));
-      ioRingParams.sq_entries = ioRingQueueCapacity * 2 + 1;
-      ioRingParams.cq_entries = ioRingQueueCapacity * 3 + 1;
+      ioRingParams.sq_entries = ioRingQueueCapacity * 2u + uring_alarm::number_of_alarms;
+      ioRingParams.cq_entries = ioRingQueueCapacity * 3u + uring_alarm::number_of_alarms;
       ioRingParams.flags = IORING_SETUP_CQSIZE | IORING_SETUP_SINGLE_ISSUER;
 #if (defined(IORING_SETUP_NO_SQARRAY))
       ioRingParams.flags |= IORING_SETUP_NO_SQARRAY;
@@ -174,7 +173,7 @@ public:
       );
       ioRingParams.features = IORING_FEAT_SINGLE_MMAP;
       if (
-         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity * 2 + 1, std::addressof(m_ring), std::addressof(ioRingParams)),};
+         auto const returnCode{io_uring_queue_init_params(ioRingQueueCapacity * 2u + uring_alarm::number_of_alarms, std::addressof(m_ring), std::addressof(ioRingParams)),};
          0 > returnCode
       ) [[unlikely]]
       {
@@ -205,7 +204,7 @@ public:
          },
          asyncWorkersAffinity
       );
-      std::array<uint32_t, 2> iowqMaxWorkers = {ioRingQueueCapacity, ioRingQueueCapacity,};
+      std::array<uint32_t, 2u> iowqMaxWorkers{ioRingQueueCapacity, ioRingQueueCapacity,};
       if (auto const returnCode{io_uring_register_iowq_max_workers(std::addressof(m_ring), iowqMaxWorkers.data()),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to register IO workers limits: ({}) - {}", -returnCode);
@@ -214,21 +213,13 @@ public:
       {
          log_system_error("[tcp_client] failed to disable inheriting of the ring mappings: ({}) - {}", -returnCode);
       }
-      if (-1 == (m_eventfd = eventfd(0, EFD_NONBLOCK))) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to create eventfd: ({}) - {}", errno);
-         unreachable();
-      }
    }
 
    ~tcp_client_uring_impl() override
    {
       assert(0 == m_tasksCount);
-      assert(-1 != m_eventfd);
-      if (-1 == close(m_eventfd)) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to destroy eventfd: ({}) - {}", errno);
-      }
+      assert(true == m_registeredBuffers.empty());
+      assert(true == m_registeredSockets.empty());
       if (auto const returnCode{io_uring_unregister_iowq_aff(std::addressof(m_ring)),}; 0 > returnCode) [[unlikely]]
       {
          log_system_error("[tcp_client] failed to unregister IO workers affinity mask: ({}) - {}", -returnCode);
@@ -264,6 +255,12 @@ public:
          (AF_INET == socketAddress.sa_family) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6)
       );
       submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
+   }
+
+   void prep_poll() override
+   {
+      assert(true == m_running);
+      m_tasksCount += m_alarm.start(m_ring);
    }
 
    void prep_recv(tcp_socket_operation &tcpRecvOperation) override
@@ -378,7 +375,7 @@ public:
    {
       assert(0 < socketListCapacity);
       assert(true == m_registeredSockets.empty());
-      m_registeredSockets.resize(socketListCapacity + 1, -1);
+      m_registeredSockets.resize(socketListCapacity + uring_alarm::number_of_alarms, -1);
       if (
          auto const returnCode{io_uring_register_files(std::addressof(m_ring), m_registeredSockets.data(), static_cast<uint32_t>(m_registeredSockets.size())),};
          0 > returnCode
@@ -388,7 +385,7 @@ public:
          unreachable();
       }
       tcp_socket_descriptor *tcpSocketDescriptors{nullptr,};
-      for (auto registeredTcpSocketIndex{socketListCapacity,}; 0 < registeredTcpSocketIndex; --registeredTcpSocketIndex)
+      for (auto const registeredTcpSocketIndex : std::views::iota(uring_alarm::number_of_alarms, socketListCapacity + uring_alarm::number_of_alarms))
       {
          tcpSocketDescriptors = std::addressof(
             m_tcpSocketDescriptorPool.pop_object<tcp_socket_descriptor>(
@@ -396,8 +393,6 @@ public:
             )
          );
       }
-      register_eventfd();
-      prep_read_eventfd();
       return tcpSocketDescriptors;
    }
 
@@ -411,8 +406,9 @@ public:
       assert(nullptr == tcpSendOperations);
       assert(0 < socketListCapacity);
       assert(true == m_registeredBuffers.empty());
-      m_registeredBuffers.reserve(socketListCapacity * 2 + 1);
-      m_registeredBuffers.emplace_back(iovec{.iov_base = std::addressof(m_eventfdValue), .iov_len = sizeof(m_eventfdValue),});
+      m_registeredBuffers.reserve(socketListCapacity * 2 + uring_alarm::number_of_alarms);
+      m_registeredBuffers.resize(uring_alarm::number_of_alarms, iovec{.iov_base = nullptr, .iov_len = 0,});
+      m_alarm.register_buffers(m_registeredBuffers);
       constexpr auto popTcpTransferOperations
       {
          [] (auto &tcpTransferOperationPool, auto &registeredBuffers, auto const socketListCapacity, auto const tcpSocketOperationType)
@@ -522,22 +518,30 @@ public:
          }
          auto *userdata{io_uring_cqe_get_data(completionQueueEntry),};
          assert(nullptr != userdata);
-         if (this == userdata)
+         if ((true == m_alarm.client_alarm(userdata)) || (true == m_alarm.thread_alarm(userdata)))
          {
             assert(0 == completionQueueEntry->flags);
             if (0 > completionQueueEntry->res) [[unlikely]]
             {
-               log_system_error("[tcp_client] failed to read eventfd: ({}) - {}", -completionQueueEntry->res);
+               log_system_error("[tcp_client] failed to handle alarm: ({}) - {}", -completionQueueEntry->res);
                unreachable();
             }
-            uringListener.handle_event_completion();
-            if (true == m_running) [[likely]]
+            if (true == m_alarm.client_alarm(userdata)) [[likely]]
             {
-               prep_read_eventfd();
+               uringListener.handle_event_completion();
+               if (true == m_running) [[likely]]
+               {
+                  m_tasksCount += m_alarm.set(m_ring);
+               }
+               else if (0 < completionQueueEntry->res)
+               {
+                  m_tasksCount += m_alarm.stop(m_ring);
+               }
             }
-            else if (0 < completionQueueEntry->res)
+            else
             {
-               prep_close_eventfd();
+               m_running = false;
+               m_alarm.wake(uring_client_alarm);
             }
          }
          else
@@ -552,18 +556,12 @@ public:
 
    void stop() override
    {
-      assert(true == m_running);
-      m_running = false;
+      m_alarm.wake(uring_thread_alarm);
    }
 
    void wake() override
    {
-      assert(-1 != m_eventfd);
-      if (-1 == eventfd_write(m_eventfd, 1)) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to raise eventfd: ({}) - {}", errno);
-         unreachable();
-      }
+      m_alarm.wake(uring_client_alarm);
    }
 
    [[nodiscard]] io_ring share_io_threads() const noexcept override
@@ -573,60 +571,20 @@ public:
 
 private:
    io_uring m_ring{};
-   intptr_t m_tasksCount{0,};
-   int m_eventfd{-1,};
+   intptr_t m_tasksCount{0l,};
+   uring_alarm m_alarm{};
    bool m_running{true,};
-   eventfd_t m_eventfdValue{0,};
    memory_pool m_tcpRecvOperationPool;
    memory_pool m_tcpSendOperationPool;
    std::vector<iovec> m_registeredBuffers{};
    memory_pool m_tcpSocketDescriptorPool;
    std::vector<int32_t> m_registeredSockets{};
 
-   void prep_close_eventfd()
-   {
-      io_uring_prep_close_direct(std::addressof(submission_queue_entry(this)), 0);
-   }
-
-   void prep_read_eventfd()
-   {
-      auto &submissionQueueEntry{submission_queue_entry(this),};
-      io_uring_prep_read_fixed(
-         std::addressof(submissionQueueEntry),
-         0,
-         std::addressof(m_eventfdValue),
-         sizeof(m_eventfdValue),
-         0,
-         0
-      );
-      submissionQueueEntry.flags |= IOSQE_FIXED_FILE;
-   }
-
-   void register_eventfd()
-   {
-      assert(-1 != m_eventfd);
-      if (
-         auto const returnCode{io_uring_register_files_update(std::addressof(m_ring), 0, std::addressof(m_eventfd), 1),};
-         0 > returnCode
-      ) [[unlikely]]
-      {
-         log_system_error("[tcp_client] failed to register eventfd: ({}) - {}", -returnCode);
-         unreachable();
-      }
-   }
-
    [[nodiscard]] io_uring_sqe &submission_queue_entry(void *userdata)
    {
-      assert(nullptr != userdata);
-      auto *submissionQueueEntry{io_uring_get_sqe(std::addressof(m_ring)),};
-      if (nullptr == submissionQueueEntry) [[unlikely]]
-      {
-         log_error(std::source_location::current(), "[tcp_client] failed to get submission queue entry, it must be a bug");
-         unreachable();
-      }
-      io_uring_sqe_set_data(submissionQueueEntry, userdata);
+      auto &submissionQueueEntry{io_threads::submission_queue_entry(m_ring, userdata),};
       ++m_tasksCount;
-      return *submissionQueueEntry;
+      return submissionQueueEntry;
    }
 };
 

@@ -36,7 +36,7 @@
 #include <cstdint> ///< for uint32_t
 #include <functional> ///< for std::function
 #include <future> ///< for std::future, std::promise
-#include <memory> ///< for std::make_shared, std::shared_ptr
+#include <memory> ///< for std::addressof, std::make_shared
 #include <thread> ///< for std::thread
 #include <utility> ///< for std::move
 
@@ -54,16 +54,16 @@ public:
    {
       assert(0 < fileListCapacity);
       assert(0 < ioBufferSize);
-      std::promise<std::shared_ptr<file_writer::file_writer_thread_worker>> workerPromise{};
+      std::promise<file_writer::file_writer_thread_worker &> workerPromise{};
       auto workerFuture{workerPromise.get_future(),};
       m_thread = file_writer::file_writer_thread_worker::start(threadConfig, fileListCapacity, ioBufferSize, workerPromise);
-      m_worker = workerFuture.get();
+      m_worker = std::addressof(workerFuture.get());
    }
 
    ~file_writer_thread_impl()
    {
       m_worker->stop();
-      m_worker.reset();
+      m_worker = nullptr;
       m_thread.join();
    }
 
@@ -98,7 +98,7 @@ public:
 #endif
 
 private:
-   std::shared_ptr<file_writer::file_writer_thread_worker> m_worker{nullptr,};
+   file_writer::file_writer_thread_worker *m_worker{nullptr,};
    std::thread m_thread{};
 };
 
