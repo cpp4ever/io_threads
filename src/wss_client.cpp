@@ -197,7 +197,7 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
       inboundBytes += inboundFrameTailBytesLength;
       inboundBytesLength -= inboundFrameTailBytesLength;
    }
-   while (0 < inboundBytesLength)
+   while (0u < inboundBytesLength)
    {
       assert(websocket_frame_opcode_connection_close != lastOpcode);
       auto const inboundFrameHeaderLength = std::min(
@@ -210,9 +210,9 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
          inboundBytes,
          inboundFrameHeaderLength - m_websocketClientSession->incompleteInboundFrameLength
       );
-      if (1 == inboundFrameHeaderLength)
+      if (1u == inboundFrameHeaderLength)
       {
-         assert(1 == inboundBytesLength);
+         assert(1u == inboundBytesLength);
          m_websocketClientSession->incompleteInboundFrameLength = 1;
          break;
       }
@@ -227,18 +227,18 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
       {
          return make_error_code(websocket_error::frame_server_mask_not_supported);
       }
-      if (websocket_frame_long_payload_flag == (m_websocketClientSession->incompleteInboundFrame[1] & websocket_frame_long_payload_flag))
+      if (websocket_frame_long_payload_flag == (m_websocketClientSession->incompleteInboundFrame[1u] & websocket_frame_long_payload_flag))
       {
-         if (10 <= inboundFrameHeaderLength) [[likely]]
+         if (10u <= inboundFrameHeaderLength) [[likely]]
          {
-            uint64_t bytesLength{0,};
+            auto bytesLength{0ull,};
             std::memcpy(
                std::addressof(bytesLength),
-               std::addressof(m_websocketClientSession->incompleteInboundFrame[2]),
+               std::addressof(m_websocketClientSession->incompleteInboundFrame[2u]),
                sizeof(bytesLength)
             );
             inboundFrame.frameLength = static_cast<uint32_t>(ntohll(bytesLength));
-            auto const incompleteInboundFrameOffset{uint32_t{10,} - m_websocketClientSession->incompleteInboundFrameLength,};
+            auto const incompleteInboundFrameOffset{10u - m_websocketClientSession->incompleteInboundFrameLength,};
             inboundFrame.bytesLength = std::min(inboundFrame.frameLength, static_cast<uint32_t>(inboundBytesLength - incompleteInboundFrameOffset));
             inboundFrame.bytes = std::addressof(inboundBytes[incompleteInboundFrameOffset]);
             inboundBytes = inboundFrame.bytes + inboundFrame.bytesLength;
@@ -251,9 +251,9 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
             break;
          }
       }
-      else if (websocket_frame_short_payload_flag == (m_websocketClientSession->incompleteInboundFrame[1] & websocket_frame_long_payload_flag))
+      else if (websocket_frame_short_payload_flag == (m_websocketClientSession->incompleteInboundFrame[1u] & websocket_frame_long_payload_flag))
       {
-         if (4 <= inboundFrameHeaderLength) [[likely]]
+         if (4u <= inboundFrameHeaderLength) [[likely]]
          {
             uint16_t bytesLength{0,};
             std::memcpy(
@@ -262,7 +262,7 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
                sizeof(bytesLength)
             );
             inboundFrame.frameLength = ntohs(bytesLength);
-            auto const incompleteInboundFrameOffset{uint32_t{4,} - m_websocketClientSession->incompleteInboundFrameLength,};
+            auto const incompleteInboundFrameOffset{4u - m_websocketClientSession->incompleteInboundFrameLength,};
             inboundFrame.bytesLength = std::min(inboundFrame.frameLength, static_cast<uint32_t>(inboundBytesLength - incompleteInboundFrameOffset));
             inboundFrame.bytes = std::addressof(inboundBytes[incompleteInboundFrameOffset]);
             inboundBytes = inboundFrame.bytes + inboundFrame.bytesLength;
@@ -277,8 +277,8 @@ std::error_code wss_client::io_handle_frame(data_chunk const dataChunk)
       }
       else if (2 <= inboundFrameHeaderLength)
       {
-         inboundFrame.frameLength = static_cast<uint32_t>(m_websocketClientSession->incompleteInboundFrame[1]);
-         auto const incompleteInboundFrameOffset{uint32_t{2,} - m_websocketClientSession->incompleteInboundFrameLength,};
+         inboundFrame.frameLength = static_cast<uint32_t>(m_websocketClientSession->incompleteInboundFrame[1u]);
+         auto const incompleteInboundFrameOffset{2u - m_websocketClientSession->incompleteInboundFrameLength,};
          inboundFrame.bytesLength = std::min(inboundFrame.frameLength, static_cast<uint32_t>(inboundBytesLength - incompleteInboundFrameOffset));
          inboundFrame.bytes = std::addressof(inboundBytes[incompleteInboundFrameOffset]);
          inboundBytes = inboundFrame.bytes + inboundFrame.bytesLength;

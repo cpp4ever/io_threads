@@ -44,7 +44,7 @@ x509_store::x509_store(x509_store_config const &config) :
    m_impl{std::make_shared<x509_store_impl>(config),}
 {}
 
-x509_store::x509_store(x509_store_config const &config, std::span<domain_address> const domainAddresses) :
+x509_store::x509_store(x509_store_config const &config, std::span<domain_address const> const domainAddresses) :
    m_impl{std::make_shared<x509_store_impl>(config, domainAddresses),}
 {}
 

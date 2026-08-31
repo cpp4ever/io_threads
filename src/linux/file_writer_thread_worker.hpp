@@ -353,6 +353,7 @@ private:
       assert(std::this_thread::get_id() == m_threadId);
       switch (fileDescriptor.fileStatus)
       {
+
       case file_status::open:
       {
          push_registered_buffer(fileDescriptor);
@@ -414,6 +415,7 @@ private:
       [[unlikely]] case file_status::none: [[fallthrough]];
       [[unlikely]] default:
       unreachable();
+
       }
    }
 

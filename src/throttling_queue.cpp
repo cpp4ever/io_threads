@@ -81,7 +81,7 @@ steady_time throttling_queue::enqueue(steady_time const now)
    assert(nullptr != m_timeslotHead);
    assert(nullptr != m_timeslotTail);
    assert(nullptr == m_timeslotTail->next);
-   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_timeslotLock,};
+   std::scoped_lock const timeslotGuard{m_timeslotLock,};
    auto &timeslot{*m_timeslotHead};
    timeslot.timestamp = std::max(now, timeslot.timestamp + m_rollingTimeWindow);
    if (m_timeslotHead != m_timeslotTail)

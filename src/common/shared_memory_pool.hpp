@@ -59,7 +59,7 @@ public:
       requires((true == std::is_constructible_v<type, types...>) && (false == std::is_pointer_v<type>) && (false == std::is_reference_v<type>))
    [[maybe_unused, nodiscard]] type &pop(types &&...values)
    {
-      [[maybe_unused]] std::scoped_lock poolGuard{m_poolLock,};
+      std::scoped_lock const poolGuard{m_poolLock,};
       return m_pool.pop_object<type>(std::forward<types>(values)...);
    }
 
@@ -67,7 +67,7 @@ public:
       requires((false == std::is_pointer_v<type>) && (false == std::is_reference_v<type>))
    [[maybe_unused]] void push(type &value) noexcept(true == std::is_nothrow_destructible_v<type>)
    {
-      [[maybe_unused]] std::scoped_lock const poolGuard{m_poolLock,};
+      std::scoped_lock const poolGuard{m_poolLock,};
       m_pool.push_object(value);
    }
 

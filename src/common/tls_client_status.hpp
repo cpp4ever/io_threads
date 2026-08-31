@@ -32,10 +32,10 @@ namespace io_threads
 
 enum struct tls_client_status : uint8_t
 {
-   none,
-   handshake,
-   handshake_complete,
-   ready,
+   none [[maybe_unused]],
+   handshake [[maybe_unused]],
+   handshake_complete [[maybe_unused]],
+   ready [[maybe_unused]],
 };
 
 }

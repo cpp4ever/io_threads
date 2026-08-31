@@ -32,12 +32,12 @@ namespace io_threads
 
 enum struct tcp_client_command : intptr_t
 {
-   unknown = 0,
-   deferred,
-   execute,
-   ready_to_connect,
-   ready_to_disconnect,
-   ready_to_send,
+   unknown [[maybe_unused]] = 0l,
+   deferred [[maybe_unused]],
+   execute [[maybe_unused]],
+   ready_to_connect [[maybe_unused]],
+   ready_to_disconnect [[maybe_unused]],
+   ready_to_send [[maybe_unused]],
 };
 
 }

@@ -96,7 +96,7 @@ steady_time connection_throttler::network_interface_throttling_queue::enqueue(so
 
 connection_throttler::network_interface_throttling_queue &connection_throttler::find_or_create_throttler(std::optional<network_interface> const &networkInterface)
 {
-   [[maybe_unused]] std::scoped_lock const throttlerGuard{m_lock,};
+   std::scoped_lock const throttlerGuard{m_lock,};
    return m_mapNetworkInterfaceToThrottler.try_emplace(networkInterface, m_rollingTimeWindow, m_quota).first->second;
 }
 

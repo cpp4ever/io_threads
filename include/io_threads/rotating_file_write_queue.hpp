@@ -145,7 +145,7 @@ public:
 
    ~rotating_file_write_queue() override
    {
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       assert(status::idle == m_status);
    }
 
@@ -158,7 +158,7 @@ public:
    {
       auto &task{m_taskAllocator.allocate(std::forward<types>(values)...),};
       task.timestamp = get_timestamp(task.value);
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       task.next = m_unorderedTasks;
       m_unorderedTasks = std::addressof(task);
       if (status::ready == m_status)
@@ -178,7 +178,7 @@ public:
 
    void stop()
    {
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       if (status::idle != m_status)
       {
          m_stopRequested = true;
@@ -211,7 +211,7 @@ private:
       if (false == bool{errorCode,})
       {
          assert(0 == m_lastTaskOffset);
-         [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+         std::scoped_lock const tasksGuard{m_tasksLock,};
          if (status::closing == m_status)
          {
             m_status = status::opening;
@@ -233,7 +233,7 @@ private:
             task->next = nullptr;
             m_taskAllocator.deallocate(*task);
          }
-         [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+         std::scoped_lock const tasksGuard{m_tasksLock,};
          m_status = status::idle;
          assert((true == bool{errorCode,}) || (true == m_stopRequested));
          m_stopRequested = false;
@@ -248,7 +248,7 @@ private:
    void io_opened() final
    {
       assert(0 == m_lastTaskOffset);
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       assert(status::opening == m_status);
       assert(nullptr != m_orderedTasks);
       m_status = status::busy;
@@ -260,7 +260,7 @@ private:
 
    [[nodiscard]] file_writer_config io_ready_to_open() final
    {
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       assert(status::opening == m_status);
       if (nullptr == m_orderedTasks)
       {
@@ -287,7 +287,7 @@ private:
                   m_orderedTasks = std::launder(orderedTasks);
                   return bytesWritten;
                }
-               [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+               std::scoped_lock const tasksGuard{m_tasksLock,};
                if (status::busy == m_status)
                {
                   m_status = status::closing;
@@ -316,7 +316,7 @@ private:
             break;
          }
          m_orderedTasks = nullptr;
-         [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+         std::scoped_lock const tasksGuard{m_tasksLock,};
          update_ordered_tasks();
       } while ((nullptr != m_orderedTasks) && (0 == iteration++));
       auto const bytesWritten{m_typeSerializer.finish(),};

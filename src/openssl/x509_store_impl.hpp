@@ -169,7 +169,7 @@ public:
       X509_VERIFY_PARAM_set_trust(x509VerifyParam, X509_TRUST_SSL_CLIENT);
    }
 
-   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address> const domainAddresses) :
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address const> const domainAddresses) :
       x509_store_impl{config,}
    {
       if (true == config.enableRevocationCheck)

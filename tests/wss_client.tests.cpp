@@ -303,11 +303,11 @@ using wss_client = testsuite;
 
 TEST_F(wss_client, connect_timeout)
 {
-   constexpr uint32_t testSocketListCapacity{1,};
-   constexpr uint32_t testRecvBufferSize{1,};
-   constexpr uint32_t testSendBufferSize{1,};
+   constexpr auto testSocketListCapacity{1u,};
+   constexpr auto testRecvBufferSize{1u,};
+   constexpr auto testSendBufferSize{1u,};
    x509_store const testX509Store{x509_store_config{},};
-   constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
+   constexpr auto testTlsSessionListCapacity{testSocketListCapacity,};
    tls_client_context const testTlsContext
    {
       tcp_client_thread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
@@ -315,8 +315,8 @@ TEST_F(wss_client, connect_timeout)
       test_domain,
       testTlsSessionListCapacity,
    };
-   constexpr uint32_t testWssSessionListCapacity{testTlsSessionListCapacity,};
-   constexpr uint32_t testWssBufferSize{1,};
+   constexpr auto testWssSessionListCapacity{testTlsSessionListCapacity,};
+   constexpr auto testWssBufferSize{1u,};
    wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferSize, testWssBufferSize,};
    test_wss_client testClient{testWebsocketContext,};
    constexpr uint16_t testPort{444,};
@@ -325,15 +325,15 @@ TEST_F(wss_client, connect_timeout)
 
 TEST_F(wss_client, wss)
 {
-   constexpr uint32_t testSocketListCapacity{1,};
-   constexpr uint32_t testRecvBufferSize{2 * 1024,};
-   constexpr uint32_t testSendBufferSize{2 * 1024,};
+   constexpr auto testSocketListCapacity{1u,};
+   constexpr auto testRecvBufferSize{2u * 1024u,};
+   constexpr auto testSendBufferSize{2u * 1024u,};
 #if (defined(IO_THREADS_OPENSSL))
    x509_store const testX509Store{test_certificate_pem(), x509_format::pem,};
 #elif (defined(IO_THREADS_SCHANNEL))
    x509_store const testX509Store{test_certificate_p12(), x509_format::p12,};
 #endif
-   constexpr uint32_t testTlsSessionListCapacity{testSocketListCapacity,};
+   constexpr auto testTlsSessionListCapacity{testSocketListCapacity,};
    tls_client_context const testTlsContext
    {
       tcp_client_thread{thread_config{}, testSocketListCapacity, testRecvBufferSize, testSendBufferSize,},
@@ -341,8 +341,8 @@ TEST_F(wss_client, wss)
       test_domain,
       testTlsSessionListCapacity,
    };
-   constexpr uint32_t testWssSessionListCapacity{testTlsSessionListCapacity,};
-   constexpr uint32_t testWssBufferSize{64,};
+   constexpr auto testWssSessionListCapacity{testTlsSessionListCapacity,};
+   constexpr auto testWssBufferSize{64u,};
    wss_client_context const testWebsocketContext{testTlsContext, testWssSessionListCapacity, testWssBufferSize, testWssBufferSize,};
    test_wss_client testClient{testWebsocketContext,};
    test_websocket_client<boost::beast::websocket::stream<test_tls_stream, true>>(testClient);
@@ -363,7 +363,7 @@ private:
    };
 
 public:
-   static constexpr std::chrono::milliseconds connect_timeout{10,};
+   static constexpr inline std::chrono::milliseconds connect_timeout{10ll,};
 
    using super::super;
 
@@ -379,8 +379,8 @@ public:
             {
                EXPECT_GT(steady_clock::now(), connectTime);
                m_pingTimeout = pingTimeout;
-               m_sentPing = 0;
-               m_recvedPing.store(0, std::memory_order_release);
+               m_sentPing = 0u;
+               m_recvedPing.store(0u, std::memory_order_release);
                wait_for_pong();
                schedule_ping();
                return websocket_frame{};
@@ -619,14 +619,14 @@ TEST_F(wss_client, ping_pong)
       };
       websocket_client_config const testWebsocketConfig{"/test?name=ping_pong",};
       auto const testConnectTime{steady_clock::now() + testConnectTimeout,};
-      for (auto const testIndex : std::views::iota(uint32_t{0,}, testWssSessionListCapacity))
+      for (auto const testIndex : std::views::iota(0u, testWssSessionListCapacity))
       {
          testClients[testIndex]->start(testTcpConfig, testWebsocketConfig, std::chrono::milliseconds{testHeartbeatTimeouts[testIndex],}, testConnectTime);
       }
       std::array<std::future_status, testWssSessionListCapacity> testFutureStatuses{};
       std::array<uint32_t, testWssSessionListCapacity> testResults{};
       std::array<uint32_t, testWssSessionListCapacity> expectedResults{};
-      for (auto const testIndex : std::views::iota(uint32_t{0,}, testWssSessionListCapacity))
+      for (auto const testIndex : std::views::iota(0u, testWssSessionListCapacity))
       {
          auto const [testFutureStatus, testResult, expectedResult]{testClients[testIndex]->wait_for(testTimeout)};
          testFutureStatuses[testIndex] = testFutureStatus;

@@ -115,7 +115,7 @@ void concurrency_throttler::concurrent_timeslot::cancel()
 {
    assert(nullptr != m_throttler);
    assert(nullptr != m_slot);
-   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_throttler->m_timeslotLock,};
+   std::scoped_lock const timeslotGuard{m_throttler->m_timeslotLock,};
    m_slot->next = m_throttler->m_freeTimeslots;
    m_throttler->m_freeTimeslots = m_slot;
    m_throttler = nullptr;
@@ -126,7 +126,7 @@ void concurrency_throttler::concurrent_timeslot::submit(steady_time const now)
 {
    assert(nullptr != m_throttler);
    assert(nullptr != m_slot);
-   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_throttler->m_timeslotLock,};
+   std::scoped_lock const timeslotGuard{m_throttler->m_timeslotLock,};
    m_slot->expirationTime = now + m_throttler->m_rollingTimeWindow;
    m_throttler->m_busyTimeslots.push(*m_slot);
    m_throttler = nullptr;
@@ -165,7 +165,7 @@ concurrency_throttler::~concurrency_throttler()
 
 concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(steady_time const now)
 {
-   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_timeslotLock,};
+   std::scoped_lock const timeslotGuard{m_timeslotLock,};
    check_expired(now);
    if (nullptr == m_freeTimeslots)
    {
@@ -176,7 +176,7 @@ concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(st
 
 concurrency_throttler::concurrent_timeslot concurrency_throttler::try_reserve(steady_time const now, steady_time &nextSlotTime)
 {
-   [[maybe_unused]] std::scoped_lock const timeslotGuard{m_timeslotLock,};
+   std::scoped_lock const timeslotGuard{m_timeslotLock,};
    check_expired(now);
    if (nullptr == m_freeTimeslots)
    {

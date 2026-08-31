@@ -93,7 +93,7 @@ public:
             uring_command{.next = nullptr, .id = commandId, .target = commandTarget,}
          ),
       };
-      [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
+      std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
       uringCommand.next = m_uringCommands;
       m_uringCommands = std::addressof(uringCommand);
    }
@@ -105,7 +105,7 @@ private:
 
    [[nodiscard]] uring_command *pop_uring_commands()
    {
-      [[maybe_unused]] std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
+      std::scoped_lock const uringCommandsGuard{m_uringCommandsLock,};
       auto *uringCommands{m_uringCommands,};
       m_uringCommands = nullptr;
       return uringCommands;

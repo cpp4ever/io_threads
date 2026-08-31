@@ -69,7 +69,7 @@ public:
    [[nodiscard]] x509_store(x509_store &&rhs) noexcept;
    [[nodiscard]] x509_store(x509_store const &rhs) noexcept;
    [[nodiscard]] explicit x509_store(x509_store_config const &config);
-   [[nodiscard]] x509_store(x509_store_config const &config, std::span<domain_address> domainAddresses);
+   [[nodiscard]] x509_store(x509_store_config const &config, std::span<domain_address const> domainAddresses);
    [[nodiscard]] x509_store(std::string_view x509Data, x509_format x509DataFormat);
    [[nodiscard]] x509_store(std::string_view x509Data, x509_format x509DataFormat, std::string_view x509DataPassword);
    ~x509_store();

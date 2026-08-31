@@ -214,7 +214,7 @@ private:
 
    void io_free_tasks()
    {
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       auto *tasks{std::launder(m_orderedTasks),};
       m_orderedTasks = nullptr;
       do
@@ -236,7 +236,7 @@ private:
    {
       if (nullptr == m_orderedTasks)
       {
-         [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+         std::scoped_lock const tasksGuard{m_tasksLock,};
          return nullptr != m_unorderedTasks;
       }
       return true;
@@ -280,7 +280,7 @@ private:
 
    [[nodiscard]] file_write_task<type> *pop_unordered_tasks()
    {
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       auto *unorderedTasks{std::launder(m_unorderedTasks),};
       m_unorderedTasks = nullptr;
       return unorderedTasks;
@@ -293,7 +293,7 @@ private:
       {
          continue;
       }
-      [[maybe_unused]] std::scoped_lock const tasksGuard{m_tasksLock,};
+      std::scoped_lock const tasksGuard{m_tasksLock,};
       auto const wakeupIo{nullptr == m_unorderedTasks,};
       lastTask->next = std::launder(m_unorderedTasks);
       m_unorderedTasks = std::addressof(task);

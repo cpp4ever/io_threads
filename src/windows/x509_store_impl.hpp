@@ -93,7 +93,7 @@ public:
       m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
-   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address> const) noexcept :
+   [[nodiscard]] x509_store_impl(x509_store_config const &config, std::span<domain_address const> const) noexcept :
       m_revocationCheckEnabled{config.enableRevocationCheck,}
    {}
 
